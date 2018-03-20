@@ -15,6 +15,7 @@ from IPython import embed
 
 
 class ticktock(object):
+    """ timer-printer thingy """
     def __init__(self, prefix="-", verbose=True):
         self.prefix = prefix
         self.verbose = verbose
@@ -136,6 +137,7 @@ def argparsify(f, test=None):
 
 
 def argprun(f, sigint_shell=True, **kwargs):   # command line overrides kwargs
+    """ use this to enable command-line access to kwargs of function (useful for main run methods) """
     def handler(sig, frame):
         # find the frame right under the argprun
         print("custom handler called")
@@ -214,6 +216,7 @@ def getnumargs(f):
 
 
 def getkw(kw, name, default=None, nodefault=False, remove=True):
+    """ convenience function for getting certain kwargs out of function """
     if name in kw:
         ret = kw[name]
         if remove:
@@ -231,6 +234,8 @@ import torch
 
 
 class var(object):
+    """ shortcut for creating Variables and transferring cuda settings (cuda transfer limited to only gpu/cpu)
+        Usage: q.var(torch.randn(5,4)).cuda(x).v --> will put result on gpu if x was on gpu"""
     all_cuda = False
 
     def __init__(self, x, requires_grad=False, volatile=False):
@@ -255,6 +260,9 @@ class var(object):
 
 
 class val(object):
+    """ Shortcut for a value that should be saved on the nn.Module (persistent).
+        Currently implemented as a nn.Parameter that does not require grad --> use q.params_of()
+        Usage: q.val(torch.randn(5,4)).v"""
     def __init__(self, x):
         if isinstance(x, np.ndarray):
             x = torch.from_numpy(x)
@@ -293,11 +301,13 @@ def v(x):
 
 
 def params_of(m):
+    """ gets parameters of given nn.Module, filtering out params that don't require grad (q.val().v)"""
     params = m.parameters()
     params = filter(lambda x: x.requires_grad == True, params)
     return params
 
 
+# QELOS TAGGING MECHANISM
 def add_tag(x, tag):
     assert(isinstance(x, torch.autograd.Variable) and isstring(tag))
     add_qelos_key(x, "tags", set())
@@ -362,6 +372,64 @@ def paramgroups_of(m):
             paramgroups.append(g)
     paramgroups.append(default_group)
     return paramgroups
+
+
+# SOME TRAINING SETTINGS
+# - saved as qelos tags
+# - must use q.paramgroups_of(...) to get qelos-tagged groups to torch.optim.Optimizer
+def gradmult(xs, frac=1.):  # supports hyperparam as frac
+    def hookf(_grad):
+        return _grad * v(frac)
+    if isinstance(xs, torch.autograd.Variable):
+        xs = [xs]
+    for xt in xs:
+        remover = xt.register_hook(hookf)
+        add_qelos_key(xt, "gradmult_removers", set())
+        xt._qelos["gradmult_removers"].add(remover)
+
+
+def remove_gradmult(xs):
+    if isinstance(xs, torch.autograd.Variable):
+        xs = [xs]
+    for xt in xs:
+        if hasattr(xt, "_qelos") and "gradmult_removers" in xt._qelos:
+            for rmvr in xt._qelos["gradmult_removers"]:
+                rmvr()
+            del xt._qelos["gradmult_removers"]
+
+
+def set_lr(x, lr):
+    if isinstance(x, torch.nn.Module):
+        for p in params_of(x):
+            set_lr(p, lr)
+    else:
+        add_qelos_key(x, "lr", None)
+        x._qelos["lr"] = lr
+
+
+def remove_lr(x):
+    if isinstance(x, torch.nn.Module):
+        for p in params_of(x):
+            remove_lr(p)
+    else:
+        remove_qelos_key(x, "lr")
+
+
+def set_l2(x, l2):
+    if isinstance(x, torch.nn.Module):
+        for p in params_of(x):
+            set_l2(p, l2)
+    else:
+        add_qelos_key(x, "l2", None)
+        x._qelos["l2"] = l2
+
+
+def remove_l2(x):
+    if isinstance(x, torch.nn.Module):
+        for p in params_of(x):
+            remove_l2(p)
+    else:
+        remove_qelos_key(x, "l2")
 
 
 # SEQUENCE PACKING AND UNPACKING
