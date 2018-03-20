@@ -1,0 +1,26 @@
+language: python
+sudo: false
+python:
+  - "2.7"
+addons:
+  apt:
+    packages:
+      - libblas-dev
+      - liblapack-dev
+      - gfortran
+before_install:
+  - pip install -U pip
+install:
+  - travis_wait travis_retry pip install -r requirements.txt
+  - travis_retry pip install codecov
+  - travis_retry pip install --quiet http://download.pytorch.org/whl/cu80/torch-0.2.0.post3-cp27-cp27mu-manylinux1_x86_64.whl
+  - travis_retry python setup.py develop
+script: nosetests --with-coverage --cover-package=qelos_core
+after_success:
+  - codecov
+cache:
+  - apt
+  - directories:
+    - $HOME/.cache/pip
+notifications:
+  email: false

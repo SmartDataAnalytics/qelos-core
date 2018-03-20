@@ -1,4 +1,4 @@
-# qelos [![pytorch](https://img.shields.io/badge/made%20with-pytorch-orange.svg?style=flat-square)](https://img.shields.io/badge/made%20with-pytorch-orange.svg?style=flat-square) [![pytorch](https://img.shields.io/badge/made%20with-python-green.svg?style=flat-square)](https://img.shields.io/badge/made%20with-python-green.svg?style=flat-square)
+# qelos-core [![pytorch](https://img.shields.io/badge/made%20with-pytorch-orange.svg?style=flat-square)](https://img.shields.io/badge/made%20with-pytorch-orange.svg?style=flat-square) [![pytorch](https://img.shields.io/badge/made%20with-python-green.svg?style=flat-square)](https://img.shields.io/badge/made%20with-python-green.svg?style=flat-square)
 
 
 PyTorch stuff
