@@ -352,10 +352,10 @@ def paramgroups_of(m):
     paramgroups = []
     for param in params:
         g = None
-        if q.has_qelos_key(param, "lr"):
-            g = {"params": [param], "lr": q.get_qelos_key(param, "lr")}
-        if q.has_qelos_key(param, "l2"):
-            g = {"params": [param], "weight_decay": q.get_qelos_key(param, "l2")}
+        if has_qelos_key(param, "lr"):
+            g = {"params": [param], "lr": get_qelos_key(param, "lr")}
+        if has_qelos_key(param, "l2"):
+            g = {"params": [param], "weight_decay": get_qelos_key(param, "l2")}
         if g is None:
             default_group["params"].append(param)
         else:
@@ -364,7 +364,10 @@ def paramgroups_of(m):
     return paramgroups
 
 
+# SEQUENCE PACKING AND UNPACKING
 def seq_pack(x, mask):  # mask: (batsize, seqlen)
+    """ given N-dim sequence "x" (N>=2), and 2D mask (batsize, seqlen)
+        returns packed sequence (sorted) and indexes to un-sort (also used by seq_unpack) """
     x = x.float()
     mask = mask.float()
     # 1. get lengths
@@ -374,7 +377,6 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     _, sortidxs = torch.sort(lens, descending=True)
     unsorter = var(torch.zeros(sortidxs.size())).cuda(sortidxs).v.long()
     unsorter.data.scatter_(0, sortidxs.data, torch.arange(0, len(unsorter)).long())
-
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
     sortedmsk = torch.index_select(mask, 0, sortidxs)
@@ -385,6 +387,9 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
 
 
 def seq_unpack(x, order, padding_value=0):
+    """ given packed sequence "x" and the un-sorter "order",
+        returns padded sequence (un-sorted by "order") and a binary 2D mask (batsize, seqlen),
+            where padded sequence is padded with "padding_value" """
     unpacked, lens = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True, padding_value=padding_value)
     mask = var(torch.zeros(len(lens), max(lens))).cuda(unpacked).v.long()
     for i, l in enumerate(lens):
