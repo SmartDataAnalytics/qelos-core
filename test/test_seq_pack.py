@@ -17,6 +17,7 @@ class Test_seq_pack_unpack(TestCase):
         # print(seq[:, :, 0])
         # print(o[:, :, 0])
         # print(o)
+
         print(us)
         recons, remask = q.seq_unpack(o, us)
         print(recons)
