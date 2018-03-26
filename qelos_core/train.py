@@ -383,9 +383,15 @@ class trainer(EventEmitter, AutoHooker):
             self.losses.cuda(*self.cudaargs[0], **self.cudaargs[1])
         self.do_callbacks(self.INIT)
 
-    def on(self, dataloader, losses):
+    def on(self, dataloader):
         self.dataloader = dataloader
-        self.losses = losses
+        return self
+
+    def loss(self, *args):
+        if len(args) == 1 and isinstance(args[0], lossarray):
+            self.losses = args[0]
+        else:
+            self.losses = q.lossarray(*args)
         return self
 
     def optimizer(self, optimizer):
@@ -556,9 +562,15 @@ class tester(EventEmitter, AutoHooker):
             self.losses.cuda(*self.cudaargs[0], **self.cudaargs[1])
         self.do_callbacks(self.INIT)
 
-    def on(self, dataloader, lossarray):
+    def on(self, dataloader):
         self.dataloader = dataloader
-        self.losses = lossarray
+        return self
+
+    def loss(self, *args):
+        if len(args) == 1 and isinstance(args[0], lossarray):
+            self.losses = args[0]
+        else:
+            self.losses = q.lossarray(*args)
         return self
 
     def set_batch_transformer(self, input_transform=None, output_transform=None, gold_transform=None):

@@ -51,14 +51,16 @@ def run(lr=0.01, epochs=10, batsize=64, momentum=0.5, cuda=False, gpu=0, seed=1)
     model = Net()
 
     optim = torch.optim.SGD(model.parameters(), lr=lr, momentum=momentum)
-    trainlosses = q.lossarray(torch.nn.NLLLoss(), q.Accuracy())
-    validlosses = q.lossarray(torch.nn.NLLLoss(), q.Accuracy())
 
-    trainer = q.trainer(model).on(train_loader, trainlosses).optimizer(optim).cuda(cuda)
-    validator = q.tester(model).on(test_loader, validlosses).cuda(cuda)
+    trainer = q.trainer(model).on(train_loader)\
+        .loss(torch.nn.NLLLoss(), q.Accuracy())\
+        .optimizer(optim).cuda(cuda)
+    validator = q.tester(model).on(test_loader)\
+        .loss(torch.nn.NLLLoss(), q.Accuracy())\
+        .cuda(cuda)
 
-    logger.logc(trainlosses, trainer, "train.losses")
-    logger.logc(validlosses, validator, "valid.losses")
+    logger.loglosses(trainer, "train.losses")
+    logger.loglosses(validator, "valid.losses")
 
     q.train(trainer, validator).run(epochs)
 

@@ -84,19 +84,18 @@ class Logger(object):
         """ keep logging state of "x" based on "eventemitter"'s events and store in "logfilename"
             smart method --> dispatches according to type of x
         """
-        if isinstance(x, q.lossarray):
-            sublogger = LossesWriter(x, looper, self.p + "/" + logfilename)
-            sublogger.start()
-        else:
-            raise q.SumTingWongException()
-        return sublogger
+        raise q.SumTingWongException()
+
+    def loglosses(self, looper, logfilename):
+        sublogger = LossesWriter(looper, self.p + "/" + logfilename)
+        sublogger.start()
 
 
 class LossesWriter(q.AutoHooker):
     """ Keeps writing lossarray on every push"""
-    def __init__(self, lossarr, looper, logfilepath):
+    def __init__(self, looper, logfilepath):
         super(LossesWriter, self).__init__()
-        self.lossarr, self.path = lossarr, logfilepath
+        self.path = logfilepath
         self.looper = looper
         # self.start_logging()
         self.c = 1.
@@ -124,7 +123,7 @@ class LossesWriter(q.AutoHooker):
                 warnings.warn("training log file already exists. overwriting {}".format(self.path))
         self._current_file = open(self.path, "w+")
         names = ["N."]
-        names += [x.get_name() for x in self.lossarr.losses]
+        names += [x.get_name() for x in self.looper.losses.losses]
         line = "\t".join(names) + "\n"
         self._current_file.write(line)
         self._current_file.flush()
@@ -136,7 +135,7 @@ class LossesWriter(q.AutoHooker):
         self.flush_loss_history(looper, **kw)
 
     def flush_loss_history(self, looper, **kw):
-        numbers = [self.c] + self.lossarr.get_agg_errors()
+        numbers = [self.c] + self.looper.losses.get_agg_errors()
         line = "\t".join(["{:f}".format(n) for n in numbers]) + "\n"
         self._current_file.write(line)
         self._current_file.flush()
