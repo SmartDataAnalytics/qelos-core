@@ -11,7 +11,14 @@ from datetime import datetime as dt
 import numpy as np
 import unidecode
 from IPython import embed
+import qelos_core as q
 # torch-independent utils
+
+
+def dataload(*tensors, **kw):
+    tensordataset = q.TensorDataset(*tensors)
+    dataloader = torch.utils.data.DataLoader(tensordataset, **kw)
+    return dataloader
 
 
 class ticktock(object):
@@ -462,8 +469,8 @@ def seq_unpack(x, order, padding_value=0):
     mask = var(torch.zeros(len(lens), max(lens))).cuda(unpacked).v.long()
     for i, l in enumerate(lens):
         mask.data[i, :l] = 1
-    out = torch.index_select(unpacked, 0, order)
-    outmask = torch.index_select(mask, 0, order)
+    out = torch.index_select(unpacked, 0, order)        # same as: unpacked[order]
+    outmask = torch.index_select(mask, 0, order)        # same as: mask[order]
     return out, outmask
 
 

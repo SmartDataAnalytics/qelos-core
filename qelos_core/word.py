@@ -454,9 +454,6 @@ class PretrainedWordEmb(WordEmb, PretrainedWordVec):
 
 
 class PartiallyPretrainedWordEmb(WordEmb, PretrainedWordVec):
-    # TODO: reimplement with hook from parameters
-    # TODO: write test
-    """ !!! Don't forget to call .apply_gradfrac() before doing optim step when not using qelos training loop !!! """
     def __init__(self, dim=50, worddic=None, path=None, gradfracs=(1., 1.), **kw):
         super(PartiallyPretrainedWordEmb, self).__init__(dim=dim, worddic=worddic, **kw)
         path = self._get_path(dim, path=path)

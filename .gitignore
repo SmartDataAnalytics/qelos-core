@@ -1,3 +1,6 @@
+/data/glove/glove.300d.words
+/data/glove/glove.50d.words
+/data/glove/glove.50d.npy
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
