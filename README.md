@@ -3,7 +3,8 @@
 
 PyTorch stuff
 
-
+[![Build Status](https://travis-ci.org/SmartDataAnalytics/qelos-core.svg?branch=master)](https://travis-ci.org/SmartDataAnalytics/qelos-core)
+[![codecov](https://codecov.io/gh/SmartDataAnalytics/qelos-core/branch/master/graph/badge.svg)](https://codecov.io/gh/SmartDataAnalytics/qelos-core)
 
 [![forthebadge](http://forthebadge.com/images/badges/built-with-love.svg)](http://forthebadge.com)
 [![forthebadge](http://forthebadge.com/images/badges/gluten-free.svg)](http://forthebadge.com)
