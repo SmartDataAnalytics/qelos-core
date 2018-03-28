@@ -556,7 +556,6 @@ class TestComputedWordLinout(TestCase):
     #     cout = cout + torch.log(msk.float())
     #     self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
 
-
     def test_all_masked(self):
         x = Variable(torch.randn(3, 15)).float()
         msk = np.zeros((3, 7)).astype("int32")

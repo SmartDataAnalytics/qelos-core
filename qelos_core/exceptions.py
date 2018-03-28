@@ -6,10 +6,6 @@ class HoLeePhukException(Exception):
     pass
 
 
-class BaDumTssException(Exception):
-    pass
-
-
 class WeTuLoException(Exception):
     pass
 
