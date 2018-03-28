@@ -1,4 +1,5 @@
-import torch, qelos as q
+import torch
+import qelos_core as q
 from torch import nn
 import numpy as np
 
