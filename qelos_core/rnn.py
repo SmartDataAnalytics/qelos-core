@@ -2,6 +2,39 @@ import torch
 import qelos_core as q
 
 
+class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
+    ''' A two-feed-forward-layer module '''
+
+    def __init__(self, d_hid, d_inner_hid, activation="relu", dropout=0.1):
+        super(PositionwiseForward, self).__init__()
+        self.w_1 = nn.Conv1d(d_hid, d_inner_hid, 1) # position-wise
+        self.w_2 = nn.Conv1d(d_inner_hid, d_hid, 1) # position-wise
+        self.layer_norm = q.LayerNormalization(d_hid)
+        self.dropout = nn.Dropout(dropout)
+        self.activation_fn = q.name2fn(activation)()
+
+    def forward(self, x):
+        residual = x
+        output = self.activation_fn(self.w_1(x.transpose(1, 2)))
+        output = self.w_2(output).transpose(2, 1)
+        output = self.dropout(output)
+        return self.layer_norm(output + residual)
+
+
+class TimesharedDropout(torch.nn.Module):
+    def __init__(self, p=0.5):
+        super(TimesharedDropout, self).__init__()
+        self.d = nn.Dropout(p=p, inplace=False)
+
+    def forward(self, x):   # (batsize, seqlen, ndim)
+        base = x.data.new(x[:, 0, :].size()).fill_(1)
+        shareddropoutmask = self.d(base)
+        shareddropoutmask = shareddropoutmask.unsqueeze(1)
+        ret = x * shareddropoutmask
+        return ret
+
+
+
 class FastLSTMEncoderLayer(torch.nn.Module):
     """ Fast LSTM encoder layer using torch's built-in fast LSTM.
         Provides a more convenient interface.
@@ -196,7 +229,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
 
         self.layer = GRUOverride(input_size=indim, hidden_size=dim, num_layers=1,
                                    bidirectional=bidir, bias=bias, batch_first=True)
-        self.h_0 = q.val(torch.zeros((1 if not bidir else 2), 1, dim)).v
+        self.h_0 = q.val(torch.zeros((1 if not bidir else 2), dim)).v
         self.dropout_in = torch.nn.Dropout(dropout_in) if dropout_in > 0 else None
         self.dropout_rec = torch.nn.Dropout(dropout_rec) if dropout_rec > 0 else None
 
@@ -207,9 +240,10 @@ class FastestGRUEncoderLayer(torch.nn.Module):
             for weight in weights:
                 setattr(self, weight, None)
 
-    def forward(self, vecs, mask=None, order=None, batsize=None):
+    def forward(self, vecs, mask=None, order=None, batsize=None, h_0=None, ret_states=False):
         batsize = vecs.size(0) if batsize is None else batsize
 
+        # dropouts
         if self.training and self.dropout_in is not None:
             weights = ["weight_ih_l0", "weight_ih_l0_reverse"]
             weights = filter(lambda x: hasattr(self, x), weights)
@@ -230,14 +264,29 @@ class FastestGRUEncoderLayer(torch.nn.Module):
         if mask is not None:
             assert(not isinstance(vecs, torch.nn.utils.rnn.PackedSequence))
             vecs, order = q.seq_pack(vecs, mask=mask)
-        h_0 = self.h_0.repeat(1, batsize, 1)
+
+        # init states
+        if h_0 is not None:
+            if h_0.dim() == 3:
+                h_0 = h_0.transpose(1, 0)   # h_0 kwargs are given batch-first
+        else:
+            h_0 = self.h_0
+        if h_0.dim() == 2:
+            h_0 = self.h_0.unsqueeze(1).repeat(1, batsize, 1)
+
+        # apply
         out, h_n = self.layer(vecs, h_0)
         if order is not None:
             h_n = h_n.index_select(1, order)
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
-        self.h_n = h_n.transpose(1, 0)      # batch-first
-        return out
+
+        h_n = h_n.transpose(1, 0)      # batch-first
+        if ret_states:
+            return out, h_n
+        else:
+            self.h_n = h_n
+            return out
 
 
 class FastestGRUEncoder(FastGRUEncoder):
@@ -254,7 +303,7 @@ class FastestGRUEncoder(FastGRUEncoder):
                                         dropout_rec=self.dropout_rec, bias=self.bias)
             self.layers.append(layer)
 
-    def forward(self, x, mask=None, batsize=None):
+    def forward(self, x, mask=None, batsize=None, h_0s=None, ret_states=False):
         batsize = x.size(0) if batsize is None else batsize
         imask = mask
         order = None
@@ -263,8 +312,18 @@ class FastestGRUEncoder(FastGRUEncoder):
             x, order = q.seq_pack(x, mask=mask)
             imask = None
         out = x
-        for layer in self.layers:
+
+        h_0s = [] if h_0s is None else list(h_0s)
+        assert(len(h_0s) <= len(self.layers))
+        h_0s = [None] * (len(self.layers) - len(h_0s)) + h_0s
+
+        states_to_ret = []
+        for layer, h_0 in zip(self.layers, h_0s):
             out = layer(out, mask=imask, order=order, batsize=batsize)
+            if ret_states:
+                out, ret_states_i = out
+                states_to_ret.append(ret_states_i)
+
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
         return out
@@ -297,8 +356,8 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
 
         self.layer = LSTMOverride(input_size=indim, hidden_size=dim, num_layers=1,
                                    bidirectional=bidir, bias=bias, batch_first=True)
-        self.y_0 = q.val(torch.zeros((1 if not bidir else 2), 1, dim)).v
-        self.c_0 = q.val(torch.zeros((1 if not bidir else 2), 1, dim)).v
+        self.y_0 = q.val(torch.zeros((1 if not bidir else 2), dim)).v
+        self.c_0 = q.val(torch.zeros((1 if not bidir else 2), dim)).v
         self.dropout_in = torch.nn.Dropout(dropout_in) if dropout_in > 0 else None
         self.dropout_rec = torch.nn.Dropout(dropout_rec) if dropout_rec > 0 else None
 
@@ -310,9 +369,10 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
             for weight in weights:
                 setattr(self, weight, None)
 
-    def forward(self, vecs, mask=None, order=None, batsize=None):
+    def forward(self, vecs, mask=None, order=None, batsize=None, y_0=None, c_0=None, ret_states=False):
         batsize = vecs.size(0) if batsize is None else batsize
 
+        # dropouts
         if self.dropout_in is not None:
             weights = ["weight_ih_l0", "weight_ih_l0_reverse"]
             weights = filter(lambda x: hasattr(self, x), weights)
@@ -335,17 +395,39 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
         if mask is not None:
             assert(not isinstance(vecs, torch.nn.utils.rnn.PackedSequence))
             vecs, order = q.seq_pack(vecs, mask=mask)
-        y_0 = self.y_0.repeat(1, batsize, 1)
-        c_0 = self.c_0.repeat(1, batsize, 1)
+
+        # init states
+        if y_0 is not None:
+            if y_0.dim() == 3:
+                y_0 = y_0.transpose(1, 0)   # y_0 kwargs are given batch-first
+        else:
+            y_0 = self.y_0
+        if c_0 is not None:
+            if c_0.dim() == 3:
+                c_0 = c_0.transpose(1, 0)
+        else:
+            c_0 = self.c_0
+        if y_0.dim() == 2:
+            y_0 = y_0.unsqueeze(1).repeat(1, batsize, 1)
+        if c_0.dim() == 2:
+            c_0 = c_0.unsqueeze(1).repeat(1, batsize, 1)
+
+        # apply
         out, (y_n, c_n) = self.layer(vecs, (y_0, c_0))
         if order is not None:
             y_n = y_n.index_select(1, order)
             c_n = c_n.index_select(1, order)
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
-        self.y_n = y_n.transpose(1, 0)      # batch-first
-        self.c_n = c_n.transpose(1, 0)      # batch-first
-        return out
+
+        y_n = y_n.transpose(1, 0)       # output states must be batch first
+        c_n = c_n.transpose(1, 0)
+        if ret_states:
+            return out, (y_n, c_n)
+        else:
+            self.y_n = y_n
+            self.c_n = c_n
+            return out
 
 
 class FastestLSTMEncoder(FastLSTMEncoder):
@@ -363,7 +445,7 @@ class FastestLSTMEncoder(FastLSTMEncoder):
                                         dropout_rec=self.dropout_rec, bias=self.bias, skipper=self.skipper)
             self.layers.append(layer)
 
-    def forward(self, x, mask=None, batsize=None):
+    def forward(self, x, mask=None, batsize=None, y_0s=None, c_0s=None, ret_states=False):
         batsize = x.size(0) if batsize is None else batsize
         imask = mask
         order = None
@@ -372,8 +454,27 @@ class FastestLSTMEncoder(FastLSTMEncoder):
             x, order = q.seq_pack(x, mask=mask)
             imask = None
         out = x
-        for layer in self.layers:
-            out = layer(out, mask=imask, order=order, batsize=batsize)
+
+        # init states
+        y_0s = [] if y_0s is None else list(y_0s)
+        assert(len(y_0s) <= len(self.layers))
+        y_0s = [None] * (len(self.layers) - len(y_0s)) + y_0s
+        c_0s = [] if c_0s is None else list(c_0s)
+        assert(len(c_0s) <= len(self.layers))
+        c_0s = [None] * (len(self.layers) - len(c_0s)) + c_0s
+
+        states_to_ret = []
+
+        for layer, y0, c0 in zip(self.layers, y_0s, c_0s):
+            out = layer(out, mask=imask, order=order, batsize=batsize, y_0=y0, c_0=c0, ret_states=ret_states)
+            if ret_states:
+                out, ret_states_i = out
+                states_to_ret.append(ret_states_i)
+
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
-        return out
+
+        if ret_states:
+            return out, states_to_ret
+        else:
+            return out
