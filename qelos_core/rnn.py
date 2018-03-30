@@ -289,7 +289,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
             return out
 
 
-class FastestGRUEncoder(FastGRUEncoder):
+class FastestGRUEncoder(FastGRUEncoder):        # TODO: TEST
     """ Fastest GRU encoder using multiple layers.
         Access to states of layer is provided through .h_0 and .h_n (bottom layers first) """
     def __init__(self, indim, *dims, **kw):
@@ -330,9 +330,9 @@ class FastestGRUEncoder(FastGRUEncoder):
 
 
 class FastestLSTMEncoderLayer(torch.nn.Module):
-    """ Fastest GRU encoder layer using torch's built-in fast GRU.
+    """ Fastest LSTM encoder layer using torch's built-in fast LSTM.
         Provides a more convenient interface.
-        State is stored in .h_n (initial state in .h_0).
+        States are stored in .y_n and .c_n (initial states in .y_0 and .c_0).
         !!! Dropout_in, dropout_rec are shared among all examples in a batch (and across timesteps) !!!"""
     def __init__(self, indim, dim, bidir=False, dropout_in=0., dropout_rec=0., bias=True, skipper=False, **kw):
         super(FastestLSTMEncoderLayer, self).__init__(**kw)
@@ -431,8 +431,8 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
 
 
 class FastestLSTMEncoder(FastLSTMEncoder):
-    """ Fastest GRU encoder using multiple layers.
-        Access to states of layer is provided through .h_0 and .h_n (bottom layers first) """
+    """ Fastest LSTM encoder using multiple layers.
+        Access to states of layers is provided through .y_0, .c_0 and .y_n, .c_n (bottom layers first) """
     def __init__(self, indim, *dims, **kw):
         self.dropout_rec = q.getkw(kw, "dropout_rec", default=0.)
         self.skipper = q.getkw(kw, "skipper", default=False)
