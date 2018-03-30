@@ -76,14 +76,10 @@ class Aggregator(object):
 
 class LossAndAgg(Aggregator):
     """ wraps a loss with aggregator, implements aggregator interface """
-    callwithinputs = False
-    callwithoriginalinputs = False
 
     def __init__(self, loss, name=None, mode="mean"):
         super(LossAndAgg, self).__init__(name=name, mode=mode)
         self.loss = loss
-        self.callwithinputs = hasattr(loss, "callwithinputs") and loss.callwithinputs
-        self.callwithoriginalinputs = hasattr(loss, "callwithoriginalinputs") and loss.callwithoriginalinputs
         self.set_name(loss.__class__.__name__)
 
     def __call__(self, pred, gold, **kw):
@@ -295,17 +291,18 @@ class BasicRunner(LoopRunner):
         self.trainer = trainer
         self.validator = validator
 
-    def run(self, epochs=None):
+    def run(self, epochs=None, validinter=1):
         self.trainer.pre_run()
         self.validator.pre_run()
         if epochs is not None:
             self.trainer.epochs(epochs)
-        self.runloop()
+        self.runloop(validinter=validinter)
         self.trainer.post_run()
         self.validator.post_run()
 
-    def runloop(self):
+    def runloop(self, validinter=1):
         tt = q.ticktock("runner")
+        validinter_count = 0
         while self.trainer.stop_training is not True:
             tt.tick()
             self.trainer.do_epoch()
@@ -315,10 +312,11 @@ class BasicRunner(LoopRunner):
                 self.trainer.max_epochs,
                 self.trainer.losses.pp()
             )
-            if self.validator is not None:
+            if self.validator is not None and validinter_count % validinter == 0:
                 self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
                 ttmsg += " -- {}" \
                     .format(self.validator.losses.pp())
+                validinter_count += 1
             tt.tock(ttmsg)
 
 
