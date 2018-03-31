@@ -1,6 +1,6 @@
 from setuptools import setup, find_packages
 
-setup(name="qelos-core",
+setup(name="qelos_core",
       description="qelos-core",
       author="Sum-Ting Wong",
       author_email="sumting@wo.ng",
