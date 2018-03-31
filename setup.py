@@ -5,5 +5,5 @@ setup(name="qelos_core",
       author="Sum-Ting Wong",
       author_email="sumting@wo.ng",
       install_requires=[],
-      packages=find_packages(),
+      packages=["qelos_core"],
       )
