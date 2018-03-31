@@ -285,20 +285,23 @@ class LoopRunner(object):
 class BasicRunner(LoopRunner):
     """ Takes a single trainer and an optional single validator.
         Runs them such that epochs are interleaved.
-        Prints epoch lines """
+        Prints epoch lines """      # TODO: support multiple validators
     def __init__(self, trainer, validator=None):
+        """ validator can be a q.tester() or any function (doesn't take arguments) """
         super(BasicRunner, self).__init__()
         self.trainer = trainer
         self.validator = validator
 
     def run(self, epochs=None, validinter=1):
         self.trainer.pre_run()
-        self.validator.pre_run()
+        if isinstance(self.validator, tester):
+            self.validator.pre_run()
         if epochs is not None:
             self.trainer.epochs(epochs)
         self.runloop(validinter=validinter)
         self.trainer.post_run()
-        self.validator.post_run()
+        if isinstance(self.validator, tester):
+            self.validator.post_run()
 
     def runloop(self, validinter=1):
         tt = q.ticktock("runner")
@@ -313,9 +316,13 @@ class BasicRunner(LoopRunner):
                 self.trainer.losses.pp()
             )
             if self.validator is not None and validinter_count % validinter == 0:
-                self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
-                ttmsg += " -- {}" \
-                    .format(self.validator.losses.pp())
+                if isinstance(self.validator, tester):
+                    self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
+                    ttmsg += " -- {}" \
+                        .format(self.validator.losses.pp())
+                else:
+                    toprint = self.validator()
+                    ttmsg += " -- {}".format(toprint)
                 validinter_count += 1
             tt.tock(ttmsg)
 

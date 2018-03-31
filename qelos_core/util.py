@@ -21,6 +21,29 @@ def dataload(*tensors, **kw):
     return dataloader
 
 
+def datasplit(npmats, splits=(80, 20), random=True):
+    splits = np.round(len(npmats[0]) * np.cumsum(splits) / sum(splits)).astype("int32")
+
+    whatsplit = np.zeros((len(npmats[0]),), dtype="int64")
+    for i in range(1, len(splits)):
+        a, b = splits[i-1], splits[i]
+        whatsplit[a:b] = i
+
+    if random is not False and random is not None:
+        if isinstance(random, int):
+            np.random.seed(random)
+            random = True
+
+        if random is True:
+            np.random.shuffle(whatsplit)
+
+    ret = []
+    for i in range(0, len(splits)):
+        splitmats = [npmat[whatsplit == i] for npmat in npmats]
+        ret.append(splitmats)
+    return ret
+
+
 class ticktock(object):
     """ timer-printer thingy """
     def __init__(self, prefix="-", verbose=True):
@@ -451,8 +474,8 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     assert(lens.dim() == 1)
     _, sortidxs = torch.sort(lens, descending=True)
     unsorter = var(torch.zeros(sortidxs.size())).cuda(sortidxs).v.long()
-    print ("test unsorter")
-    print (unsorter)
+    # print ("test unsorter")
+    # print (unsorter)
     unsorter.data.scatter_(0, sortidxs.data, torch.arange(0, len(unsorter)).long())
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
