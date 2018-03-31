@@ -1,6 +1,9 @@
 from setuptools import setup, find_packages
 
-setup(name="Qelos Core",
-      description="Pytorch stuff",
-      packages=['qelos_core'],
+setup(name="qelos_core",
+      description="qelos-core",
+      author="Sum-Ting Wong",
+      author_email="sumting@wo.ng",
+      install_requires=[],
+      packages=find_packages(),
       )
