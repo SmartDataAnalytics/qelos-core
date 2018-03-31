@@ -136,5 +136,5 @@ def run(lr=OPT_LR, cuda=False, gpu=0):
 
 if __name__ == "__main__":
     loadret = load_jsons()
-    pickle.dump(loadret, open("loadcache.flat.pkl"), protocol=pickle.HIGHEST_PROTOCOL)
+    pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
     q.argprun(run)
