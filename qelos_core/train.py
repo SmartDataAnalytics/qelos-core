@@ -323,7 +323,7 @@ class BasicRunner(LoopRunner):
                 else:
                     toprint = self.validator()
                     ttmsg += " -- {}".format(toprint)
-                validinter_count += 1
+            validinter_count += 1
             tt.tock(ttmsg)
 
 

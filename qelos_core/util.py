@@ -421,6 +421,14 @@ def isstring(x):
     return isinstance(x, basestring)
 
 
+def iscuda(x):
+    if isinstance(x, torch.nn.Module):
+        params = list(x.parameters())
+        return params[0].is_cuda
+    else:
+        raise q.SumTingWongException("unsupported type")
+
+
 def iscallable(x):
     return hasattr(x, "__call__")
 

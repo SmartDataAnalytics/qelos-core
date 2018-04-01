@@ -2,7 +2,6 @@ import qelos_core as q
 import torch
 import numpy as np
 import json
-from qelos import StringMatrix
 import pickle
 import random
 
@@ -71,8 +70,8 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
 
         uniquechainids = {}
 
-        qsm = StringMatrix()
-        csm = StringMatrix()
+        qsm = q.StringMatrix()
+        csm = q.StringMatrix()
         csm.tokenize = lambda x: x.lower().strip().split()
 
         def get_ensure_chainid(flatchain):
@@ -119,58 +118,66 @@ class RankingComputer(object):
     def __init__(self, scoremodel, eids, ldata, rdata, eid2rid_gold, eid2rid_neg):
         self.scoremodel = scoremodel
         self.eids = eids
-        self.ldata = ldata if q.issequence(ldata) else (ldata,)
-        self.rdata = rdata if q.issequence(rdata) else (rdata,)
-        self.eid2rid_neg = eid2rid_neg
-        self.eid2rid_gold = eid2rid_gold
+        self.ldata = ldata if q.issequence(ldata) else (ldata,)     # already shuffled
+        self.rdata = rdata if q.issequence(rdata) else (rdata,)     # indexed by eid space
+        self.eid2rid_neg = eid2rid_neg      # indexed by eid space
+        self.eid2rid_gold = eid2rid_gold    # indexed by eid space
 
     def compute(self, *metrics):        # compute given metrics for all given data
+        self.scoremodel.train(False)
         rankings = self.compute_rankings(self.eids)
+        metricnumbers = []
         for i, metric in enumerate(metrics):
-            yield metric(rankings)
+            metricnumbers.append(metric.compute(rankings))
+        # TODO
+        return metricnumbers
 
-    def compute_rankings(self, eids, cuda=False):
+    def compute_rankings(self, eids):
+        cuda = q.iscuda(self.scoremodel)
         # get all pairs to score
         current_batch = []
-        for eid in eids:
-            ldata = []
+        # given questions are already shuffled --> just traverse
+        for eid, ldata_id in zip(list(eids), range(len(self.eids))):
             rdata = []
-            lid = self.ldata[eid]
-            rids = list(self.eid2rid_gold[eid]) + list(self.eid2rid_neg[eid] - self.eid2rid_gold[eid])
-            trueornot = [1]*len(self.eid2rid_gold[eid]) + [0]*len(self.eid2rid_neg[eid] - self.eid2rid_gold[eid])
+            rids = [self.eid2rid_gold[eid]] + list(set(self.eid2rid_neg[eid]) - {self.eid2rid_gold[eid],})
+            ldata = [ldat[ldata_id][np.newaxis, ...].repeat(len(rids), axis=0)
+                          for ldat in self.ldata]
+            trueornot = [0] * len(rids)
+            trueornot[0] = 1
             for rid in rids:
-                left_data = tuple([ldat[lid] for ldat in self.ldata])
-                ldata.append(left_data)
                 right_data = tuple([rdat[rid] for rdat in self.rdata])
                 rdata.append(right_data)
-            ldata = zip(*ldata)
-            ldata = [q.var(np.stack(ldata_e), volatile=True).cuda(cuda).v for ldata_e in ldata]
             rdata = zip(*rdata)
+            ldata = [q.var(ldat, volatile=True).cuda(cuda).v for ldat in ldata]
             rdata = [q.var(np.stack(posdata_e), volatile=True).cuda(cuda).v for posdata_e in rdata]
             scores = self.scoremodel(ldata, rdata)
             _scores = list(scores.cpu().data.numpy())
             ranking = sorted(zip(_scores, rids, trueornot), key=lambda x: x[0], reverse=True)
-            current_batch.append((eid, lid, ranking))
+            current_batch.append((eid, ranking))
         return current_batch
 
 
 class RecallAt(object):
-    def __init__(self, k, take=None, **kw):
+    def __init__(self, k, totaltrue=None, **kw):
         super(RecallAt, self).__init__(**kw)
         self.k = k
-        self.take = take
+        self.totaltrue = totaltrue
 
     def compute(self, rankings, **kw):
         # list or (eid, lid, ranking)
         # ranking is a list of triples (_scores, rids, trueornot)
         ys = []
-        for _, _, ranking in rankings:
+        for _, ranking in rankings:
             topktrue = 0.
             totaltrue = 0.
             for i in range(len(ranking)):
-                score, rid, trueornot = ranking[i]
+                _, _, trueornot = ranking[i]
                 if i <= self.k:
                     topktrue += trueornot
+                else:
+                    if self.totaltrue is not None:
+                        totaltrue = self.totaltrue
+                        break
                 if trueornot == 1:
                     totaltrue += 1.
             topktrue = topktrue / totaltrue
@@ -184,10 +191,11 @@ class MRR(object):
         # list or (eid, lid, ranking)
         # ranking is a list of triples (_scores, rids, trueornot)
         ys = []
-        for _, _, ranking in rankings:
+        for _, ranking in rankings:
             res = 0
             for i in range(len(ranking)):
-                if ranking[i][2] == 1:
+                _, _, trueornot = ranking[i]
+                if trueornot == 1:
                     res = 1./(i+1)
                     break
             ys.append(res)
@@ -350,7 +358,8 @@ def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
     # endregion
 
     # region VALIDATION
-    rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0], csm, goldchainids, badchainids)
+    rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
+                               csm.matrix, goldchainids, badchainids)
     # endregion
 
     # region TRAINING
@@ -359,12 +368,18 @@ def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
                .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
 
     def validation_function():
-        rankmetrics = rankcomp.compute(RecallAt(1), RecallAt(5), MRR())
-        return " ".join(map(str, rankmetrics))
+        rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
+                                       RecallAt(5, totaltrue=1),
+                                       MRR())
+        ret = []
+        for rankmetric in rankmetrics:
+            rankmetric = np.asarray(rankmetric)
+            ret_i = rankmetric.mean()
+            ret.append(ret_i)
+        return " ".join(map(str, ret))
 
     q.train(trainer, validation_function).run(epochs, validinter=validinter)
     # endregion
-
 
 
 if __name__ == "__main__":
