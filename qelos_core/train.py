@@ -698,7 +698,8 @@ class tester(EventEmitter, AutoHooker):
 
 # region AUTOHOOKERS
 class BestSaver(AutoHooker):
-    def __init__(self, criterion, model, path, higher_is_better=True, verbose=False, **kw):
+    def __init__(self, criterion, model, path, higher_is_better=True, autoload=False,
+                 verbose=False, **kw):
         super(BestSaver, self).__init__(**kw)
         self.criterion = criterion
         self.model = model
@@ -707,12 +708,15 @@ class BestSaver(AutoHooker):
         self.best_criterion = -1.
         self.verbose = verbose
         self.callbacks = {}
+        self.autoload = autoload        # automatically load on END event
 
     def get_hooks(self, ee):
-        return {ee.END_EPOCH: self.save_best_model}
+        hooks = {ee.END_EPOCH: self.save_best_model}
+        if self.autoload:
+            hooks[ee.END] = self.autoload_best
 
-    def save_best_model(self, trainer, **kw):
-        assert isinstance(trainer, train)
+    def save_best_model(self, _, **kw):
+        # assert isinstance(trainer, train)
         current_criterion = self.criterion()
         decision_value = current_criterion - self.best_criterion    # positive if current is higher
         decision_value *= self.higher_better            # higher better --> positive is higher = better
@@ -723,6 +727,9 @@ class BestSaver(AutoHooker):
                       .format(self.best_criterion, current_criterion))
             self.best_criterion = current_criterion
             torch.save(self.model.state_dict(), self.path)
+
+    def autoload_best(self, _, **kw):
+        self.model.load_state_dict(torch.load(self.path))
 
 
 class _LRSchedulerAutoHooker(AutoHooker):
