@@ -381,7 +381,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
-                    print(rankmetric.shape)
+                    # print(rankmetric.shape)
                     ret_i = rankmetric.mean()
                     ret.append(ret_i)
                 self.save_crit = ret[0]     # saves criterium for best saving
