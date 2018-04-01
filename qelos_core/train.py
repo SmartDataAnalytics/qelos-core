@@ -339,8 +339,8 @@ class BasicRunner(LoopRunner, EventEmitter):
                 self.do_callbacks(self.END_VALID)
             self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
-            self.do_callbacks(self.END)
             tt.tock(ttmsg)
+        self.do_callbacks(self.END)
 
 
 def train(trainer, validator=None):
