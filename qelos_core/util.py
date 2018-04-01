@@ -7,6 +7,8 @@ import os
 import signal
 import sys
 from datetime import datetime as dt
+import pickle
+import nltk
 
 import numpy as np
 import unidecode
