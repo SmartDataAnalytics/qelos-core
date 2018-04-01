@@ -309,7 +309,7 @@ class FlatEncoder(torch.nn.Module):
         return final_state
 
 
-def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
+def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0, mode="flat",
