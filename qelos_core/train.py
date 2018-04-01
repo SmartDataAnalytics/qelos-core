@@ -716,7 +716,8 @@ class BestSaver(AutoHooker):
         current_criterion = self.criterion()
         decision_value = current_criterion - self.best_criterion    # positive if current is higher
         decision_value *= self.higher_better            # higher better --> positive is higher = better
-        if decision_value >= 0:
+        # remark: with this way, later can extend to specifying by how much it should improve --> TODO
+        if decision_value > 0:
             if self.verbose:
                 print("Validation criterion improved from {} to {}. Saving model..."\
                       .format(self.best_criterion, current_criterion))

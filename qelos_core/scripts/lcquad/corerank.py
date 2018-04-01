@@ -362,28 +362,37 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
         # endregion
 
-        # region VALIDATION
-        rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
-                                   csm.matrix, goldchainids, badchainids)
-        # endregion
-
         # region TRAINING
         optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
         trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
                    .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
 
-        def validation_function():
-            rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
-                                           RecallAt(5, totaltrue=1),
-                                           MRR())
-            ret = []
-            for rankmetric in rankmetrics:
-                rankmetric = np.asarray(rankmetric)
-                ret_i = rankmetric.mean()
-                ret.append(ret_i)
-            return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+        rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
+                                   csm.matrix, goldchainids, badchainids)
+        class Validator(object):
+            def __init__(self):
+                self.save_crit = -1.
 
-        q.train(trainer, validation_function).run(epochs, validinter=validinter)
+            def __call__(self):
+                rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
+                                               RecallAt(5, totaltrue=1),
+                                               MRR())
+                ret = []
+                for rankmetric in rankmetrics:
+                    rankmetric = np.asarray(rankmetric)
+                    print(rankmetric.shape)
+                    ret_i = rankmetric.mean()
+                    ret.append(ret_i)
+                self.save_crit = ret[0]     # saves criterium for best saving
+                return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+
+        validator = Validator()
+
+        bestsaver = q.BestSaver(lambda : validator.save_crit,
+                                scoremodel, logger.p+"model", verbose=True)
+
+        q.train(trainer, validator).hook(bestsaver)\
+            .run(epochs, validinter=validinter)
         # endregion
 
 
