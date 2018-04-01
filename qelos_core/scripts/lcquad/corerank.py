@@ -390,7 +390,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         validator = Validator()
 
         bestsaver = q.BestSaver(lambda : validator.save_crit,
-                                scoremodel, os.path.join(logger.p, "best.model"), verbose=True)
+                                scoremodel, os.path.join(logger.p, "best.model"),
+                                autoload=True, verbose=True)
 
         q.train(trainer, validator).hook(bestsaver)\
             .run(epochs, validinter=validinter)

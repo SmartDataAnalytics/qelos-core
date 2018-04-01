@@ -730,6 +730,8 @@ class BestSaver(AutoHooker):
             torch.save(self.model.state_dict(), self.path)
 
     def autoload_best(self, _, **kw):
+        if self.verbose:
+            print("Reloading the best weights")
         self.model.load_state_dict(torch.load(self.path))
 
 
