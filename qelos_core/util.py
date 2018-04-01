@@ -15,6 +15,194 @@ import qelos_core as q
 # torch-independent utils
 
 
+class StringMatrix():
+    protectedwords = ["<MASK>", "<RARE>", "<START>", "<END>"]
+
+    def __init__(self, maxlen=None, freqcutoff=0, topnwords=None, indicate_start_end=False, indicate_start=False, indicate_end=False):
+        self._strings = []
+        self._wordcounts_original = dict(zip(self.protectedwords, [0] * len(self.protectedwords)))
+        self._dictionary = dict(zip(self.protectedwords, range(len(self.protectedwords))))
+        self._dictionary_external = False
+        self._rd = None
+        self._next_available_id = len(self._dictionary)
+        self._maxlen = 0
+        self._matrix = None
+        self._max_allowable_length = maxlen
+        self._rarefreq = freqcutoff
+        self._topnwords = topnwords
+        self._indic_e, self._indic_s = False, False
+        if indicate_start_end:
+            self._indic_s, self._indic_e = True, True
+        if indicate_start:
+            self._indic_s = indicate_start
+        if indicate_end:
+            self._indic_e = indicate_end
+        self._rarewords = set()
+        self.tokenize = tokenize
+        self._cache_p = None
+
+    def __len__(self):
+        if self._matrix is None:
+            return len(self._strings)
+        else:
+            return self.matrix.shape[0]
+
+    def cached(self, p):
+        self._cache_p = p
+        if os.path.isfile(p):
+            pickle.load()
+
+    def __getitem__(self, item, *args):
+        if self._matrix is None:
+            return self._strings[item]
+        else:
+            ret = self.matrix[item]
+            if len(args) == 1:
+                ret = ret[args[0]]
+            ret = self.pp(ret)
+            return ret
+
+    @property
+    def numwords(self):
+        return len(self._dictionary)
+
+    @property
+    def numrare(self):
+        return len(self._rarewords)
+
+    @property
+    def matrix(self):
+        if self._matrix is None:
+            raise Exception("finalize first")
+        return self._matrix
+
+    @property
+    def D(self):
+        return self._dictionary
+
+    def set_dictionary(self, d):
+        """ dictionary set in this way is not allowed to grow,
+        tokens missing from provided dictionary will be replaced with <RARE>
+        provided dictionary must contain <RARE> if missing tokens are to be supported"""
+        print("setting dictionary")
+        self._dictionary_external = True
+        self._dictionary = {}
+        self._dictionary.update(d)
+        self._next_available_id = max(self._dictionary.values()) + 1
+        self._wordcounts_original = dict(zip(list(self._dictionary.keys()), [0]*len(self._dictionary)))
+        self._rd = {v: k for k, v in self._dictionary.items()}
+
+    @property
+    def RD(self):
+        return self._rd
+
+    def d(self, x):
+        return self._dictionary[x]
+
+    def rd(self, x):
+        return self._rd[x]
+
+    def pp(self, matorvec):
+        def pp_vec(vec):
+            return " ".join([self.rd(x) if x in self._rd else "<UNK>" for x in vec if x != self.d("<MASK>")])
+        ret = []
+        if matorvec.ndim == 2:
+            for vec in matorvec:
+                ret.append(pp_vec(vec))
+        else:
+            return pp_vec(matorvec)
+        return ret
+
+    def add(self, x):
+        tokens = self.tokenize(x)
+        tokens = tokens[:self._max_allowable_length]
+        if self._indic_s is not False and self._indic_s is not None:
+            indic_s_sym = "<START>" if not isstring(self._indic_s) else self._indic_s
+            tokens = [indic_s_sym] + tokens
+        if self._indic_e is not False and self._indic_e is not None:
+            indic_e_sym = "<END>" if not isstring(self._indic_e) else self._indic_e
+            tokens = tokens + [indic_e_sym]
+        self._maxlen = max(self._maxlen, len(tokens))
+        tokenidxs = []
+        for token in tokens:
+            if token not in self._dictionary:
+                if not self._dictionary_external:
+                    self._dictionary[token] = self._next_available_id
+                    self._next_available_id += 1
+                    self._wordcounts_original[token] = 0
+                else:
+                    assert("<RARE>" in self._dictionary)
+                    token = "<RARE>"    # replace tokens missing from external D with <RARE>
+            self._wordcounts_original[token] += 1
+            tokenidxs.append(self._dictionary[token])
+        self._strings.append(tokenidxs)
+        return len(self._strings)-1
+
+    def finalize(self):
+        ret = np.zeros((len(self._strings), self._maxlen), dtype="int64")
+        for i, string in enumerate(self._strings):
+            ret[i, :len(string)] = string
+        self._matrix = ret
+        self._do_rare_sorted()
+        self._rd = {v: k for k, v in self._dictionary.items()}
+        self._strings = None
+
+    def _do_rare_sorted(self):
+        """ if dictionary is not external, sorts dictionary by counts and applies rare frequency and dictionary is changed """
+        if not self._dictionary_external:
+            sortedwordidxs = [self.d(x) for x in self.protectedwords] + \
+                             ([self.d(x) for x, y
+                              in sorted(self._wordcounts_original.items(), key=lambda (x, y): y, reverse=True)
+                              if y >= self._rarefreq and x not in self.protectedwords][:self._topnwords])
+            transdic = zip(sortedwordidxs, range(len(sortedwordidxs)))
+            transdic = dict(transdic)
+            self._rarewords = {x for x in self._dictionary.keys() if self.d(x) not in transdic}
+            rarewords = {self.d(x) for x in self._rarewords}
+            self._numrare = len(rarewords)
+            transdic.update(dict(zip(rarewords, [self.d("<RARE>")]*len(rarewords))))
+            # translate matrix
+            self._matrix = np.vectorize(lambda x: transdic[x])(self._matrix)
+            # change dictionary
+            self._dictionary = {k: transdic[v] for k, v in self._dictionary.items() if self.d(k) in sortedwordidxs}
+
+    def save(self, p):
+        pickle.dump(self, open(p, "w"))
+
+    @staticmethod
+    def load(p):
+        if os.path.isfile(p):
+            return pickle.load(open(p))
+        else:
+            return None
+
+
+def tokenize(s, preserve_patterns=None, extrasubs=True):
+    if not isinstance(s, unicode):
+        s = s.decode("utf-8")
+    s = unidecode.unidecode(s)
+    repldic = None
+    if preserve_patterns is not None:
+        repldic = {}
+        def _tokenize_preserve_repl(x):
+            id = max(repldic.keys() + [-1]) + 1
+            repl = "replreplrepl{}".format(id)
+            assert(repl not in s)
+            assert(id not in repldic)
+            repldic[id] = x.group(0)
+            return repl
+        for preserve_pattern in preserve_patterns:
+            s = re.sub(preserve_pattern, _tokenize_preserve_repl, s)
+    if extrasubs:
+        s = re.sub("[-_\{\}/]", " ", s)
+    s = s.lower()
+    tokens = nltk.word_tokenize(s)
+    if repldic is not None:
+        repldic = {"replreplrepl{}".format(k): v for k, v in repldic.items()}
+        tokens = [repldic[token] if token in repldic else token for token in tokens]
+    s = re.sub("`", "'", s)
+    return tokens
+
+
 def dataload(*tensors, **kw):
     tensordataset = q.TensorDataset(*tensors)
     dataloader = torch.utils.data.DataLoader(tensordataset, **kw)
