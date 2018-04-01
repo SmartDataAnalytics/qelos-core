@@ -105,6 +105,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         qsm.finalize()
         csm.finalize()
         tt.tock("flattened")
+        csm.tokenize = None
         return qsm, csm, goldchainids, badchainsids
     else:
         raise q.SumTingWongException("unsupported mode: {}".format(mode))
@@ -385,4 +386,4 @@ def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
 if __name__ == "__main__":
     loadret = load_jsons()
     pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
-    q.argprun(run)
+    # q.argprun(run)
