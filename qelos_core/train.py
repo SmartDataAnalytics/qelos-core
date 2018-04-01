@@ -123,7 +123,7 @@ class EventEmitter(object):
         if isinstance(f, AutoHooker):
             if len(es) > 0:
                 raise q.SumTingWongException("can't hook autohooker explicitly on hooks")
-            hookdic = f.get_hooks()
+            hookdic = f.get_hooks(self)
         else:
             hookdic = dict(zip(es, [f]*len(es)))
 
@@ -272,7 +272,7 @@ class eval(object):
 
 
 class AutoHooker(object):
-    def get_hooks(self):
+    def get_hooks(self, emitter):
         raise NotImplemented()
 
 
@@ -282,7 +282,15 @@ class LoopRunner(object):
     pass
 
 
-class BasicRunner(LoopRunner):
+class BasicRunner(LoopRunner, EventEmitter):
+    START = 0
+    END = 1
+    START_EPOCH = 2
+    END_EPOCH = 3
+    START_TRAIN = 4
+    END_TRAIN = 5
+    START_VALID = 6
+    END_VALID = 7
     """ Takes a single trainer and an optional single validator.
         Runs them such that epochs are interleaved.
         Prints epoch lines """      # TODO: support multiple validators
@@ -305,9 +313,12 @@ class BasicRunner(LoopRunner):
 
     def runloop(self, validinter=1):
         tt = q.ticktock("runner")
+        self.do_callbacks(self.START)
         validinter_count = 0
         while self.trainer.stop_training is not True:
             tt.tick()
+            self.do_callbacks(self.START_EPOCH)
+            self.do_callbacks(self.START_TRAIN)
             self.trainer.do_epoch()
             ttmsg = "Epoch {}/{} -- train: {}" \
                 .format(
@@ -315,7 +326,9 @@ class BasicRunner(LoopRunner):
                 self.trainer.max_epochs,
                 self.trainer.losses.pp()
             )
+            self.do_callbacks(self.END_TRAIN)
             if self.validator is not None and validinter_count % validinter == 0:
+                self.do_callbacks(self.START_VALID)
                 if isinstance(self.validator, tester):
                     self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
                     ttmsg += " -- {}" \
@@ -323,7 +336,10 @@ class BasicRunner(LoopRunner):
                 else:
                     toprint = self.validator()
                     ttmsg += " -- {}".format(toprint)
+                self.do_callbacks(self.END_VALID)
+            self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
+            self.do_callbacks(self.END)
             tt.tock(ttmsg)
 
 
@@ -513,7 +529,7 @@ class trainer(EventEmitter, AutoHooker):
         self.post_run()
 
     # region AutoHooker interface  -- how it hooks into a loop runner
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.END_EPOCH: self.on_end_epoch,
                 trainer.RESET: self.on_reset,
                 trainer.INIT: self.on_init}
@@ -663,7 +679,7 @@ class tester(EventEmitter, AutoHooker):
         return ttmsg
 
     # region AutoHooker -- how it hooks into a trainer
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.END_TRAIN: self.on_end_epoch,
                 trainer.RESET: self.on_reset,
                 trainer.INIT: self.on_init}
@@ -681,13 +697,40 @@ class tester(EventEmitter, AutoHooker):
 
 
 # region AUTOHOOKERS
+class BestSaver(AutoHooker):
+    def __init__(self, criterion, model, path, higher_is_better=True, verbose=False, **kw):
+        super(BestSaver, self).__init__(**kw)
+        self.criterion = criterion
+        self.model = model
+        self.path = path
+        self.higher_better = 1. if higher_is_better else -1.
+        self.best_criterion = -1.
+        self.verbose = verbose
+        self.callbacks = {}
+
+    def get_hooks(self, ee):
+        return {ee.END_EPOCH: self.save_best_model}
+
+    def save_best_model(self, trainer, **kw):
+        assert isinstance(trainer, train)
+        current_criterion = self.criterion()
+        decision_value = current_criterion - self.best_criterion    # positive if current is higher
+        decision_value *= self.higher_better            # higher better --> positive is higher = better
+        if decision_value >= 0:
+            if self.verbose:
+                print("Validation criterion improved from {} to {}. Saving model..."\
+                      .format(self.best_criterion, current_criterion))
+            self.best_criterion = current_criterion
+            torch.save(self.model.state_dict(), self.path)
+
+
 class _LRSchedulerAutoHooker(AutoHooker):
     def __init__(self, s, verbose=False, **kw):
         super(_LRSchedulerAutoHooker, self).__init__(**kw)
         self.s = s
         self.verbose = verbose
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.START_EPOCH: self.on_start_epoch}
 
     def on_start_epoch(self, model, **kw):
@@ -702,7 +745,7 @@ class _ReduceLROnPlateauAutoHooker(AutoHooker):
         self.s = s
         self.critf = critf
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.END_EPOCH: self.on_end_epoch}
 
     def on_end_epoch(self, model, **kw):
@@ -714,7 +757,7 @@ class ClipGradNorm(AutoHooker):
         super(ClipGradNorm, self).__init__(**kw)
         self._norm = norm
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.BEFORE_OPTIM_STEP: self.on_before_optim_step}
 
     def on_before_optim_step(self, trainer, **kw):
@@ -738,7 +781,7 @@ class TrainerChainer(AutoHooker):
         super(TrainerChainer, self).__init__(**kw)
         self._trainer = trainer
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.END_BATCH: self.on_end_batch,
                 trainer.START: self.on_start}
 
@@ -763,7 +806,7 @@ class EarlyStopper(AutoHooker):
         self.customf = custom
         self.lessisbetter = lessisbetter
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.END_EPOCH: self.on_end_epoch}
 
     def on_end_epoch(self, trainer, **kw):
@@ -797,7 +840,7 @@ class HyperparamScheduler(AutoHooker):
         super(HyperparamScheduler, self).__init__(**kw)
         self._hp = hp
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.START_EPOCH: self.on_start_epoch}
 
     def on_start_epoch(self, trainer, **kw):
@@ -810,7 +853,7 @@ class EpochHyperparamScheduler(HyperparamScheduler):
         super(EpochHyperparamScheduler, self).__init__()
         self._f = f
 
-    def get_hooks(self):
+    def get_hooks(self, ee):
         return {trainer.START_EPOCH: self.on_start_epoch}
 
     def on_start_epoch(self, trainer, **kw):
