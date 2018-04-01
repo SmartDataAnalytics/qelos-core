@@ -14,7 +14,7 @@ OPT_LR = 0.001
 
 def load_jsons(datap="../../../datasets/lcquad/newdata.json",
                relp="../../../datasets/lcquad/nrelations.json",
-               mode="flat", rare_freq=0):
+               mode="flat"):
     tt = q.ticktock("data loader")
     tt.tick("loading jsons")
 
@@ -70,8 +70,8 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
 
         uniquechainids = {}
 
-        qsm = q.StringMatrix(freqcutoff=rare_freq)
-        csm = q.StringMatrix(freqcutoff=rare_freq)
+        qsm = q.StringMatrix()
+        csm = q.StringMatrix()
         csm.tokenize = lambda x: x.lower().strip().split()
 
         def get_ensure_chainid(flatchain):
@@ -312,7 +312,7 @@ class FlatEncoder(torch.nn.Module):
 def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
-        cuda=False, gpu=0, mode="flat", rarefreq=5,
+        cuda=False, gpu=0, mode="flat",
         test=False, gendata=False):
     if gendata:
         loadret = load_jsons()
