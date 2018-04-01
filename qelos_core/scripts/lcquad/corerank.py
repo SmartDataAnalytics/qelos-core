@@ -313,77 +313,79 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0, mode="flat", rarefreq=5,
-        test=False):
-    settings = locals().copy()
-    logger = q.Logger(prefix="rank_lstm")
-    logger.save_settings(**settings)
-    if cuda:
-        torch.cuda.set_device(gpu)
+        test=False, gendata=False):
+    if gendata:
+        loadret = load_jsons()
+        pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        settings = locals().copy()
+        logger = q.Logger(prefix="rank_lstm")
+        logger.save_settings(**settings)
+        if cuda:
+            torch.cuda.set_device(gpu)
 
-    tt = q.ticktock("script")
+        tt = q.ticktock("script")
 
-    # region DATA
-    tt.tick("loading data")
-    qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.{}.pkl".format(mode)))
-    eids = np.arange(0, len(goldchainids))
+        # region DATA
+        tt.tick("loading data")
+        qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.{}.pkl".format(mode)))
+        eids = np.arange(0, len(goldchainids))
 
-    data = [qsm.matrix, eids]
-    traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
-    validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        data = [qsm.matrix, eids]
+        traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
+        validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
 
-    trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
+        trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
 
-    input_feeder = FlatInpFeeder(csm.matrix, goldchainids, badchainids)
+        input_feeder = FlatInpFeeder(csm.matrix, goldchainids, badchainids)
 
-    def inp_bt(_qsm_batch, _eids_batch):
-        golds_batch, bads_batch = input_feeder(_eids_batch)
-        dummygold = _eids_batch
-        return _qsm_batch, golds_batch, bads_batch, dummygold
+        def inp_bt(_qsm_batch, _eids_batch):
+            golds_batch, bads_batch = input_feeder(_eids_batch)
+            dummygold = _eids_batch
+            return _qsm_batch, golds_batch, bads_batch, dummygold
 
-    if test:
-        # test input feeder
-        eids = q.var(torch.arange(0, 10).long()).v
-        _test_golds_batch, _test_bads_batch = input_feeder(eids)
-    tt.tock("data loaded")
-    # endregion
+        if test:
+            # test input feeder
+            eids = q.var(torch.arange(0, 10).long()).v
+            _test_golds_batch, _test_bads_batch = input_feeder(eids)
+        tt.tock("data loaded")
+        # endregion
 
-    # region MODEL
-    dims = [encdim//2] * numlayers
+        # region MODEL
+        dims = [encdim//2] * numlayers
 
-    question_encoder = FlatEncoder(embdim, dims, qsm.D, bidir=True)
-    query_encoder = FlatEncoder(embdim, dims, csm.D, bidir=True)
-    similarity = DotDistance()
+        question_encoder = FlatEncoder(embdim, dims, qsm.D, bidir=True)
+        query_encoder = FlatEncoder(embdim, dims, csm.D, bidir=True)
+        similarity = DotDistance()
 
-    rankmodel = RankModel(question_encoder, query_encoder, similarity)
-    scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
-    # endregion
+        rankmodel = RankModel(question_encoder, query_encoder, similarity)
+        scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
+        # endregion
 
-    # region VALIDATION
-    rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
-                               csm.matrix, goldchainids, badchainids)
-    # endregion
+        # region VALIDATION
+        rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
+                                   csm.matrix, goldchainids, badchainids)
+        # endregion
 
-    # region TRAINING
-    optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
-    trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
-               .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
+        # region TRAINING
+        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
+        trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
+                   .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
 
-    def validation_function():
-        rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
-                                       RecallAt(5, totaltrue=1),
-                                       MRR())
-        ret = []
-        for rankmetric in rankmetrics:
-            rankmetric = np.asarray(rankmetric)
-            ret_i = rankmetric.mean()
-            ret.append(ret_i)
-        return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+        def validation_function():
+            rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
+                                           RecallAt(5, totaltrue=1),
+                                           MRR())
+            ret = []
+            for rankmetric in rankmetrics:
+                rankmetric = np.asarray(rankmetric)
+                ret_i = rankmetric.mean()
+                ret.append(ret_i)
+            return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
 
-    q.train(trainer, validation_function).run(epochs, validinter=validinter)
-    # endregion
+        q.train(trainer, validation_function).run(epochs, validinter=validinter)
+        # endregion
 
 
 if __name__ == "__main__":
-    # loadret = load_jsons()
-    # pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
     q.argprun(run)
