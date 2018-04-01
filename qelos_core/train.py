@@ -714,6 +714,7 @@ class BestSaver(AutoHooker):
         hooks = {ee.END_EPOCH: self.save_best_model}
         if self.autoload:
             hooks[ee.END] = self.autoload_best
+        return hooks
 
     def save_best_model(self, _, **kw):
         # assert isinstance(trainer, train)
