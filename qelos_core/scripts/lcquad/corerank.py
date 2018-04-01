@@ -359,7 +359,7 @@ def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
     # endregion
 
     # region VALIDATION
-    rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
+    rankcomp = RankingComputer(scoremodel, validdata[1][:10], validdata[0][:10],
                                csm.matrix, goldchainids, badchainids)
     # endregion
 
@@ -377,7 +377,7 @@ def run(lr=OPT_LR, batsize=100, epochs=100, validinter=5,
             rankmetric = np.asarray(rankmetric)
             ret_i = rankmetric.mean()
             ret.append(ret_i)
-        return " ".join(map(str, ret))
+        return " ".join(map(lambda x: "{.4f}".format(x), ret))
 
     q.train(trainer, validation_function).run(epochs, validinter=validinter)
     # endregion
