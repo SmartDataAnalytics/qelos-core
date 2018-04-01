@@ -675,7 +675,7 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     # print ("test unsorter")
     # print (unsorter)
     unsorter.data.scatter_(0, sortidxs.data,
-                           q.var(torch.arange(0, len(unsorter)).v.data).v.data.long())
+                           q.var(torch.arange(0, len(unsorter))).cuda(sortidxs).v.data.long())
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
     sortedmsk = torch.index_select(mask, 0, sortidxs)
