@@ -73,6 +73,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         uniquechainids = {}
 
         qsm = q.StringMatrix()
+        qsm.protectedwords.append(u"<EMPTY>")
         csm = q.StringMatrix()
         csm.tokenize = lambda x: x.lower().strip().split()
 
@@ -562,8 +563,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region MODEL
         dims = [encdim//2] * numlayers
 
-        question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True)
-        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True)
+        question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
+        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout)
         similarity = DotDistance()
 
         rankmodel = RankModel(question_encoder, query_encoder, similarity)
