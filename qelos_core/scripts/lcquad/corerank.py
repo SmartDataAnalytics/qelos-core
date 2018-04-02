@@ -466,7 +466,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                                 autoload=True, verbose=True)
 
         q.train(trainer, validator).hook(bestsaver)\
-            .run(epochs, validinter=validinter)
+            .run(epochs, validinter=validinter, print_on_valid_only=True)
 
         logger.update_settings(completed=True,
                                final_valid_acc=bestsaver.best_criterion)
@@ -601,7 +601,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                                 autoload=True, verbose=True)
 
         q.train(trainer, validator).hook(bestsaver)\
-            .run(epochs, validinter=validinter)
+            .run(epochs, validinter=validinter, print_on_valid_only=True)
 
         logger.update_settings(completed=True,
                                final_valid_acc=bestsaver.best_criterion)

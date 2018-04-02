@@ -300,18 +300,18 @@ class BasicRunner(LoopRunner, EventEmitter):
         self.trainer = trainer
         self.validator = validator
 
-    def run(self, epochs=None, validinter=1):
+    def run(self, epochs=None, validinter=1, print_on_valid_only=False):
         self.trainer.pre_run()
         if isinstance(self.validator, tester):
             self.validator.pre_run()
         if epochs is not None:
-            self.trainer.epochs(epochs)
+            self.trainer.epochs(epochs, print_on_valid_only)
         self.runloop(validinter=validinter)
         self.trainer.post_run()
         if isinstance(self.validator, tester):
             self.validator.post_run()
 
-    def runloop(self, validinter=1):
+    def runloop(self, validinter=1, print_on_valid_only=False):
         tt = q.ticktock("runner")
         self.do_callbacks(self.START)
         validinter_count = 0
@@ -327,6 +327,7 @@ class BasicRunner(LoopRunner, EventEmitter):
                 self.trainer.losses.pp()
             )
             self.do_callbacks(self.END_TRAIN)
+            validepoch = False
             if self.validator is not None and validinter_count % validinter == 0:
                 self.do_callbacks(self.START_VALID)
                 if isinstance(self.validator, tester):
@@ -337,9 +338,11 @@ class BasicRunner(LoopRunner, EventEmitter):
                     toprint = self.validator()
                     ttmsg += " -- {}".format(toprint)
                 self.do_callbacks(self.END_VALID)
+                validepoch = True
             self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
-            tt.tock(ttmsg)
+            if not print_on_valid_only or validepoch:
+                tt.tock(ttmsg)
         self.do_callbacks(self.END)
 
 
