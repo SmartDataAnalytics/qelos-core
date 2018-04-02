@@ -467,6 +467,9 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         q.train(trainer, validator).hook(bestsaver)\
             .run(epochs, validinter=validinter)
+
+        logger.update_settings(completed=True,
+                               final_valid_acc=bestsaver.best_criterion)
         # endregion
 
 
@@ -476,13 +479,26 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
         super(SlotPtrQuestionEncoder, self).__init__()
         self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
+        self.linear = torch.nn.Linear(dims[-1]*2, 2)
+        self.sm = torch.nn.Softmax(1)
 
     def forward(self, x):
         embs, mask = self.emb(x)
         ys = self.lstm(embs, mask=mask)
         final_state = self.lstm.y_n[-1]
         final_state = final_state.contiguous().view(x.size(0), -1)
-        return final_state
+        # get attention scores
+        scores = self.linear(ys)
+        scores = scores + torch.log(mask[:, :ys.size(1)].float().unsqueeze(2))
+        scores = self.sm(scores)    # (batsize, seqlen, 2)
+        # get summaries
+        nys = ys + embs[:, :ys.size(1), :]     # skipper
+        nys = nys.unsqueeze(2)      # (batsize, seqlen, 1, dim)
+        scores = scores.unsqueeze(3)    # (batsize, seqlen, 2, 1)
+        b = nys * scores                # (batsize, seqlen, 2, dim)
+        summaries = b.sum(1)        # (batsize, 2, dim)
+        ret = torch.cat([summaries[:, 0, :], summaries[:, 1, :]], 1)
+        return ret
 
 
 class SlotPtrChainEncoder(torch.nn.Module):
@@ -586,9 +602,12 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         q.train(trainer, validator).hook(bestsaver)\
             .run(epochs, validinter=validinter)
+
+        logger.update_settings(completed=True,
+                               final_valid_acc=bestsaver.best_criterion)
         # endregion
 
 
 if __name__ == "__main__":
-    q.argprun(run)
-    # q.argprun(run_slotptr)
+    # q.argprun(run)
+    q.argprun(run_slotptr)
