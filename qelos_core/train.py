@@ -305,8 +305,8 @@ class BasicRunner(LoopRunner, EventEmitter):
         if isinstance(self.validator, tester):
             self.validator.pre_run()
         if epochs is not None:
-            self.trainer.epochs(epochs, print_on_valid_only)
-        self.runloop(validinter=validinter)
+            self.trainer.epochs(epochs)
+        self.runloop(validinter=validinter, print_on_valid_only=print_on_valid_only)
         self.trainer.post_run()
         if isinstance(self.validator, tester):
             self.validator.post_run()
