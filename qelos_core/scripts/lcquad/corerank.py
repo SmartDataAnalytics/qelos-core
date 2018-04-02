@@ -16,6 +16,7 @@ OPT_LR = 0.001
 def load_jsons(datap="../../../datasets/lcquad/newdata.json",
                relp="../../../datasets/lcquad/nrelations.json",
                mode="flat"):
+    """ mode: "flat", "slotptr" """
     tt = q.ticktock("data loader")
     tt.tick("loading jsons")
 
@@ -108,6 +109,77 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         tt.tock("flattened")
         csm.tokenize = None
         return qsm, csm, goldchainids, badchainsids
+    elif mode == "slotptr":
+        """ adds a "<EMPTY>" at the end of the question,
+            chain is 2D, with "<EMPTY>" at second relation if no second relation"""
+        tt.tick("flattening")
+
+        def flatten_chain(chainspec):
+            flatchainspec = []
+            firstrel = u"" + chainspec[0] + u" " + u" ".join(rels[str(chainspec[1])])
+            secondrel = u"<EMPTY>"
+            if len(chainspec) > 2 and chainspec[2] != -1:
+                secondrel = u"" + chainspec[2] + u" " + u" ".join(rels[str(chainspec[3])])
+            return firstrel, secondrel
+
+        goldchainids = []
+        badchainsids = []
+
+        uniquechainids = {}
+
+        qsm = q.StringMatrix()
+        csm = q.StringMatrix()
+
+        csm.tokenize = lambda x: x.strip().split()
+
+        firstrels = []
+        maxfirstrellen = [0]
+        secondrels = []
+
+        def get_ensure_chainid(flatchain1, flatchain2):
+            flatchain = flatchain1 + u" " + flatchain2
+            if flatchain not in uniquechainids:
+                uniquechainids[flatchain] = len(uniquechainids)
+                firstrels.append(flatchain1)
+                secondrels.append(flatchain2)
+                assert(len(firstrels) == len(uniquechainids))
+                maxfirstrellen[0] = max(maxfirstrellen[0], len(flatchain1.strip().split()))
+            return uniquechainids[flatchain]
+
+        eid = 0
+        numchains = 0
+        for question, goldchain, badchainses in zip(questions, goldchains, badchains):
+            qsm.add(question + u" <EMPTY>")
+            # flatten gold chain
+            flatgoldchain1, flatgoldchain2 = flatten_chain(goldchain)
+            chainid = get_ensure_chainid(flatgoldchain1, flatgoldchain2)
+            goldchainids.append(chainid)
+            badchainsids.append([])
+            numchains += 1
+            for badchain in badchainses:
+                flatbadchain1, flatbadchain2 = flatten_chain(badchain)
+                chainid = get_ensure_chainid(flatbadchain1, flatbadchain2)
+                badchainsids[eid].append(chainid)
+                numchains += 1
+            eid += 1
+            tt.live("{}".format(eid))
+
+        assert(len(badchainsids) == len(questions))
+        tt.stoplive()
+        tt.msg("{} unique chains from {} total".format(len(firstrels), numchains))
+        qsm.finalize()
+        # finalize csm
+        for firstrel, secondrel in zip(firstrels, secondrels):
+            firstrelsplits = firstrel.split()
+            firstrelsplits = firstrelsplits + [u"<MASK>"] * (maxfirstrellen[0] - len(firstrelsplits))
+            secondrelsplits = secondrel.split()
+            secondrelsplits = secondrelsplits + [u"<MASK>"] * (maxfirstrellen[0] - len(secondrelsplits))
+            rel = u" ".join(firstrelsplits + secondrelsplits)
+            csm.add(rel)
+        csm.finalize()
+        tt.tock("flattened")
+        csm.tokenize = None
+        return qsm, csm, maxfirstrellen[0], goldchainids, badchainsids
     else:
         raise q.SumTingWongException("unsupported mode: {}".format(mode))
 
@@ -216,17 +288,17 @@ class FlatInpFeeder(object):
 
     def __call__(self, eids):
         # golds is (batsize, seqlen)
-        golds = np.zeros((len(eids), self.csm.shape[1]), dtype="int64")
-        bads = np.zeros((len(eids), self.csm.shape[1]), dtype="int64")
+        golds = np.zeros((len(eids),) + self.csm.shape[1:], dtype="int64")
+        bads = np.zeros((len(eids),) + self.csm.shape[1:], dtype="int64")
 
         for i, eid in enumerate(eids.cpu().data.numpy()):
-            golds[i, :] = self.csm[self.goldcids[eid]]
+            golds[i, ...] = self.csm[self.goldcids[eid]]
             badcidses = self.badcids[eid]
             if len(badcidses) == 0:
-                badcid = random.randint(0, len(self.csm))
+                badcid = random.randint(0, len(self.csm)-1)
             else:
                 badcid = random.sample(badcidses, 1)[0]
-            bads[i, :] = self.csm[badcid]
+            bads[i, ...] = self.csm[badcid]
 
         golds = q.var(golds).cuda(eids).v
         bads = q.var(bads).cuda(eids).v
@@ -329,7 +401,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         # region DATA
         tt.tick("loading data")
-        qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.{}.pkl".format(mode)))
+        qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.flat.pkl"))
         eids = np.arange(0, len(goldchainids))
 
         data = [qsm.matrix, eids]
@@ -355,8 +427,127 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region MODEL
         dims = [encdim//2] * numlayers
 
-        question_encoder = FlatEncoder(embdim, dims, qsm.D, bidir=True)
-        query_encoder = FlatEncoder(embdim, dims, csm.D, bidir=True)
+        question_encoder = FlatEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
+        query_encoder = FlatEncoder(embdim, dims, csm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
+        similarity = DotDistance()
+
+        rankmodel = RankModel(question_encoder, query_encoder, similarity)
+        scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
+        # endregion
+
+        # region TRAINING
+        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
+        trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
+                   .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
+
+        rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
+                                   csm.matrix, goldchainids, badchainids)
+        class Validator(object):
+            def __init__(self):
+                self.save_crit = -1.
+
+            def __call__(self):
+                rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
+                                               RecallAt(5, totaltrue=1),
+                                               MRR())
+                ret = []
+                for rankmetric in rankmetrics:
+                    rankmetric = np.asarray(rankmetric)
+                    # print(rankmetric.shape)
+                    ret_i = rankmetric.mean()
+                    ret.append(ret_i)
+                self.save_crit = ret[0]     # saves criterium for best saving
+                return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+
+        validator = Validator()
+
+        bestsaver = q.BestSaver(lambda : validator.save_crit,
+                                scoremodel, os.path.join(logger.p, "best.model"),
+                                autoload=True, verbose=True)
+
+        q.train(trainer, validator).hook(bestsaver)\
+            .run(epochs, validinter=validinter)
+        # endregion
+
+
+class SlotPtrQuestionEncoder(torch.nn.Module):
+    # TODO: (1) skip connection, (2) two outputs (summaries weighted by forwards)
+    def __init__(self, embdim, dims, word_dic, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0.):
+        super(SlotPtrQuestionEncoder, self).__init__()
+        self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
+        self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
+
+    def forward(self, x):
+        embs, mask = self.emb(x)
+        ys = self.lstm(embs, mask=mask)
+        final_state = self.lstm.y_n[-1]
+        final_state = final_state.contiguous().view(x.size(0), -1)
+        return final_state
+
+
+class SlotPtrChainEncoder(torch.nn.Module):
+    def __init__(self, embdim, dims, word_dic, firstrellen, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0.):
+        super(SlotPtrChainEncoder, self).__init__()
+        self.firstrellen = firstrellen
+        self.enc = FlatEncoder(embdim, dims, word_dic, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec, gfrac=gfrac)
+
+    def forward(self, x):
+        firstrels = x[:, :self.firstrellen]
+        secondrels = x[:, self.firstrellen:]
+        firstrels_enc = self.enc(firstrels)
+        secondrels_enc = self.enc(secondrels)
+        # cat???? # TODO
+        enc = torch.cat([firstrels_enc, secondrels_enc], 1)
+        return enc
+
+
+def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
+        wreg=0.00000000001, dropout=0.1,
+        embdim=50, encdim=50, numlayers=1,
+        cuda=False, gpu=0,
+        test=False, gendata=False):
+    if gendata:
+        loadret = load_jsons(mode="slotptr")
+        pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
+    else:
+        settings = locals().copy()
+        logger = q.Logger(prefix="slotptr")
+        logger.save_settings(**settings)
+        if cuda:
+            torch.cuda.set_device(gpu)
+
+        tt = q.ticktock("script")
+
+        # region DATA
+        tt.tick("loading data")
+        qsm, csm, maxfirstrellen, goldchainids, badchainids = pickle.load(open("loadcache.slotptr.pkl"))
+        eids = np.arange(0, len(goldchainids))
+
+        data = [qsm.matrix, eids]
+        traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
+        validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+
+        trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
+
+        input_feeder = FlatInpFeeder(csm.matrix, goldchainids, badchainids)
+
+        def inp_bt(_qsm_batch, _eids_batch):
+            golds_batch, bads_batch = input_feeder(_eids_batch)
+            dummygold = _eids_batch
+            return _qsm_batch, golds_batch, bads_batch, dummygold
+
+        if test:
+            # test input feeder
+            eids = q.var(torch.arange(0, 10).long()).v
+            _test_golds_batch, _test_bads_batch = input_feeder(eids)
+        tt.tock("data loaded")
+        # endregion
+
+        # region MODEL
+        dims = [encdim//2] * numlayers
+
+        question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True)
+        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True)
         similarity = DotDistance()
 
         rankmodel = RankModel(question_encoder, query_encoder, similarity)
@@ -400,3 +591,4 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
 if __name__ == "__main__":
     q.argprun(run)
+    # q.argprun(run_slotptr)
