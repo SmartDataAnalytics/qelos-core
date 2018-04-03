@@ -118,7 +118,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         def flatten_chain(chainspec):
             flatchainspec = []
             firstrel = u"" + chainspec[0] + u" " + u" ".join(rels[str(chainspec[1])])
-            secondrel = u"<EMPTY>"
+            secondrel = u"EMPTYEMPTYEMPTY"
             if len(chainspec) > 2 and chainspec[2] != -1:
                 secondrel = u"" + chainspec[2] + u" " + u" ".join(rels[str(chainspec[3])])
             return firstrel, secondrel
@@ -129,7 +129,6 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         uniquechainids = {}
 
         qsm = q.StringMatrix()
-        qsm.protectedwords = qsm.protectedwords + [u"<EMPTY>"]
         csm = q.StringMatrix()
 
         csm.tokenize = lambda x: x.strip().split()
@@ -151,7 +150,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         eid = 0
         numchains = 0
         for question, goldchain, badchainses in zip(questions, goldchains, badchains):
-            qsm.add(question + u" <EMPTY>")
+            qsm.add(question + u" EMPTYEMPTYEMPTY")
             # flatten gold chain
             flatgoldchain1, flatgoldchain2 = flatten_chain(goldchain)
             chainid = get_ensure_chainid(flatgoldchain1, flatgoldchain2)
