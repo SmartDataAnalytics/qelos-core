@@ -16,6 +16,7 @@ OPT_LR = 0.001
 def load_jsons(datap="../../../datasets/lcquad/newdata.json",
                relp="../../../datasets/lcquad/nrelations.json",
                mode="flat"):
+    """ relp: file must contain dictionary mapping relation ids (ints) to lists of words (strings)"""
     """ mode: "flat", "slotptr" """
     tt = q.ticktock("data loader")
     tt.tick("loading jsons")
@@ -73,7 +74,6 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         uniquechainids = {}
 
         qsm = q.StringMatrix()
-        qsm.protectedwords.append(u"<EMPTY>")
         csm = q.StringMatrix()
         csm.tokenize = lambda x: x.lower().strip().split()
 
@@ -129,6 +129,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         uniquechainids = {}
 
         qsm = q.StringMatrix()
+        qsm.protectedwords = qsm.protectedwords + [u"<EMPTY>"]
         csm = q.StringMatrix()
 
         csm.tokenize = lambda x: x.strip().split()
