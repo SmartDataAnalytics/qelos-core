@@ -444,11 +444,12 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
                                    csm.matrix, goldchainids, badchainids)
         class Validator(object):
-            def __init__(self):
+            def __init__(self, _rankcomp):
                 self.save_crit = -1.
+                self.rankcomp = _rankcomp
 
             def __call__(self):
-                rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
+                rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
                                                RecallAt(5, totaltrue=1),
                                                MRR())
                 ret = []
@@ -458,9 +459,9 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                     ret_i = rankmetric.mean()
                     ret.append(ret_i)
                 self.save_crit = ret[0]     # saves criterium for best saving
-                return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+                return " - ".join(map(lambda x: "{:.4f}".format(x), ret))
 
-        validator = Validator()
+        validator = Validator(rankcomp)
 
         bestsaver = q.BestSaver(lambda : validator.save_crit,
                                 scoremodel, os.path.join(logger.p, "best.model"),
@@ -471,6 +472,28 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         logger.update_settings(completed=True,
                                final_valid_acc=bestsaver.best_criterion)
+
+        tt.tick("computing metrics on all data")
+        rankcomp_train = RankingComputer(scoremodel, traindata[1], traindata[0],
+                                         csm.matrix, goldchainids, badchainids)
+        rankcomp_valid = RankingComputer(scoremodel, validdata[1], validdata[0],
+                                         csm.matrix, goldchainids, badchainids)
+        rankcomp_test =  RankingComputer(scoremodel, testdata[1],  testdata[0],
+                                         csm.matrix, goldchainids, badchainids)
+        train_validator = Validator(rankcomp_train)
+        valid_validator = Validator(rankcomp_valid)
+        test_validator = Validator(rankcomp_test)
+        tt.msg("computing train metrics")
+        train_results = train_validator()
+        tt.msg("train results: {}".format(train_results))
+        tt.msg("computing valid metrics")
+        valid_results = valid_validator()
+        tt.msg("valid results: {}".format(valid_results))
+        tt.msg("computing test results")
+        test_results = test_validator()
+        tt.msg("test results: {}".format(test_results))
+
+        tt.tock("computed metrics")
         # endregion
 
 
@@ -578,34 +601,58 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
                                    csm.matrix, goldchainids, badchainids)
+
         class Validator(object):
-            def __init__(self):
+            def __init__(self, _rankcomp):
                 self.save_crit = -1.
+                self.rankcomp = _rankcomp
 
             def __call__(self):
-                rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),
-                                               RecallAt(5, totaltrue=1),
-                                               MRR())
+                rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
+                                                    RecallAt(5, totaltrue=1),
+                                                    MRR())
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
                     # print(rankmetric.shape)
                     ret_i = rankmetric.mean()
                     ret.append(ret_i)
-                self.save_crit = ret[0]     # saves criterium for best saving
-                return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+                self.save_crit = ret[0]  # saves criterium for best saving
+                return " - ".join(map(lambda x: "{:.4f}".format(x), ret))
 
-        validator = Validator()
+        validator = Validator(rankcomp)
 
-        bestsaver = q.BestSaver(lambda : validator.save_crit,
+        bestsaver = q.BestSaver(lambda: validator.save_crit,
                                 scoremodel, os.path.join(logger.p, "best.model"),
                                 autoload=True, verbose=True)
 
-        q.train(trainer, validator).hook(bestsaver)\
+        q.train(trainer, validator).hook(bestsaver) \
             .run(epochs, validinter=validinter, print_on_valid_only=True)
 
         logger.update_settings(completed=True,
                                final_valid_acc=bestsaver.best_criterion)
+
+        tt.tick("computing metrics on all data")
+        rankcomp_train = RankingComputer(scoremodel, traindata[1], traindata[0],
+                                         csm.matrix, goldchainids, badchainids)
+        rankcomp_valid = RankingComputer(scoremodel, validdata[1], validdata[0],
+                                         csm.matrix, goldchainids, badchainids)
+        rankcomp_test = RankingComputer(scoremodel, testdata[1], testdata[0],
+                                        csm.matrix, goldchainids, badchainids)
+        train_validator = Validator(rankcomp_train)
+        valid_validator = Validator(rankcomp_valid)
+        test_validator = Validator(rankcomp_test)
+        tt.msg("computing train metrics")
+        train_results = train_validator()
+        tt.msg("train results: {}".format(train_results))
+        tt.msg("computing valid metrics")
+        valid_results = valid_validator()
+        tt.msg("valid results: {}".format(valid_results))
+        tt.msg("computing test results")
+        test_results = test_validator()
+        tt.msg("test results: {}".format(test_results))
+
+        tt.tock("computed metrics")
         # endregion
 
 

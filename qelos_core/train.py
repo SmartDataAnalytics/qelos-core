@@ -332,11 +332,11 @@ class BasicRunner(LoopRunner, EventEmitter):
                 self.do_callbacks(self.START_VALID)
                 if isinstance(self.validator, tester):
                     self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
-                    ttmsg += " -- {}" \
+                    ttmsg += " -- valid: {}" \
                         .format(self.validator.losses.pp())
                 else:
                     toprint = self.validator()
-                    ttmsg += " -- {}".format(toprint)
+                    ttmsg += " -- valid: {}".format(toprint)
                 self.do_callbacks(self.END_VALID)
                 validepoch = True
             self.do_callbacks(self.END_EPOCH)
