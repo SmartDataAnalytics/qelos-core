@@ -383,11 +383,44 @@ class FlatEncoder(torch.nn.Module):
         return final_state
 
 
+def get_seen_words(qmat, qsmD, rarefreq=1, gdic=None):
+    rD = {v: k for k, v in qsmD.items()}
+    # get words in pretrained:
+    gwords = set(gdic.keys())
+    # rare words in qmat:
+    uniquewordids, wordid_counts = np.unique(qmat, return_counts=True)
+    wordid_isseen = wordid_counts >= rarefreq
+    unique_seen_wordids = uniquewordids * (wordid_isseen).astype("int32")
+    unique_seen_wordids = set(unique_seen_wordids)
+    unique_seen_words = set([rD[unrid] for unrid in unique_seen_wordids])
+    unique_seen_words |= gwords
+    all_words = set(qsmD.keys())
+    rare_words = all_words - unique_seen_words
+    print("{} ({:.2f}%) rare words (from {} total), {} seen words not in g".format(len(rare_words), len(rare_words) * 1. / len(all_words), len(all_words), len(unique_seen_words - gwords)))
+    return unique_seen_words
+
+
+def get_seen_words_chains(eids, csm, goldchains, rarefreq=1, gdic=None):
+    # get seen words from gold chains
+    goldchains = np.asarray(goldchains)
+    seen_goldchains = goldchains[eids]
+    seen_chains = csm.matrix[seen_goldchains]
+    unique_seen_words = get_seen_words(seen_chains, csm.D, rarefreq=rarefreq, gdic=gdic)
+    return unique_seen_words
+
+
+def replace_rare(mat, words, D):
+    ids = set([D[word] for word in words if word in D])
+    outmat = np.vectorize(lambda x: D["<RARE>"] if x not in ids else x)(mat)
+    return outmat
+
+
 def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0, mode="flat",
-        test=False, gendata=False):
+        test=False, gendata=False,
+        seenfreq=0):
     if gendata:
         loadret = load_jsons()
         pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -408,6 +441,13 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         data = [qsm.matrix, eids]
         traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
         validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+
+        if seenfreq > 0:
+            gdic = q.PretrainedWordEmb(embdim).D
+            seen_words = get_seen_words(traindata[0], qsm.D, rarefreq=seenfreq, gdic=gdic)
+            seen_words_chains = get_seen_words_chains(traindata[1], csm, goldchainids, rarefreq=seenfreq, gdic=gdic)
+            traindata[0], validdata[0], testdata[0] = [replace_rare(x, seen_words, qsm.D) for x in [traindata[0], validdata[0], testdata[0]]]
+            csm._matrix = replace_rare(csm.matrix, seen_words_chains, csm.D)
 
         trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
 
@@ -545,7 +585,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0,
-        test=False, gendata=False):
+        test=False, gendata=False,
+        seenfreq=0):
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -566,6 +607,13 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         data = [qsm.matrix, eids]
         traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
         validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+
+        if seenfreq > 0:
+            gdic = q.PretrainedWordEmb(embdim).D
+            seen_words = get_seen_words(traindata[0], qsm.D, rarefreq=seenfreq, gdic=gdic)
+            seen_words_chains = get_seen_words_chains(traindata[1], csm, goldchainids, rarefreq=seenfreq, gdic=gdic)
+            traindata[0], validdata[0], testdata[0] = [replace_rare(x, seen_words, qsm.D) for x in [traindata[0], validdata[0], testdata[0]]]
+            csm._matrix = replace_rare(csm.matrix, seen_words_chains, csm.D)
 
         trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
 
