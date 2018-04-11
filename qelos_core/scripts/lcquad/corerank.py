@@ -369,17 +369,23 @@ class DotDistance(Distance):        # actually a similarity
 
 
 class FlatEncoder(torch.nn.Module):
-    def __init__(self, embdim, dims, word_dic, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0.):
+    def __init__(self, embdim, dims, word_dic, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0., meanpoolskip=False):
         """ embdim for embedder, dims is a list of dims for RNN"""
         super(FlatEncoder, self).__init__()
         self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
+        self.meanpoolskip = meanpoolskip
 
     def forward(self, x):
         embs, mask = self.emb(x)
         _ = self.lstm(embs, mask=mask)
         final_state = self.lstm.y_n[-1]
         final_state = final_state.contiguous().view(x.size(0), -1)
+        if self.meanpoolskip:
+            meanpool = embs.sum(1)
+            masksum = mask.float().sum(1).unsqueeze(1)
+            meanpool = meanpool / masksum
+            final_state = final_state + meanpool
         return final_state
 
 
@@ -448,6 +454,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
             seen_words_chains = get_seen_words_chains(traindata[1], csm, goldchainids, rarefreq=seenfreq, gdic=gdic)
             traindata[0], validdata[0], testdata[0] = [replace_rare(x, seen_words, qsm.D) for x in [traindata[0], validdata[0], testdata[0]]]
             csm._matrix = replace_rare(csm.matrix, seen_words_chains, csm.D)
+            tt.msg("replaced rare words")
 
         trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
 
@@ -566,10 +573,11 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
 
 
 class SlotPtrChainEncoder(torch.nn.Module):
-    def __init__(self, embdim, dims, word_dic, firstrellen, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0.):
+    def __init__(self, embdim, dims, word_dic, firstrellen, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0., meanpoolskip=False):
         super(SlotPtrChainEncoder, self).__init__()
         self.firstrellen = firstrellen
-        self.enc = FlatEncoder(embdim, dims, word_dic, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec, gfrac=gfrac)
+        self.enc = FlatEncoder(embdim, dims, word_dic, bidir=bidir, dropout_in=dropout_in,
+                               dropout_rec=dropout_rec, gfrac=gfrac, meanpoolskip=meanpoolskip)
 
     def forward(self, x):
         firstrels = x[:, :self.firstrellen]
@@ -614,6 +622,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
             seen_words_chains = get_seen_words_chains(traindata[1], csm, goldchainids, rarefreq=seenfreq, gdic=gdic)
             traindata[0], validdata[0], testdata[0] = [replace_rare(x, seen_words, qsm.D) for x in [traindata[0], validdata[0], testdata[0]]]
             csm._matrix = replace_rare(csm.matrix, seen_words_chains, csm.D)
+            tt.msg("replaced rare words")
 
         trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
 
@@ -635,7 +644,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         dims = [encdim//2] * numlayers
 
         question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
-        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout)
+        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout,
+                                            meanpoolskip=True)
         similarity = DotDistance()
 
         rankmodel = RankModel(question_encoder, query_encoder, similarity)
