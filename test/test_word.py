@@ -224,11 +224,13 @@ class TestGlove(TestCase):
         thegrad = plemb.embedding.weight.grad
 
         print(gradnorm)
+        print("gradient:")
+        print(thegrad)
         self.assertTrue(np.all(thegrad.data.numpy()[0, :] == 0))
         self.assertTrue(np.all(thegrad.data.numpy()[[1,2,5], :] == 1.))
         self.assertTrue(np.all(thegrad.data.numpy()[[3, 4], :] == 0.5))
 
-        print(base_out - pl_out)
+        #print(base_out - pl_out)
 
 
 class TestComputedWordEmb(TestCase):

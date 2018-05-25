@@ -13,8 +13,8 @@ OPT_LR = 0.001
 # TODO: DO RARE after loading
 
 
-def load_jsons(datap="../../../datasets/lcquad/newdata.json",
-               relp="../../../datasets/lcquad/nrelations.json",
+def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
+               relp="../../../datasets/lcquad/nrels.json",
                mode="flat"):
     """ relp: file must contain dictionary mapping relation ids (ints) to lists of words (strings)"""
     """ mode: "flat", "slotptr" """
@@ -116,11 +116,12 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         tt.tick("flattening")
 
         def flatten_chain(chainspec):
-            flatchainspec = []
             firstrel = u"" + chainspec[0] + u" " + u" ".join(rels[str(chainspec[1])])
+            firstrel = firstrel.lower()
             secondrel = u"EMPTYEMPTYEMPTY"
             if len(chainspec) > 2 and chainspec[2] != -1:
                 secondrel = u"" + chainspec[2] + u" " + u" ".join(rels[str(chainspec[3])])
+                secondrel = secondrel.lower()
             return firstrel, secondrel
 
         goldchainids = []
