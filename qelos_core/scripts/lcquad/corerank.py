@@ -66,7 +66,8 @@ def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
                     pass
                 else:
                     raise q.SumTingWongException("unexpected symbol in chain")
-            return " ".join(flatchainspec)
+            ret = " ".join(flatchainspec).lower()
+            return ret
 
         goldchainids = []
         badchainsids = []
@@ -75,7 +76,7 @@ def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
 
         qsm = q.StringMatrix()
         csm = q.StringMatrix()
-        csm.tokenize = lambda x: x.lower().strip().split()
+        csm.tokenize = lambda x: x.strip().split()
 
         def get_ensure_chainid(flatchain):
             if flatchain not in uniquechainids:
