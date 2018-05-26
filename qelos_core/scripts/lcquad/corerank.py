@@ -294,7 +294,7 @@ class BestWriter(object):
             best_scored_chain_of_example = self.csm[ranking[0][1]]
             est_truth_of_best_scored_chain = bool(ranking[0][2])
             number_of_chains_in_ranking_for_example = len(ranking)
-            line = '{{"eid": {},\n "question": "{}",\n "best_chain": "{}",\n "best_chain_est_truth": {},\n "num_chains": {}}},\n'\
+            line = '{{"eid": {},\n "question": "{}",\n "best_chain": "{}",\n "best_chain_ass_truth": {},\n "num_chains": {}}},\n'\
                 .format(eid, question_of_example, best_scored_chain_of_example, est_truth_of_best_scored_chain, number_of_chains_in_ranking_for_example)
             self.f.write(line)
         self.f.write(']\n')
