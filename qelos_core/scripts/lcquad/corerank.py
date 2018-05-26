@@ -285,19 +285,23 @@ class BestWriter(object):
         super(BestWriter, self).__init__()
         self.qsm = qsm
         self.csm = csm
-        self.f = open(p, "w")
+        self.p = p
 
     def compute(self, rankings, **kw):
-        self.f.write('[\n')
-        for eid, ranking in rankings:
-            question_of_example = self.qsm[eid]
-            best_scored_chain_of_example = self.csm[ranking[0][1]]
-            est_truth_of_best_scored_chain = str(bool(ranking[0][2])).lower()
-            number_of_chains_in_ranking_for_example = len(ranking)
-            line = '{{"eid": {},\n "question": "{}",\n "best_chain": "{}",\n "best_chain_ass_truth": {},\n "num_chains": {}}},\n'\
-                .format(eid, question_of_example, best_scored_chain_of_example, est_truth_of_best_scored_chain, number_of_chains_in_ranking_for_example)
-            self.f.write(line)
-        self.f.write(']\n')
+        ds = []
+        with open(self.p, "w") as f:
+            for eid, ranking in rankings:
+                question_of_example = self.qsm[eid]
+                best_scored_chain_of_example = self.csm[ranking[0][1]]
+                est_truth_of_best_scored_chain = str(bool(ranking[0][2])).lower()
+                number_of_chains_in_ranking_for_example = len(ranking)
+                d = {"eid": eid,
+                     "question": question_of_example,
+                     "best_chain": best_scored_chain_of_example,
+                     "best_chain_ass_truth": est_truth_of_best_scored_chain,
+                     "num_chains": number_of_chains_in_ranking_for_example}
+                ds.append(d)
+            json.dump(ds, f, indent=2, sort_keys=True)
         return 0
 
 
