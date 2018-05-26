@@ -449,7 +449,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0, mode="flat",
         test=False, gendata=False,
-        seenfreq=0):
+        seenfreq=0, beta2=0.999):
     if gendata:
         loadret = load_jsons()
         pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -507,7 +507,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # endregion
 
         # region TRAINING
-        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
+        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, betas=(0.9, beta2), weight_decay=wreg)
         trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
                    .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
 
@@ -638,7 +638,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0,
         test=False, gendata=False,
-        seenfreq=0):
+        seenfreq=0, beta2=0.9):
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -697,7 +697,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # endregion
 
         # region TRAINING
-        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
+        optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, betas=(0.9, beta2), weight_decay=wreg)
         trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
                    .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
 
