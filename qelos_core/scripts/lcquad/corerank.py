@@ -292,9 +292,10 @@ class BestWriter(object):
         for eid, ranking in rankings:
             question_of_example = self.qsm[eid]
             best_scored_chain_of_example = self.csm[ranking[0][1]]
+            est_truth_of_best_scored_chain = bool(ranking[0][2])
             number_of_chains_in_ranking_for_example = len(ranking)
-            line = "{{ 'eid': {},\n 'question': {},\n 'best_chain': {},\n 'num_chains': {}}},\n"\
-                .format(eid, question_of_example, best_scored_chain_of_example, number_of_chains_in_ranking_for_example)
+            line = "{{'eid': {},\n 'question': {},\n 'best_chain': {},\n 'best_chain_est_truth': {},\n 'num_chains': {}}},\n"\
+                .format(eid, question_of_example, best_scored_chain_of_example, est_truth_of_best_scored_chain, number_of_chains_in_ranking_for_example)
             self.f.write(line)
         self.f.write(']\n')
         return 0
@@ -573,9 +574,9 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         train_validator = WritingValidator(rankcomp_train, p=os.path.join(logger.p, "train.out"))
         valid_validator = WritingValidator(rankcomp_valid, p=os.path.join(logger.p, "valid.out"))
         test_validator = WritingValidator(rankcomp_test, p=os.path.join(logger.p, "test.out"))
-        tt.msg("computing train metrics")
-        train_results = train_validator()
-        tt.msg("train results: {}".format(train_results))
+        # tt.msg("computing train metrics")
+        # train_results = train_validator()
+        # tt.msg("train results: {}".format(train_results))
         tt.msg("computing valid metrics")
         valid_results = valid_validator()
         tt.msg("valid results: {}".format(valid_results))
