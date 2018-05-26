@@ -741,12 +741,42 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                                          csm.matrix, goldchainids, badchainids)
         rankcomp_test = RankingComputer(scoremodel, testdata[1], testdata[0],
                                         csm.matrix, goldchainids, badchainids)
-        train_validator = Validator(rankcomp_train)
-        valid_validator = Validator(rankcomp_valid)
-        test_validator = Validator(rankcomp_test)
-        tt.msg("computing train metrics")
-        train_results = train_validator()
-        tt.msg("train results: {}".format(train_results))
+
+        class WritingValidator(object):
+            def __init__(self, _rankcomp, p=None):
+                self.save_crit = -1.
+                self.rankcomp = _rankcomp
+                self.p = p
+
+            def __call__(self):
+                rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
+                                               RecallAt(5, totaltrue=1),
+                                               MRR(),
+                                               BestWriter(qsm, csm, self.p))
+                ret = []
+                for rankmetric in rankmetrics:
+                    rankmetric = np.asarray(rankmetric)
+                    # print(rankmetric.shape)
+                    ret_i = rankmetric.mean()
+                    ret.append(ret_i)
+                self.save_crit = ret[0]     # saves criterium for best saving
+                return " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+
+        train_validator = WritingValidator(rankcomp_train, p=os.path.join(logger.p, "train.out"))
+        valid_validator = WritingValidator(rankcomp_valid, p=os.path.join(logger.p, "valid.out"))
+        test_validator = WritingValidator(rankcomp_test, p=os.path.join(logger.p, "test.out"))
+        # tt.msg("computing train metrics")
+        # train_results = train_validator()
+        # tt.msg("train results: {}".format(train_results))
+
+        # region OLD --> remove
+        # train_validator = Validator(rankcomp_train)
+        # valid_validator = Validator(rankcomp_valid)
+        # test_validator = Validator(rankcomp_test)
+        # tt.msg("computing train metrics")
+        # train_results = train_validator()
+        # tt.msg("train results: {}".format(train_results))
+        # endregion
         tt.msg("computing valid metrics")
         valid_results = valid_validator()
         tt.msg("valid results: {}".format(valid_results))
