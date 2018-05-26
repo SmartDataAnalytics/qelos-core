@@ -291,8 +291,8 @@ class BestWriter(object):
         self.f.write('[\n')
         for eid, ranking in rankings:
             question_of_example = self.qsm[eid]
-            best_scored_chain_of_example = self.csm[ranking[0]]
-            number_of_chains_in_ranking_for_example = len(ranking[0])
+            best_scored_chain_of_example = self.csm[ranking[0][1]]
+            number_of_chains_in_ranking_for_example = len(ranking)
             line = "{{ 'eid': {},\n 'question': {},\n 'best_chain': {},\n 'num_chains': {}}},\n"\
                 .format(eid, question_of_example, best_scored_chain_of_example, number_of_chains_in_ranking_for_example)
             self.f.write(line)
