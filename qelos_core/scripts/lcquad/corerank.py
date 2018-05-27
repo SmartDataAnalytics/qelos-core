@@ -659,7 +659,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0,
         test=False, gendata=False,
-        seenfreq=0, beta2=0.9):
+        seenfreq=0, beta2=0.9,
+        meanpoolskip=True):
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -710,7 +711,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
         query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout,
-                                            meanpoolskip=True)
+                                            meanpoolskip=meanpoolskip)
         similarity = DotDistance()
 
         rankmodel = RankModel(question_encoder, query_encoder, similarity)
