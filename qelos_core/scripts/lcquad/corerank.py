@@ -402,6 +402,10 @@ class FlatEncoder(torch.nn.Module):
         self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
         self.meanpoolskip = meanpoolskip
+        self.adapt_lin = None
+        outdim = dims[-1] * 2
+        if meanpoolskip and outdim != embdim:
+            self.adapt_lin = torch.nn.Linear(embdim, outdim, bias=False)
 
     def forward(self, x):
         embs, mask = self.emb(x)
@@ -409,6 +413,8 @@ class FlatEncoder(torch.nn.Module):
         final_state = self.lstm.y_n[-1]
         final_state = final_state.contiguous().view(x.size(0), -1)
         if self.meanpoolskip:
+            if self.adapt_lin is not None:
+                embs = self.adapt_lin(embs)
             meanpool = embs.sum(1)
             masksum = mask.float().sum(1).unsqueeze(1)
             meanpool = meanpool / masksum
