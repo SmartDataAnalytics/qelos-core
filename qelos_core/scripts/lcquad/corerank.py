@@ -517,6 +517,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
                                    csm.matrix, goldchainids, badchainids)
+
         class Validator(object):
             def __init__(self, _rankcomp):
                 self.save_crit = -1.
@@ -601,6 +602,10 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
         self.linear = torch.nn.Linear(dims[-1]*2, 2)
         self.sm = torch.nn.Softmax(1)
+        outdim = dims[-1] * 2
+        self.adapt_lin = None
+        if outdim != embdim:
+            self.adapt_lin = torch.nn.Linear(embdim, outdim, bias=False)get_seen_words()
 
     def forward(self, x):
         embs, mask = self.emb(x)
@@ -612,7 +617,12 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
         scores = scores + torch.log(mask[:, :ys.size(1)].float().unsqueeze(2))
         scores = self.sm(scores)    # (batsize, seqlen, 2)
         # get summaries
-        nys = ys + embs[:, :ys.size(1), :]     # skipper
+        # region skipper
+        skipadd = embs[:, :ys.size(1), :]
+        if self.adapt_lin is not None:
+            skipadd = self.adapt_lin(skipadd)
+        nys = ys + skipadd
+        # endregion
         nys = nys.unsqueeze(2)      # (batsize, seqlen, 1, dim)
         scores = scores.unsqueeze(3)    # (batsize, seqlen, 2, 1)
         b = nys * scores                # (batsize, seqlen, 2, dim)
