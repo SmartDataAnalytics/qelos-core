@@ -605,7 +605,7 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
         outdim = dims[-1] * 2
         self.adapt_lin = None
         if outdim != embdim:
-            self.adapt_lin = torch.nn.Linear(embdim, outdim, bias=False)get_seen_words()
+            self.adapt_lin = torch.nn.Linear(embdim, outdim, bias=False)
 
     def forward(self, x):
         embs, mask = self.emb(x)
