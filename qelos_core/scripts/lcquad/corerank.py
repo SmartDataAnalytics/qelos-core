@@ -249,7 +249,7 @@ class RecallAt(object):
             totaltrue = 0.
             for i in range(len(ranking)):
                 _, _, trueornot = ranking[i]
-                if i <= self.k:
+                if i < self.k:
                     topktrue += trueornot
                 else:
                     if self.totaltrue is not None:
@@ -664,7 +664,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0,
         test=False, gendata=False,
-        seenfreq=0, beta2=0.9,
+        seenfreq=0, beta2=0.999,
         meanpoolskip=True):
     if gendata:
         loadret = load_jsons(mode="slotptr")
