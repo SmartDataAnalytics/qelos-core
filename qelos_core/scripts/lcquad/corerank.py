@@ -435,7 +435,7 @@ def get_seen_words(qmat, qsmD, rarefreq=1, gdic=None):
     unique_seen_words |= gwords
     all_words = set(qsmD.keys())
     rare_words = all_words - unique_seen_words
-    print("{} ({:.2f}%) rare words (from {} total), {} seen words not in g".format(len(rare_words), len(rare_words) * 1. / len(all_words), len(all_words), len(unique_seen_words - gwords)))
+    print("{} ({:.2f}%) rare words (from {} total), {} seen words not in g".format(len(rare_words), len(rare_words) * 100. / len(all_words), len(all_words), len(unique_seen_words - gwords)))
     return unique_seen_words
 
 
@@ -459,7 +459,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         embdim=50, encdim=50, numlayers=1,
         cuda=False, gpu=0, mode="flat",
         test=False, gendata=False,
-        seenfreq=0, beta2=0.999):
+        seenfreq=0, beta2=0.999,
+        validontest=False):
     if gendata:
         loadret = load_jsons()
         pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -478,8 +479,12 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         eids = np.arange(0, len(goldchainids))
 
         data = [qsm.matrix, eids]
-        traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
-        validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        if not validontest:
+            traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
+            validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        else:
+            traindata, validdata = q.datasplit(data, splits=(8, 2), random=False)
+            testdata = validdata
 
         if seenfreq > 0:
             gdic = q.PretrainedWordEmb(embdim).D
@@ -665,7 +670,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         cuda=False, gpu=0,
         test=False, gendata=False,
         seenfreq=0, beta2=0.999,
-        meanpoolskip=True):
+        meanpoolskip=True,
+        validontest=False):
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -684,8 +690,12 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         eids = np.arange(0, len(goldchainids))
 
         data = [qsm.matrix, eids]
-        traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
-        validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        if not validontest:
+            traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
+            validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        else:
+            traindata, validdata = q.datasplit(data, splits=(8, 2), random=False)
+            testdata = validdata
 
         if seenfreq > 0:
             gdic = q.PretrainedWordEmb(embdim).D
