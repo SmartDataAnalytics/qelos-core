@@ -596,6 +596,11 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         test_results = test_validator()
         tt.msg("test results: {}".format(test_results))
 
+        with open(os.path.join(logger.p, "results.txt"), "w") as f:
+            f.write("train results: {}\n".format(train_results))
+            f.write("valid results: {}\n".format(valid_results))
+            f.write("test results: {}\n".format(test_results))
+
         tt.tock("computed metrics")
         # endregion
 
@@ -806,6 +811,11 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         tt.msg("computing test results")
         test_results = test_validator()
         tt.msg("test results: {}".format(test_results))
+
+        with open(os.path.join(logger.p, "results.txt"), "w") as f:
+            f.write("train results: {}\n".format(train_results))
+            f.write("valid results: {}\n".format(valid_results))
+            f.write("test results: {}\n".format(test_results))
 
         tt.tock("computed metrics")
         # endregion
