@@ -352,11 +352,22 @@ class RankModel(torch.nn.Module):
         psim = self.sim(lvecs, rvecs)    # 1D:(batsize,)
         nsim = self.sim(lvecs, nrvecs)
 
+        return self.compute_loss(psim, nsim)
+
+    def compute_loss(self, psim, nsim):
         diffs = psim - nsim
         zeros = q.var(torch.zeros_like(diffs.data)).cuda(diffs).v
         losses = torch.max(zeros, self.margin - diffs)
-
         return losses
+
+
+class RankModelPointwise(RankModel):
+    def compute_loss(self, psim, nsim):
+        ploss = -torch.log(torch.nn.Sigmoid(psim))
+        nloss = -torch.log(1 - torch.nn.Sigmoid(nsim))
+        interp = (torch.randn(ploss.size()) > 0).float()
+        loss = ploss * interp + nloss * (1 - interp)
+        return loss
 
 
 class ScoreModel(torch.nn.Module):
@@ -460,7 +471,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         cuda=False, gpu=0, mode="flat",
         test=False, gendata=False,
         seenfreq=0, beta2=0.999,
-        validontest=False):
+        validontest=False,
+        pointwise=False):
     if gendata:
         loadret = load_jsons()
         pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -517,7 +529,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         query_encoder = FlatEncoder(embdim, dims, csm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout)
         similarity = DotDistance()
 
-        rankmodel = RankModel(question_encoder, query_encoder, similarity)
+        rankmc = RankModel if not pointwise else RankModelPointwise
+        rankmodel = rankmc(question_encoder, query_encoder, similarity)
         scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
         # endregion
 
@@ -671,7 +684,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         test=False, gendata=False,
         seenfreq=0, beta2=0.999,
         meanpoolskip=True,
-        validontest=False):
+        validontest=False,
+        pointwise=False):
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -729,7 +743,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                                             meanpoolskip=meanpoolskip)
         similarity = DotDistance()
 
-        rankmodel = RankModel(question_encoder, query_encoder, similarity)
+        rankmc = RankModel if not pointwise else RankModelPointwise
+        rankmodel = rankmc(question_encoder, query_encoder, similarity)
         scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
         # endregion
 
