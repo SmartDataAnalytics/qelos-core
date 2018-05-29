@@ -363,8 +363,8 @@ class RankModel(torch.nn.Module):
 
 class RankModelPointwise(RankModel):
     def compute_loss(self, psim, nsim):
-        ploss = -torch.log(torch.max(1e-8, torch.nn.functional.sigmoid(psim)))
-        nloss = -torch.log(torch.max(1e-8, 1 - torch.nn.functional.sigmoid(nsim)))
+        ploss = -torch.log(torch.clamp(torch.nn.functional.sigmoid(psim), 1e-8, np.infty))
+        nloss = -torch.log(torch.clamp(1 - torch.nn.functional.sigmoid(nsim), 1e-8, np.infty))
         interp = q.var((torch.randn(ploss.size()) > 0).float()).cuda(psim).v
         loss = ploss * interp + nloss * (1 - interp)
         return loss
