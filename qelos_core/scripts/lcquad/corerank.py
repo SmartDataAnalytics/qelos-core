@@ -727,8 +727,12 @@ class NattScoreModel(torch.nn.Module):
         self.similarity = similarity
 
     def forward(self, ldata, rdata):
-        #ldata = ldata if q.issequence(ldata) else (ldata,)
-        #rdata = rdata if q.issequence(rdata) else (rdata,)
+        ldata = ldata if q.issequence(ldata) else (ldata,)
+        rdata = rdata if q.issequence(rdata) else (rdata,)
+
+        assert(len(ldata) == 1)
+        assert(len(rdata) == 1)
+        ldata, rdata = ldata[0], rdata[0]
 
         # encode rels
         firstrels = rdata[:, :self.firstrellen]
@@ -751,10 +755,13 @@ class NattScoreModel(torch.nn.Module):
         # compute summaries
         first_sum = ys * first_att
         second_sum = ys * second_att
-        first_sum = first_sum.sum(1).squeeze()
-        second_sum = second_sum.sum(1).squeeze()
+        first_sum = first_sum.sum(1)
+        second_sum = second_sum.sum(1)
 
-        q_enc = torch.cat([first_sum, second_sum], 1)
+        try:
+            q_enc = torch.cat([first_sum, second_sum], 1)
+        except RuntimeError as e:
+            pass
 
         sim = self.similarity(q_enc, r_enc)
         return sim
