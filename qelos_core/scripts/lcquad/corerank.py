@@ -583,7 +583,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
                                                RecallAt(5, totaltrue=1),
                                                MRR(),
-                                               BestWriter(qsm, csm, os.path.join(logger.p, "valid.out.temp")))
+                                               BestWriter(qsm, csm_bak, os.path.join(logger.p, "valid.out.temp")))
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
@@ -838,7 +838,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
                                                RecallAt(5, totaltrue=1),
                                                MRR(),
-                                               BestWriter(qsm, csm, self.p))
+                                               BestWriter(qsm, csm_bak, self.p))
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
