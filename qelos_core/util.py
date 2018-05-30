@@ -43,6 +43,16 @@ class StringMatrix():
         self.tokenize = tokenize
         self._cache_p = None
 
+    def clone(self):
+        n = StringMatrix()
+        n.tokenize = self.tokenize
+        if self._matrix is not None:
+            n._matrix = self._matrix.copy()
+            n._dictionary = self._dictionary.copy()
+            n._rd = self._rd.copy()
+
+        n._strings = self._strings
+
     def __len__(self):
         if self._matrix is None:
             return len(self._strings)

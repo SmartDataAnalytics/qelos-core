@@ -463,7 +463,7 @@ def get_seen_words_chains(eids, csm, goldchains, rarefreq=1, gdic=None):
 
 
 def replace_rare(mat, words, D):
-    ids = set([D[word] for word in words if word in D])
+    ids = set([D[word] for word in words if word in D])     # these ids are preserved
     outmat = np.vectorize(lambda x: D["<RARE>"] if x not in ids else x)(mat)
     return outmat
 
@@ -524,6 +524,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region DATA
         tt.tick("loading data")
         qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.flat.pkl"))
+        csm_bak = csm.clone()
         # loadcache contains both lcquad and qald: 5000 first questions: lcquad, 178 following: qald train, rest: qald test
         eids = np.arange(0, len(goldchainids))
 
@@ -622,7 +623,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
                                                RecallAt(5, totaltrue=1),
                                                MRR(),
-                                               BestWriter(qsm, csm, self.p))
+                                               BestWriter(qsm, csm_bak, self.p))
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
@@ -736,6 +737,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region DATA
         tt.tick("loading data")
         qsm, csm, maxfirstrellen, goldchainids, badchainids = pickle.load(open("loadcache.slotptr.pkl"))
+        csm_bak = csm.clone()
         # loadcache contains both lcquad and qald: 5000 first questions: lcquad, 178 following: qald train, rest: qald test
         eids = np.arange(0, len(goldchainids))
 
@@ -796,7 +798,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 rankmetrics = self.rankcomp.compute(RecallAt(1, totaltrue=1),
                                                     RecallAt(5, totaltrue=1),
                                                     MRR(),
-                                                    BestWriter(qsm, csm, os.path.join(logger.p, "valid.out.temp")))
+                                                    BestWriter(qsm, csm_bak, os.path.join(logger.p, "valid.out.temp")))
                 ret = []
                 for rankmetric in rankmetrics:
                     rankmetric = np.asarray(rankmetric)
