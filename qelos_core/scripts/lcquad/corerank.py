@@ -468,6 +468,38 @@ def replace_rare(mat, words, D):
     return outmat
 
 
+def get_data(qsm, eids, datamode="normal", validontest=False):
+    data = [qsm.matrix, eids]
+    if validontest:
+        print("WONG!: VALID ON TEST")
+        if datamode != "normal":
+            raise q.SumTingWongException("validontest not supported with this datamode")
+    if datamode == "normal":  # only do lcquad
+        data = [datai[:5000] for datai in data]
+        if not validontest:
+            traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
+            validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
+        else:
+            traindata, validdata = q.datasplit(data, splits=(8, 2), random=False)
+            testdata = validdata
+
+    elif datamode == "qald":    # only qald
+        data = [datai[5000:] for datai in data]
+        traindata, validdata, testdata = q.datasplit(data, splits=(157, 22, 41), random=False)
+
+    elif datamode == "transfer1":   # train on lcquad + 7/8 qald train, valid on 1/8 qald train, test on qald test
+        traindata, validdata, testdata = q.datasplit(data, splits=(5157, 22, 41), random=False)
+
+    elif datamode == "transfer2":   # train on lcquad
+        traindata, validdata, testdata, qalddata, _ = q.datasplit(data, splits=(3500, 500, 1000, 179, 41), random=False)
+        traindata = [np.concatenate([traindata[i], qalddata[i]], axis=0) for i in range(len(traindata))]
+
+    else:
+        raise q.SumTingWongException("unknown mode: {}".format(datamode))
+
+    return traindata, validdata, testdata
+
+
 def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
@@ -475,7 +507,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         test=False, gendata=False,
         seenfreq=0, beta2=0.999,
         validontest=False,
-        pointwise=False):
+        pointwise=False,
+        datamode="normal"):     # normal, transfer1, transfer2
     if gendata:
         loadret = load_jsons()
         pickle.dump(loadret, open("loadcache.flat.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -491,15 +524,10 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region DATA
         tt.tick("loading data")
         qsm, csm, goldchainids, badchainids = pickle.load(open("loadcache.flat.pkl"))
+        # loadcache contains both lcquad and qald: 5000 first questions: lcquad, 178 following: qald train, rest: qald test
         eids = np.arange(0, len(goldchainids))
 
-        data = [qsm.matrix, eids]
-        if not validontest:
-            traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
-            validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
-        else:
-            traindata, validdata = q.datasplit(data, splits=(8, 2), random=False)
-            testdata = validdata
+        traindata, validdata, testdata = get_data(qsm, eids, datamode=datamode, validontest=validontest)
 
         if seenfreq > 0:
             gdic = q.PretrainedWordEmb(embdim).D
