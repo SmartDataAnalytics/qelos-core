@@ -775,6 +775,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         rankmc = RankModel if not pointwise else RankModelPointwise
         rankmodel = rankmc(question_encoder, query_encoder, similarity)
+        print("rankmc: {}".format(rankmc.__name__))
         scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
         # endregion
 
