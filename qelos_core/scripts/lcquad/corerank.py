@@ -56,18 +56,21 @@ def load_jsons(datap="../../../datasets/lcquad/all_data.json",
         tt.tick("flattening")
 
         def flatten_chain(chainspec):
-            flatchainspec = []
-            for x in chainspec:
-                if x in (u"+", u"-"):
-                    flatchainspec.append(x)
-                elif x > -1:
-                    relwords = rels[str(x)]
-                    flatchainspec += relwords
-                elif x == -1:
-                    pass
-                else:
-                    raise q.SumTingWongException("unexpected symbol in chain")
-            ret = " ".join(flatchainspec).lower()
+            if len(chainspec) == 0:
+                ret = u"EMPTYEMPTYEMPTY"
+            else:
+                flatchainspec = []
+                for x in chainspec:
+                    if x in (u"+", u"-"):
+                        flatchainspec.append(x)
+                    elif x > -1:
+                        relwords = rels[str(x)]
+                        flatchainspec += relwords
+                    elif x == -1:
+                        pass
+                    else:
+                        raise q.SumTingWongException("unexpected symbol in chain")
+                ret = u" ".join(flatchainspec).lower()
             return ret
 
         goldchainids = []
