@@ -52,6 +52,7 @@ class StringMatrix():
             n._rd = self._rd.copy()
 
         n._strings = self._strings
+        return n
 
     def __len__(self):
         if self._matrix is None:
