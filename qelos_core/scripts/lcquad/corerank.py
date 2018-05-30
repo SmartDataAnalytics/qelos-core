@@ -13,7 +13,7 @@ OPT_LR = 0.001
 # TODO: DO RARE after loading
 
 
-def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
+def load_jsons(datap="../../../datasets/lcquad/all_data.json",
                relp="../../../datasets/lcquad/nrels.json",
                mode="flat"):
     """ relp: file must contain dictionary mapping relation ids (ints) to lists of words (strings)"""
@@ -33,8 +33,9 @@ def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
     for dataitem in data:
         questions.append(dataitem["parsed-data"]["corrected_question"])
         goldchain = []
-        for x in dataitem["parsed-data"]["path_id"]:
-            goldchain += [x[0], int(x[1:])]
+        if not dataitem["parsed-data"]["path_id"] == [-1]:
+            for x in dataitem["parsed-data"]["path_id"]:
+                goldchain += [x[0], int(x[1:])]
         goldchains.append(goldchain)
         badchainses = []
         goldfound = False
@@ -117,8 +118,10 @@ def load_jsons(datap="../../../datasets/lcquad/id_big_data.json",
         tt.tick("flattening")
 
         def flatten_chain(chainspec):
-            firstrel = u"" + chainspec[0] + u" " + u" ".join(rels[str(chainspec[1])])
-            firstrel = firstrel.lower()
+            firstrel = u"EMPTYEMPTYEMPTY"
+            if len(chainspec) > 0:
+                firstrel = u"" + chainspec[0] + u" " + u" ".join(rels[str(chainspec[1])])
+                firstrel = firstrel.lower()
             secondrel = u"EMPTYEMPTYEMPTY"
             if len(chainspec) > 2 and chainspec[2] != -1:
                 secondrel = u"" + chainspec[2] + u" " + u" ".join(rels[str(chainspec[3])])
