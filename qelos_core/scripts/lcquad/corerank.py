@@ -666,6 +666,7 @@ class SlotPtrQuestionEncoder(torch.nn.Module):
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
         self.linear = torch.nn.Linear(dims[-1]*2, 2)
         self.sm = torch.nn.Softmax(1)
+        # for adapter
         outdim = dims[-1] * 2
         self.adapt_lin = None
         self.noskip = noskip
@@ -714,6 +715,67 @@ class SlotPtrChainEncoder(torch.nn.Module):
         return enc
 
 
+class NattScoreModel(torch.nn.Module):
+    def __init__(self, embdim, dims, qsmD, csmD, maxfirstrellen, similarity, bidir=True, dropout_in=0., dropout_rec=0., gfrac=0.):
+        super(NattScoreModel, self).__init__()
+        self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=qsmD, gradfracs=(1., gfrac))
+        self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
+        self.sm = torch.nn.Softmax(1)
+        self.firstrellen = maxfirstrellen
+        self.enc = FlatEncoder(embdim, dims, csmD, bidir=bidir, dropout_in=dropout_in,
+                               dropout_rec=dropout_rec, gfrac=gfrac)
+        self.similarity = similarity
+
+    def forward(self, ldata, rdata):
+        #ldata = ldata if q.issequence(ldata) else (ldata,)
+        #rdata = rdata if q.issequence(rdata) else (rdata,)
+
+        # encode rels
+        firstrels = rdata[:, :self.firstrellen]
+        secondrels = rdata[:, self.firstrellen:]
+        firstrels_enc = self.enc(firstrels)
+        secondrels_enc = self.enc(secondrels)
+
+        r_enc = torch.cat([firstrels_enc, secondrels_enc], 1)
+
+        # encode question
+        embs, mask = self.emb(ldata)
+        ys = self.lstm(embs, mask=mask)
+
+        # compute attentions
+        first_att = torch.bmm(ys, firstrels_enc.unsqueeze(2))
+        second_att = torch.bmm(ys, secondrels_enc.unsqueeze(2))
+        first_att = self.sm(first_att)
+        second_att = self.sm(second_att)
+
+        # compute summaries
+        first_sum = ys * first_att
+        second_sum = ys * second_att
+        first_sum = first_sum.sum(1).squeeze()
+        second_sum = second_sum.sum(1).squeeze()
+
+        q_enc = torch.cat([first_sum, second_sum], 1)
+
+        sim = self.similarity(q_enc, r_enc)
+        return sim
+
+
+class NattRankModel(RankModel):
+    def __init__(self, scoremodel, margin=1.):
+        super(NattRankModel, self).__init__(scoremodel, None, None, margin=margin)
+        self.scoremodel = scoremodel
+
+    def forward(self, ldata, posrdata, negrdata):
+        psim = self.scoremodel(ldata, posrdata)
+        nsim = self.scoremodel(ldata, negrdata)
+        loss = self.compute_loss(psim, nsim)
+        return loss
+
+
+class NattRankModelPointwise(NattRankModel, RankModelPointwise):
+    pass
+
+
 def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         wreg=0.00000000001, dropout=0.1,
         embdim=50, encdim=50, numlayers=1,
@@ -724,7 +786,8 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         noskip=False,
         validontest=False,
         pointwise=False,
-        datamode="normal"):
+        datamode="normal",
+        mode="slot"):       # "slot" or "natt"
     if gendata:
         loadret = load_jsons(mode="slotptr")
         pickle.dump(loadret, open("loadcache.slotptr.pkl", "w"), protocol=pickle.HIGHEST_PROTOCOL)
@@ -771,17 +834,26 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # endregion
 
         # region MODEL
-        dims = [encdim//2] * numlayers
-
-        question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout, noskip=noskip)
-        query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout,
-                                            meanpoolskip=meanpoolskip)
         similarity = DotDistance()
+        if mode == "slot":
+            dims = [encdim//2] * numlayers
 
-        rankmc = RankModel if not pointwise else RankModelPointwise
-        rankmodel = rankmc(question_encoder, query_encoder, similarity)
-        print("rankmc: {}".format(rankmc.__name__))
-        scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
+            question_encoder = SlotPtrQuestionEncoder(embdim, dims, qsm.D, bidir=True, dropout_in=dropout, dropout_rec=dropout, noskip=noskip)
+            query_encoder = SlotPtrChainEncoder(embdim, dims, csm.D, maxfirstrellen, bidir=True, dropout_in=dropout, dropout_rec=dropout,
+                                                meanpoolskip=meanpoolskip)
+
+            rankmc = RankModel if not pointwise else RankModelPointwise
+            rankmodel = rankmc(question_encoder, query_encoder, similarity)
+            print("rankmc: {}".format(rankmc.__name__))
+            scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
+        elif mode == "natt":
+            dims = [encdim//2] * numlayers
+            scoremodel = NattScoreModel(embdim, dims, qsm.D, csm.D, maxfirstrellen, similarity=similarity, bidir=True,
+                                        dropout_in=dropout, dropout_rec=dropout)
+            rankmc = NattRankModel if not pointwise else NattRankModelPointwise
+            rankmodel = rankmc(scoremodel)
+        else:
+            raise q.SumTingWongException("unknown mode: {}".format(mode))
         # endregion
 
         # region TRAINING
