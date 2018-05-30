@@ -735,15 +735,10 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region DATA
         tt.tick("loading data")
         qsm, csm, maxfirstrellen, goldchainids, badchainids = pickle.load(open("loadcache.slotptr.pkl"))
+        # loadcache contains both lcquad and qald: 5000 first questions: lcquad, 178 following: qald train, rest: qald test
         eids = np.arange(0, len(goldchainids))
 
-        data = [qsm.matrix, eids]
-        if not validontest:
-            traindata, validdata = q.datasplit(data, splits=(7, 3), random=False)
-            validdata, testdata = q.datasplit(validdata, splits=(1, 2), random=False)
-        else:
-            traindata, validdata = q.datasplit(data, splits=(8, 2), random=False)
-            testdata = validdata
+        traindata, validdata, testdata = get_data(qsm, eids, datamode=datamode, validontest=validontest)
 
         if seenfreq > 0:
             gdic = q.PretrainedWordEmb(embdim).D
