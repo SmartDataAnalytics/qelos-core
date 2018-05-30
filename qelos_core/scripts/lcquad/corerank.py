@@ -719,7 +719,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         meanpoolskip=True,
         noskip=False,
         validontest=False,
-        pointwise=False
+        pointwise=False,
         datamode="normal"):
     if gendata:
         loadret = load_jsons(mode="slotptr")
