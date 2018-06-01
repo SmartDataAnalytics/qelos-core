@@ -779,6 +779,7 @@ class NattRankModel(RankModel):
         return loss
 
 
+
 class NattRankModelPointwise(NattRankModel, RankModelPointwise):
     pass
 
