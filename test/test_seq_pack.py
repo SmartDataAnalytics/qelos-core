@@ -6,13 +6,13 @@ import numpy as np
 
 class Test_seq_pack_unpack(TestCase):
     def test_it(self):
-        seq = q.var(torch.randn(5, 10, 4)).v
+        seq = torch.randn(5, 10, 4)
         lens = np.random.randint(1, 10, (5,))
         mask = np.zeros((5, 10))
         for i in range(mask.shape[0]):
             mask[i, :lens[i]] = 1
         print(mask)
-        mask = q.var(mask).v.byte()
+        mask = torch.tensor(mask, dtype=torch.uint8)
         o, us = q.seq_pack(seq, mask)
         # print(seq[:, :, 0])
         # print(o[:, :, 0])

@@ -52,7 +52,7 @@ class PairRankingLoss(Loss):
         else:
             margin = self.margin
 
-        zeros = q.var(torch.zeros(x.size(0))).cuda(x).v
+        zeros = torch.zeros(x.size(0)).to(x.device)
         if x.dim() == 1:
             loss = torch.max(zeros, margin * self.scale - x)
         elif x.dim() == 2:
@@ -119,7 +119,7 @@ class SeqLoss(nn.Module):       # TODO: take end of sequence token into account
             outmask = ignoremask.long().sum(1) > 0
             totals = ignoremask.float().sum(1)
         else:
-            totals = q.var(torch.FloatTensor(l.size(0))).cuda(l).v
+            totals = torch.FloatTensor(l.size(0)).to(l.device)
             totals.data.fill_(l.size(1))
 
         if self.time_agg == "sum":
@@ -164,7 +164,7 @@ class NLLLoss(DiscreteLoss):
             logprobs = logprobs * weights
 
         if ignoremask is not None:      # GATHER solution
-            _logprobs_cpy = q.var(torch.zeros(logprobs.size())).cuda(logprobs).v
+            _logprobs_cpy = torch.zeros(logprobs.size()).to(logprobs.device)
             _c_logprobs = torch.stack([_logprobs_cpy, logprobs], 1)
             logprobs = _c_logprobs.gather(1, ignoremask.unsqueeze(1).long())
 
@@ -227,7 +227,7 @@ class RankingLoss(DiscreteLoss):
         goldexamplemask = None
 
         if self.negmode == "random" or self.negmode == "negall":
-            sampledist = q.var(scores.data.new(scores.size())).cuda(scores).v
+            sampledist = scores.data.new(scores.size()).to(scores.device)
             sampledist.data.fill_(1.)
             sampledist.data.scatter_(1, gold.data.unsqueeze(1), 0)
             filtermask = scores > -np.infty
@@ -241,7 +241,7 @@ class RankingLoss(DiscreteLoss):
                 sampledist = sampledist * cutoffmask.float()
             if (sampledist.data.sum(1) > 0).long().sum() < gold.size(0):
                 # force to sample gold
-                gold_onehot = q.var(torch.ByteTensor(sampledist.size())).cuda(sampledist).v
+                gold_onehot = torch.ByteTensor(sampledist.size()).to(sampledist.device)
                 gold_onehot.data.fill_(0)
                 gold_onehot.data.scatter_(1, gold.data.unsqueeze(1), 1)
                 goldexamplemask = (sampledist.sum(1) != 0)

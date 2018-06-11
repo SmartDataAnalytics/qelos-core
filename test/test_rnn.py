@@ -112,7 +112,7 @@ class TestFastestLSTMBidirMasked(TestCase):
         mask[2, :5] = 1
         mask[3, :1] = 1
         mask[4, :4] = 1
-        mask = q.var(mask).v
+        mask = torch.tensor(mask)
 
         y = lstm(x, mask=mask)
         self.batsize, self.seqlen = batsize, seqlen
@@ -179,7 +179,7 @@ class TestFastestLSTMBidirMaskedWithDropout(TestCase):
         mask[2, :5] = 1
         mask[3, :1] = 1
         mask[4, :4] = 1
-        mask = q.var(mask).v
+        mask = torch.tensor(mask)
 
         assert(lstm.training)
 

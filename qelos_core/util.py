@@ -43,6 +43,17 @@ class StringMatrix():
         self.tokenize = tokenize
         self._cache_p = None
 
+    def clone(self):
+        n = StringMatrix()
+        n.tokenize = self.tokenize
+        if self._matrix is not None:
+            n._matrix = self._matrix.copy()
+            n._dictionary = self._dictionary.copy()
+            n._rd = self._rd.copy()
+
+        n._strings = self._strings
+        return n
+
     def __len__(self):
         if self._matrix is None:
             return len(self._strings)
@@ -671,11 +682,11 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     # 2. sort by length
     assert(lens.dim() == 1)
     _, sortidxs = torch.sort(lens, descending=True)
-    unsorter = var(torch.zeros(sortidxs.size())).cuda(sortidxs).v.long()
+    unsorter = torch.zeros(sortidxs.size()).to(sortidxs.device).long()
     # print ("test unsorter")
     # print (unsorter)
     unsorter.data.scatter_(0, sortidxs.data,
-                           q.var(torch.arange(0, len(unsorter))).cuda(sortidxs).v.data.long())
+                           torch.arange(0, len(unsorter), dtype=torch.int64, device=sortidxs.device))
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
     sortedmsk = torch.index_select(mask, 0, sortidxs)
@@ -690,7 +701,7 @@ def seq_unpack(x, order, padding_value=0):
         returns padded sequence (un-sorted by "order") and a binary 2D mask (batsize, seqlen),
             where padded sequence is padded with "padding_value" """
     unpacked, lens = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True, padding_value=padding_value)
-    mask = var(torch.zeros(len(lens), max(lens))).cuda(unpacked).v.long()
+    mask = torch.zeros(len(lens), max(lens), dtype=torch.int64, device=unpacked.device)
     for i, l in enumerate(lens):
         mask.data[i, :l] = 1
     out = torch.index_select(unpacked, 0, order)        # same as: unpacked[order]

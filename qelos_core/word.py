@@ -75,7 +75,7 @@ class WordEmbBase(WordVecBase, nn.Module):
         try:
             if q.isstring(word):
                 word = self.D[word]
-            wordid = q.var(torch.LongTensor([word])).v
+            wordid = torch.LongTensor([word])
             ret, _ = self(wordid)
             return ret.squeeze(0).data.numpy()
         except Exception:
@@ -119,7 +119,7 @@ class ZeroWordEmb(WordEmbBase):
 
     def forward(self, x):
         outsize = x.size() + (self.dim,)
-        zeros = q.var(torch.zeros(*outsize)).cuda(x).v
+        zeros = torch.zeros(*outsize, device=x.device)
         mask = None
         if self.maskid is not None:
             mask = (x != self.maskid).int()
@@ -490,7 +490,7 @@ class WordLinoutBase(WordVecBase, nn.Module):
         try:
             if q.isstring(word):
                 word = self.D[word]
-            wordid = q.var(torch.LongTensor([word])).v
+            wordid = torch.LongTensor([word])
             ret = self._getvector(wordid)
             return ret.squeeze().data.numpy()
         except Exception as e:
@@ -525,7 +525,7 @@ class ZeroWordLinout(WordLinoutBase):
 
     def forward(self, x, _ret_cosnorm=False, **kw):
         outsize = x.size()[:-1] + (self.outdim,)
-        zeros = q.var(torch.zeros(*outsize)).cuda(x).v
+        zeros = torch.zeros(*outsize, device=x.device)
         if _ret_cosnorm:
             return zeros, torch.sum(zeros, 0).unsqueeze(0)
         return zeros
@@ -650,7 +650,7 @@ class ComputedWordLinout(WordLinoutBase):
                 indim = comp_weight.size(1)
                 # if self.base_weight is None or self.base_weight.size(1) != indim:
                 #     self.base_weight = q.var(torch.zeros(1, indim)).cuda(x).v
-                base_weight = q.var(torch.zeros(1, indim)).cuda(x).v
+                base_weight = torch.zeros(1, indim, device=x.device)
                 weight = torch.cat([base_weight, comp_weight], 0)      # prepend a zero vector for masked ones
                 index_transform = (torch.cumsum(msk, 0) * msk).long()
                 weight = weight.index_select(0, index_transform)
@@ -659,7 +659,7 @@ class ComputedWordLinout(WordLinoutBase):
                 comp_weight = self.computer(data_select)        # (num_data_select, indim)
                 comp_weight = comp_weight.contiguous()
                 indim = comp_weight.size(1)
-                weight = q.var(torch.zeros(mask.size(1), indim)).cuda(x).v
+                weight = torch.zeros(mask.size(1), indim, device=x.device)
         else:
             weight = self.computer(self.data)
             weight = weight.contiguous()

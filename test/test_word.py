@@ -119,33 +119,33 @@ class TestWordEmbOverriding(TestCase):
 
     def test_sameasover(self):
         words = "the his monkey key"
-        pred, msk = self.emb(q.var(torch.LongTensor([self.emb * x for x in words.split()])).v)
+        pred, msk = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
         pred = pred.data.numpy()
-        gpred, _ = self.overemb(q.var(torch.LongTensor([self.overemb * x for x in words.split()])).v)
+        gpred, _ = self.overemb(torch.LongTensor([self.overemb * x for x in words.split()]))
         gpred = gpred.data.numpy()
         self.assertTrue(np.allclose(pred, gpred))
 
     def test_sameasbase(self):
         words = "inception earlgrey <MASK>"
-        pred, mask = self.emb(q.var(torch.LongTensor([self.emb * x for x in words.split()])).v)
+        pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
         pred = pred.data.numpy()
-        gpred, msk = self.baseemb(q.var(torch.LongTensor([self.baseemb * x for x in words.split()])).v)
+        gpred, msk = self.baseemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
         gpred = gpred.data.numpy()
         self.assertTrue(np.allclose(pred, gpred))
 
     def test_notasover(self):
         words = "inception earlgrey"
-        pred, mask = self.emb(q.var(torch.LongTensor([self.emb * x for x in words.split()])).v)
+        pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
         pred = pred.data.numpy()
-        gpred, _ = self.overemb(q.var(torch.LongTensor([self.baseemb * x for x in words.split()])).v)
+        gpred, _ = self.overemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
         gpred = gpred.data.numpy()
         self.assertFalse(np.allclose(pred, gpred))
 
     def test_notasbase(self):
         words = "the his monkey key"
-        pred, mask = self.emb(q.var(torch.LongTensor([self.emb * x for x in words.split()])).v)
+        pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
         pred = pred.data.numpy()
-        gpred, msk = self.baseemb(q.var(torch.LongTensor([self.baseemb * x for x in words.split()])).v)
+        gpred, msk = self.baseemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
         gpred = gpred.data.numpy()
         self.assertFalse(np.allclose(pred, gpred))
 
@@ -193,8 +193,8 @@ class TestGlove(TestCase):
             if k not in subclone.D:
                 self.assertTrue(k not in self.glove.D)
             else:
-                subclonemb = subclone(q.var(np.asarray([subclone.D[k]])).v)[0].data.numpy()
-                gloveemb = self.glove(q.var(np.asarray([self.glove.D[k]])).v)[0].data.numpy()
+                subclonemb = subclone(torch.tensor(np.asarray([subclone.D[k]])))[0].numpy()
+                gloveemb = self.glove(torch.tensor(np.asarray([self.glove.D[k]])))[0].numpy()
                 self.assertTrue(np.allclose(subclonemb, gloveemb))
         pass
 
@@ -210,7 +210,7 @@ class TestGlove(TestCase):
                          value=baseemb.base.embedding.weight.data.numpy(),
                          gradfracs=(1., 0.5))
 
-        x = q.var(np.asarray([0, 1, 2, 3, 4, 5]).astype("int64")).v
+        x = torch.tensor(np.asarray([0, 1, 2, 3, 4, 5]), dtype=torch.int64)
         base_out, base_mask = baseemb(x)
         pl_out, mask = plemb(x)
 
@@ -335,7 +335,6 @@ class TestCosineWordLinout(TestCase):
             for j in range(8):
                 self.assertTrue(np.allclose(y[i, j], np.dot(x[i], w[j]) / (np.linalg.norm(x[i], 2) * np.linalg.norm(w[j], 2))))
 
-        x = q.var(x).v
         ny, cosnorm = self.linout(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1./2)
@@ -412,7 +411,7 @@ class TestAdaptedWordLinout(TestCase):
         EPS = 1e-6
         self.adapted.inner.cosnorm = True
         xval = np.stack([self.adapted % "the", self.adapted % "a"], axis=0)
-        x = q.var(xval).v
+        x = xval
         pred = self.adapted(x)
         self.assertEqual(pred.size(), (2, 8))
         prednp = pred.data.numpy()
@@ -459,7 +458,7 @@ class TestOverriddenWordLinout(TestCase):
         EPS = 1e-12
         self.base.cosnorm = True
         self.over.cosnorm = True
-        x = q.var(np.stack([self.base % x for x in "the a his".split()], axis=0)).v
+        x = torch.tensor(np.stack([self.base % x for x in "the a his".split()], axis=0))
         pred = self.overridden(x)
         self.assertEqual(pred.size(), (3, 51))
         prednp = pred.data.numpy()
@@ -622,7 +621,7 @@ class TestMergedWordLinout(TestCase):
 
     def test_cosiner(self):
         self.linout.cosnorm = True
-        x = q.var(np.random.random((5, 50)).astype("float32")).v
+        x = torch.tensor(np.random.random((5, 50)), dtype=torch.float32)
         pred = self.linout(x)
         self.assertTrue(np.all(pred.data.numpy() <= 1.))
         self.assertTrue(np.all(pred.data.numpy() >= -1.))

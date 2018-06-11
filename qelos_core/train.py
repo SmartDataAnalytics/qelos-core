@@ -97,8 +97,8 @@ class LossAndAgg(Aggregator):
         self.update_agg(lp, numex)
         return l
 
-    def cuda(self, *a, **kw):
-        self.loss.cuda(*a, **kw)
+    def device(self, device):
+        self.loss.to(device)
 
     def set_name(self, name):
         self.name = name
@@ -185,9 +185,9 @@ class lossarray(EventEmitter):
         ret = " - ".join(["{:.4f}".format(aggout) for aggout in aggouts])
         return ret
 
-    def cuda(self, *a, **kw):
+    def device(self, device):
         for loss in self.losses:
-            loss.cuda(*a, **kw)
+            loss.device(device)
 
     def push_and_reset(self, epoch=None):
         self.do_callbacks(self.BEFORE_PUSH)
@@ -206,21 +206,20 @@ class eval(object):
     def __init__(self, model):
         super(eval, self).__init__()
         self.model = model
-        self.usecuda = False
-        self.cudaargs = ([], {})
+        self.device = torch.device("cpu")
         self.transform_batch_inp = None
         self.transform_batch_out = None
         self.dataloader = None
         self.tt = ticktock("eval")
 
-    def cuda(self, usecuda, *args, **kwargs):
-        self.usecuda = usecuda
-        self.cudaargs = (args, kwargs)
+    def device(self, device):
+        """ device for created data"""
+        self.device = device
         return self
 
     def initialize(self):
-        if self.usecuda:
-            self.model.cuda(*self.cudaargs[0], **self.cudaargs[1])
+        print("WARNING: not setting model's device! ")
+        pass
 
     def on(self, dataloader):
         self.dataloader = dataloader
@@ -247,7 +246,7 @@ class eval(object):
         self.model.eval()
         outs = []
         for i, batch in enumerate(self.dataloader):
-            batch = [q.var(batch_e, volatile=True).cuda(self.usecuda).v for batch_e in batch]
+            batch = [batch_e.to(self.device) for batch_e in batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*batch)
 
@@ -373,8 +372,7 @@ class trainer(EventEmitter, AutoHooker):
         self.max_epochs = None
         self.current_epoch = 0
         self.stop_training = None
-        self.usecuda = False
-        self.cudaargs = ([], {})
+        self.device = torch.device("cpu")
         self.optim = None
         self.transform_batch_inp = None
         self.transform_batch_out = None
@@ -393,15 +391,12 @@ class trainer(EventEmitter, AutoHooker):
         else:
             return super(trainer, self).hook(f, *es, **kw)
 
-    def cuda(self, usecuda, *args, **kwargs):
-        self.usecuda = usecuda
-        self.cudaargs = (args, kwargs)
+    def device(self, device):
+        self.device = device
         return self
 
     def initialize(self):
-        if self.usecuda:
-            self.model.cuda(*self.cudaargs[0], **self.cudaargs[1])
-            self.losses.cuda(*self.cudaargs[0], **self.cudaargs[1])
+        print("WARNING: not setting device of model and loss! ")
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):
@@ -434,7 +429,7 @@ class trainer(EventEmitter, AutoHooker):
         self.do_callbacks(self.START_BATCH)
         self.optim.zero_grad()
         params = q.params_of(self.model)
-        _batch = [q.var(batch_e).cuda(self.usecuda).v for batch_e in _batch]
+        _batch = [batch_e.to(self.device) for batch_e in _batch]
         if self.transform_batch_inp is not None:
             batch = self.transform_batch_inp(*_batch)
         else:
@@ -564,23 +559,18 @@ class tester(EventEmitter, AutoHooker):
         super(tester, self).__init__(**kw)
         self.model = model
         self.losses = None
-        self.usecuda = False
-        self.cudaargs = ([], {})
         self.transform_batch_inp = None
         self.transform_batch_out = None
         self.transform_batch_gold = None
         self.dataloader = None
         self.tt = ticktock(self._name)
 
-    def cuda(self, usecuda, *args, **kwargs):
-        self.usecuda = usecuda
-        self.cudaargs = (args, kwargs)
+    def device(self, device):
+        self.device = device
         return self
 
     def initialize(self):
-        if self.usecuda:
-            self.model.cuda(*self.cudaargs[0], **self.cudaargs[1])
-            self.losses.cuda(*self.cudaargs[0], **self.cudaargs[1])
+        print("WARNING: not setting model or loss device! ")
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):
@@ -635,7 +625,7 @@ class tester(EventEmitter, AutoHooker):
         totalbats = len(self.dataloader)
         for i, _batch in enumerate(self.dataloader):
             self.do_callbacks(self.START_BATCH)
-            _batch = [q.var(batch_e).cuda(self.usecuda).v for batch_e in _batch]
+            _batch = [batch_e.to(self.device) for batch_e in _batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*_batch)
             else:

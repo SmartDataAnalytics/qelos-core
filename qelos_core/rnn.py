@@ -248,7 +248,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
             weights = ["weight_ih_l0", "weight_ih_l0_reverse"]
             weights = filter(lambda x: hasattr(self, x), weights)
             for weight in weights:
-                dropoutmask = q.var(torch.ones(getattr(self.layer, weight).size(1))).cuda(vecs).v
+                dropoutmask = torch.ones(getattr(self.layer, weight).size(1)).to(vecs.device)
                 dropoutmask = self.dropout_in(dropoutmask)
                 new_weight_ih = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_ih)
@@ -256,7 +256,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
             weights = ["weight_hh_l0", "weight_hh_l0_reverse"]
             weights = filter(lambda x: hasattr(self, x), weights)
             for weight in weights:
-                dropoutmask = q.var(torch.ones(getattr(self.layer, weight).size(1))).cuda(vecs).v
+                dropoutmask = torch.ones(getattr(self.layer, weight).size(1)).to(vecs.device)
                 dropoutmask = self.dropout_rec(dropoutmask)
                 new_weight_hh = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_hh)
@@ -378,7 +378,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
             weights = filter(lambda x: hasattr(self, x), weights)
             for weight in weights:
                 layer_weight = getattr(self.layer, weight)
-                dropoutmask = q.var(torch.ones(layer_weight.size(1))).cuda(layer_weight).v
+                dropoutmask = torch.ones(layer_weight.size(1)).to(layer_weight.device)
                 dropoutmask = self.dropout_in(dropoutmask)
                 new_weight_ih = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_ih)
@@ -387,7 +387,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
             weights = filter(lambda x: hasattr(self, x), weights)
             for weight in weights:
                 layer_weight = getattr(self.layer, weight)
-                dropoutmask = q.var(torch.ones(layer_weight.size(1))).cuda(layer_weight).v
+                dropoutmask = torch.ones(layer_weight.size(1)).to(layer_weight.device)
                 dropoutmask = self.dropout_rec(dropoutmask)
                 new_weight_hh = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_hh)
