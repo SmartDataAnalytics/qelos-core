@@ -527,6 +527,7 @@ class hyperparam(object):
 
 
 def v(x):
+    print("WARNING: don't use q.v()! ")
     if isinstance(x, hyperparam):
         return x._v
     elif isinstance(x, (var, val)):
@@ -685,13 +686,13 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     unsorter = torch.zeros(sortidxs.size()).to(sortidxs.device).long()
     # print ("test unsorter")
     # print (unsorter)
-    unsorter.data.scatter_(0, sortidxs.data,
+    unsorter.scatter_(0, sortidxs,
                            torch.arange(0, len(unsorter), dtype=torch.int64, device=sortidxs.device))
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
     sortedmsk = torch.index_select(mask, 0, sortidxs)
     sortedlens = sortedmsk.long().sum(1)
-    sortedlens = list(sortedlens.cpu().data.numpy())
+    sortedlens = list(sortedlens.cpu().detach().numpy())
     packedseq = torch.nn.utils.rnn.pack_padded_sequence(sortedseq, sortedlens, batch_first=True)
     return packedseq, unsorter
 
@@ -703,7 +704,7 @@ def seq_unpack(x, order, padding_value=0):
     unpacked, lens = torch.nn.utils.rnn.pad_packed_sequence(x, batch_first=True, padding_value=padding_value)
     mask = torch.zeros(len(lens), max(lens), dtype=torch.int64, device=unpacked.device)
     for i, l in enumerate(lens):
-        mask.data[i, :l] = 1
+        mask[i, :l] = 1
     out = torch.index_select(unpacked, 0, order)        # same as: unpacked[order]
     outmask = torch.index_select(mask, 0, order)        # same as: mask[order]
     return out, outmask

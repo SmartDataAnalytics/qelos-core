@@ -21,13 +21,13 @@ class TestFastestLSTM(TestCase):
         self.lstm = lstm
 
     def test_shapes(self):
-        self.assertEqual((self.batsize, self.seqlen, 30), self.y.data.numpy().shape)
+        self.assertEqual((self.batsize, self.seqlen, 30), self.y.detach().numpy().shape)
 
     def test_grad(self):
         l = self.y[2, :, :].sum()
         l.backward()
 
-        xgrad = self.x.grad.data.numpy()
+        xgrad = self.x.grad.detach().numpy()
 
         # no gradient to examples that weren't used for loss
         self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
@@ -40,7 +40,7 @@ class TestFastestLSTM(TestCase):
 
     def test_final_states(self):
         y_T = self.lstm.y_n[-1][:, 0]
-        self.assertTrue(np.allclose(y_T.data.numpy(), self.y[:, -1].data.numpy()))
+        self.assertTrue(np.allclose(y_T.detach().numpy(), self.y[:, -1].detach().numpy()))
 
 
 class TestFastestLSTMInitStates(TestCase):
@@ -58,7 +58,7 @@ class TestFastestLSTMInitStates(TestCase):
 
         y_part = torch.cat([y_first, y_second], 1)
 
-        self.assertTrue(np.allclose(y_whole.data.numpy(), y_part.data.numpy()))
+        self.assertTrue(np.allclose(y_whole.detach().numpy(), y_part.detach().numpy()))
 
 
 class TestFastestLSTMBidir(TestCase):
@@ -75,13 +75,13 @@ class TestFastestLSTMBidir(TestCase):
         self.lstm = lstm
 
     def test_shapes(self):
-        self.assertEqual((self.batsize, self.seqlen, 30*2), self.y.data.numpy().shape)
+        self.assertEqual((self.batsize, self.seqlen, 30*2), self.y.detach().numpy().shape)
 
     def test_grad(self):
         l = self.y[2, :, :].sum()
         l.backward()
 
-        xgrad = self.x.grad.data.numpy()
+        xgrad = self.x.grad.detach().numpy()
 
         # no gradient to examples that weren't used for loss
         self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
@@ -94,8 +94,8 @@ class TestFastestLSTMBidir(TestCase):
 
     def test_final_states(self):
         y_T = self.lstm.y_n[-1]
-        self.assertTrue(np.allclose(y_T[:, 0].data.numpy(), self.y[:, -1, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[:, 1].data.numpy(), self.y[:, 0, 30:].data.numpy()))
+        self.assertTrue(np.allclose(y_T[:, 0].detach().numpy(), self.y[:, -1, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[:, 1].detach().numpy(), self.y[:, 0, 30:].detach().numpy()))
         print(y_T.size())
 
 
@@ -121,13 +121,13 @@ class TestFastestLSTMBidirMasked(TestCase):
         self.lstm = lstm
 
     def test_shapes(self):
-        self.assertEqual((self.batsize, self.seqlen, 30*2), self.y.data.numpy().shape)
+        self.assertEqual((self.batsize, self.seqlen, 30*2), self.y.detach().numpy().shape)
 
     def test_grad(self):
         l = self.y[2, :, :].sum()
         l.backward()
 
-        xgrad = self.x.grad.data.numpy()
+        xgrad = self.x.grad.detach().numpy()
 
         # no gradient to examples that weren't used for loss
         self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
@@ -142,27 +142,27 @@ class TestFastestLSTMBidirMasked(TestCase):
         l = self.y.sum()
         l.backward()
 
-        xgrad = self.x.grad.data.numpy()
+        xgrad = self.x.grad.detach().numpy()
 
-        mask = self.mask.data.numpy()[:, :, np.newaxis]
+        mask = self.mask.detach().numpy()[:, :, np.newaxis]
 
         self.assertTrue(np.linalg.norm(xgrad * mask) > 0)
         self.assertTrue(np.allclose(xgrad * (1 - mask), np.zeros_like(xgrad)))
 
     def test_output_mask(self):
-        mask = self.mask.data.numpy()[:, :, np.newaxis]
+        mask = self.mask.detach().numpy()[:, :, np.newaxis]
 
-        self.assertTrue(np.linalg.norm(self.y.data.numpy() * mask) > 0)
-        self.assertTrue(np.allclose(self.y.data.numpy() * (1 - mask), np.zeros_like(self.y.data.numpy())))
+        self.assertTrue(np.linalg.norm(self.y.detach().numpy() * mask) > 0)
+        self.assertTrue(np.allclose(self.y.detach().numpy() * (1 - mask), np.zeros_like(self.y.detach().numpy())))
 
     def test_final_states(self):
         y_T = self.lstm.y_n[-1]
-        self.assertTrue(np.allclose(y_T[0, 0].data.numpy(), self.y[0, 2, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[1, 0].data.numpy(), self.y[1, -1, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[2, 0].data.numpy(), self.y[2, 4, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[3, 0].data.numpy(), self.y[3, 0, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[4, 0].data.numpy(), self.y[4, 3, :30].data.numpy()))
-        self.assertTrue(np.allclose(y_T[:, 1].data.numpy(), self.y[:, 0, 30:].data.numpy()))
+        self.assertTrue(np.allclose(y_T[0, 0].detach().numpy(), self.y[0, 2, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[1, 0].detach().numpy(), self.y[1, -1, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[2, 0].detach().numpy(), self.y[2, 4, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[3, 0].detach().numpy(), self.y[3, 0, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[4, 0].detach().numpy(), self.y[4, 3, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[:, 1].detach().numpy(), self.y[:, 0, 30:].detach().numpy()))
         print(y_T.size())
 
 
@@ -193,8 +193,8 @@ class TestFastestLSTMBidirMaskedWithDropout(TestCase):
         y_t0_r1 = self.lstm(self.x, mask=self.mask)[:, 0, :30]
         y_t0_r2 = self.lstm(self.x, mask=self.mask)[:, 0, :30]
 
-        self.assertTrue(not np.allclose(y_t0_r0.data.numpy(), y_t0_r1.data.numpy()))
-        self.assertTrue(not np.allclose(y_t0_r1.data.numpy(), y_t0_r2.data.numpy()))
-        self.assertTrue(not np.allclose(y_t0_r0.data.numpy(), y_t0_r2.data.numpy()))
+        self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r1.detach().numpy()))
+        self.assertTrue(not np.allclose(y_t0_r1.detach().numpy(), y_t0_r2.detach().numpy()))
+        self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r2.detach().numpy()))
 
 # endregion

@@ -77,7 +77,7 @@ class WordEmbBase(WordVecBase, nn.Module):
                 word = self.D[word]
             wordid = torch.LongTensor([word])
             ret, _ = self(wordid)
-            return ret.squeeze(0).data.numpy()
+            return ret.squeeze(0).detach().numpy()
         except Exception:
             return None
 
@@ -444,7 +444,7 @@ class PretrainedWordEmb(WordEmb, PretrainedWordVec):
         clonedic = {}
         for k, v in worddic.items():
             if k in self.D:
-                cloneweight[v] = self.embedding.weight[self.D[k]].data.numpy()
+                cloneweight[v] = self.embedding.weight[self.D[k]].detach().numpy()
                 clonedic[k] = v
 
         ret = PretrainedWordEmb(cloneweight.shape[1],
@@ -460,12 +460,12 @@ class PartiallyPretrainedWordEmb(WordEmb, PretrainedWordVec):
         value, wdic = self.loadvalue(path, dim, indim=None,
                                      worddic=None, maskid=None,
                                      rareid=None)
-        value = q.val(value).v
+        value = torch.tensor(value)
         self.mixmask = q.val(np.zeros((len(self.D),), dtype="float32")).v
         for k, v in self.D.items():
             if k in wdic:
-                self.embedding.weight.data[v, :] = value.data[wdic[k], :]
-                self.mixmask.data[v] = 1
+                self.embedding.weight[v, :] = value[wdic[k], :]
+                self.mixmask[v] = 1
 
         self.gradfrac_vanilla, self.gradfrac_pretrained = gradfracs
 
@@ -492,7 +492,7 @@ class WordLinoutBase(WordVecBase, nn.Module):
                 word = self.D[word]
             wordid = torch.LongTensor([word])
             ret = self._getvector(wordid)
-            return ret.squeeze().data.numpy()
+            return ret.squeeze().detach().numpy()
         except Exception as e:
             return None
 
@@ -607,7 +607,7 @@ class ComputedWordLinout(WordLinoutBase):
         :param bias: (optional) use bias (not computed)
         """
         super(ComputedWordLinout, self).__init__(worddic)
-        self.data = q.val(torch.from_numpy(data)).v
+        self.data = q.val(torch.tensor(data)).v
         self.computer = computer
         # TODO: batches for computer???
 
@@ -633,7 +633,7 @@ class ComputedWordLinout(WordLinoutBase):
     def reset_parameters(self):
         if self.bias is not None:
             stdv = 1. / math.sqrt(self.bias.size(0))
-            self.bias.data.uniform_(-stdv, stdv)
+            self.bias.uniform_(-stdv, stdv)
 
     def forward(self, x, mask=None, _do_cosnorm=False, _retcosnorm=False, _no_mask_log=False):        # (batsize, indim), (batsize, outdim)
         if mask is not None:
@@ -641,7 +641,7 @@ class ComputedWordLinout(WordLinoutBase):
             # select data, compute vectors, build switcher
             msk = mask.sum(0)       # --> (outdim,)
             msk = (msk > 0).long()
-            compute_ids = msk.data.nonzero()    # which ids to compute
+            compute_ids = msk.nonzero()    # which ids to compute
             if len(compute_ids.size()) > 0:    # not all zeros
                 compute_ids = compute_ids.squeeze(1)
                 data_select = self.data[compute_ids]

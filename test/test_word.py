@@ -14,8 +14,8 @@ class TestEmptyWordEmb(TestCase):
         m = q.ZeroWordEmb(10, worddic=dic)
         embedding, mask = m(Variable(torch.LongTensor([0,1,2])))
         self.assertEqual(embedding.size(), (3, 10))
-        self.assertTrue(np.allclose(mask.data.numpy(), [0,1,1]))
-        self.assertTrue(np.allclose(np.zeros((3, 10)), embedding.data.numpy()))
+        self.assertTrue(np.allclose(mask.detach().numpy(), [0,1,1]))
+        self.assertTrue(np.allclose(np.zeros((3, 10)), embedding.detach().numpy()))
 
     def test_overridden(self):
         dic = dict(zip(map(chr, range(97, 122)), range(1,122-97+1)))
@@ -26,12 +26,12 @@ class TestEmptyWordEmb(TestCase):
         moe = m.override(mo)
         emb, mask = moe(Variable(torch.LongTensor([0,1,2])))
         self.assertEqual(emb.size(), (3, 10))
-        self.assertTrue(np.allclose(mask.data.numpy(), [0,1,1]))
-        self.assertTrue(np.allclose(emb[0].data.numpy(), np.zeros((10,))))
+        self.assertTrue(np.allclose(mask.detach().numpy(), [0,1,1]))
+        self.assertTrue(np.allclose(emb[0].detach().numpy(), np.zeros((10,))))
         oemb, mask = mo(Variable(torch.LongTensor([0,0,1])))
         self.assertEqual(oemb.size(), (3, 10))
         self.assertTrue(mask is None)
-        self.assertTrue(np.allclose(oemb.data.numpy()[1:], emb.data.numpy()[1:]))
+        self.assertTrue(np.allclose(oemb.detach().numpy()[1:], emb.detach().numpy()[1:]))
 
 
 class TestWordEmb(TestCase):
@@ -40,8 +40,8 @@ class TestWordEmb(TestCase):
         m = q.WordEmb(10, worddic=dic)
         embedding, _ = m(Variable(torch.LongTensor([0,1,2])))
         self.assertEqual(embedding.size(), (3, 10))
-        trueemb = m.embedding.weight.data.cpu().numpy()[0]
-        self.assertTrue(np.allclose(trueemb, embedding[0].data.numpy()))
+        trueemb = m.embedding.weight.cpu().detach().numpy()[0]
+        self.assertTrue(np.allclose(trueemb, embedding[0].detach().numpy()))
 
     def test_creation_masked(self):
         dic = dict(zip(map(chr, range(97, 122)), range(1, 122-97+1)))
@@ -49,11 +49,11 @@ class TestWordEmb(TestCase):
         m = q.WordEmb(10, worddic=dic)
         embedding, mask = m(Variable(torch.LongTensor([0, 1, 2])))
         self.assertEqual(embedding.size(), (3, 10))
-        trueemb = m.embedding.weight.data.cpu().numpy()[1]
-        self.assertTrue(np.allclose(trueemb, embedding[1].data.numpy()))
-        self.assertTrue(np.allclose(embedding[0].data.numpy(), np.zeros((10,))))
+        trueemb = m.embedding.weight.cpu().detach().numpy()[1]
+        self.assertTrue(np.allclose(trueemb, embedding[1].detach().numpy()))
+        self.assertTrue(np.allclose(embedding[0].detach().numpy(), np.zeros((10,))))
         print(mask)
-        self.assertTrue(np.allclose(mask.data.numpy(), [0,1,1]))
+        self.assertTrue(np.allclose(mask.detach().numpy(), [0,1,1]))
 
 
 class TestAdaptedWordEmb(TestCase):
@@ -61,7 +61,7 @@ class TestAdaptedWordEmb(TestCase):
         wdic = {"<MASK>": 0, "<RARE>": 1, "the": 10, "a": 5, "his": 50, "abracadabrqmsd--qsdfmqgf-": 6}
         wdic2 = {"<MASK>": 0, "<RARE>": 1, "the": 2, "a": 3, "his": 4, "abracadabrqmsd--qsdfmqgf-": 5, "qsdfqsdf": 7}
         self.adapted = q.WordEmb(50, worddic=wdic)
-        self.vanilla = q.WordEmb(50, worddic=wdic, value=self.adapted.embedding.weight.data.numpy())
+        self.vanilla = q.WordEmb(50, worddic=wdic, value=self.adapted.embedding.weight.detach().numpy())
         self.adapted = self.adapted.adapt(wdic2)
 
     def test_map(self):
@@ -82,10 +82,10 @@ class TestAdaptedWordEmb(TestCase):
         l = pred.sum()
         l.backward()
         grad = self.adapted.inner.embedding.weight.grad
-        self.assertTrue(grad.norm().data.numpy()[0] > 0)
+        self.assertTrue(grad.norm().detach().numpy()[0] > 0)
 
         vpred = np.asarray([self.vanilla % x for x in "the a his".split()])
-        self.assertTrue(np.allclose(pred.data.numpy(), vpred))
+        self.assertTrue(np.allclose(pred.detach().numpy(), vpred))
 
         oovpred, mask = self.adapted(Variable(torch.LongTensor([6, 7])))  # two different kinds of OOV
         print(self.adapted % 6)
@@ -98,7 +98,7 @@ class TestAdaptedWordEmb(TestCase):
         pred, mask = self.adapted(x)
         self.assertEqual(pred.size(), (5, 4, 50))
         self.assertEqual(mask.size(), (5, 4))
-        self.assertTrue(np.allclose(mask.data.numpy(), xval != 0))
+        self.assertTrue(np.allclose(mask.detach().numpy(), xval != 0))
 
 
 class TestWordEmbOverriding(TestCase):
@@ -115,38 +115,38 @@ class TestWordEmbOverriding(TestCase):
     def test_embed_masker(self):
         v = Variable(torch.from_numpy(np.random.randint(0, 5, (4, 3))))
         m, mask = self.emb(v)
-        self.assertTrue(np.all((v.data.numpy() != 0) == mask.data.numpy()))
+        self.assertTrue(np.all((v.detach().numpy() != 0) == mask.detach().numpy()))
 
     def test_sameasover(self):
         words = "the his monkey key"
         pred, msk = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
-        pred = pred.data.numpy()
+        pred = pred.detach().numpy()
         gpred, _ = self.overemb(torch.LongTensor([self.overemb * x for x in words.split()]))
-        gpred = gpred.data.numpy()
+        gpred = gpred.detach().numpy()
         self.assertTrue(np.allclose(pred, gpred))
 
     def test_sameasbase(self):
         words = "inception earlgrey <MASK>"
         pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
-        pred = pred.data.numpy()
+        pred = pred.detach().numpy()
         gpred, msk = self.baseemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
-        gpred = gpred.data.numpy()
+        gpred = gpred.detach().numpy()
         self.assertTrue(np.allclose(pred, gpred))
 
     def test_notasover(self):
         words = "inception earlgrey"
         pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
-        pred = pred.data.numpy()
+        pred = pred.detach().numpy()
         gpred, _ = self.overemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
-        gpred = gpred.data.numpy()
+        gpred = gpred.detach().numpy()
         self.assertFalse(np.allclose(pred, gpred))
 
     def test_notasbase(self):
         words = "the his monkey key"
         pred, mask = self.emb(torch.LongTensor([self.emb * x for x in words.split()]))
-        pred = pred.data.numpy()
+        pred = pred.detach().numpy()
         gpred, msk = self.baseemb(torch.LongTensor([self.baseemb * x for x in words.split()]))
-        gpred = gpred.data.numpy()
+        gpred = gpred.detach().numpy()
         self.assertFalse(np.allclose(pred, gpred))
 
 
@@ -207,14 +207,14 @@ class TestGlove(TestCase):
         q.PartiallyPretrainedWordEmb.defaultpath = "../data/glove/miniglove.%dd"
 
         plemb = q.PartiallyPretrainedWordEmb(dim=50, worddic=D,
-                         value=baseemb.base.embedding.weight.data.numpy(),
+                         value=baseemb.base.embedding.weight.detach().numpy(),
                          gradfracs=(1., 0.5))
 
         x = torch.tensor(np.asarray([0, 1, 2, 3, 4, 5]), dtype=torch.int64)
         base_out, base_mask = baseemb(x)
         pl_out, mask = plemb(x)
 
-        self.assertTrue(np.allclose(base_out[2:].data.numpy(), pl_out[2:].data.numpy()))
+        self.assertTrue(np.allclose(base_out[2:].detach().numpy(), pl_out[2:].detach().numpy()))
 
         # test gradients
         l = pl_out.sum()
@@ -224,9 +224,9 @@ class TestGlove(TestCase):
         thegrad = plemb.embedding.weight.grad
 
         print(gradnorm)
-        self.assertTrue(np.all(thegrad.data.numpy()[0, :] == 0))
-        self.assertTrue(np.all(thegrad.data.numpy()[[1,2,5], :] == 1.))
-        self.assertTrue(np.all(thegrad.data.numpy()[[3, 4], :] == 0.5))
+        self.assertTrue(np.all(thegrad.detach().numpy()[0, :] == 0))
+        self.assertTrue(np.all(thegrad.detach().numpy()[[1,2,5], :] == 1.))
+        self.assertTrue(np.all(thegrad.detach().numpy()[[3, 4], :] == 0.5))
 
         print(base_out - pl_out)
 
@@ -244,7 +244,7 @@ class TestComputedWordEmb(TestCase):
         emb, msk = self.emb(x)
         print(msk)
         self.assertEqual(emb.size(), (3, 15))
-        self.assertTrue(np.allclose(msk.data.numpy(), [[0,1,1]]))
+        self.assertTrue(np.allclose(msk.detach().numpy(), [[0,1,1]]))
 
 
 class TestMergedWordEmb(TestCase):
@@ -261,7 +261,7 @@ class TestMergedWordEmb(TestCase):
         print(msk1)
         emb2res, msk2 = self.emb2(x)
         embres, msk = emb(x)
-        self.assertTrue(np.allclose(embres.data.numpy(), emb1res.data.numpy() + emb2res.data.numpy()))
+        self.assertTrue(np.allclose(embres.detach().numpy(), emb1res.detach().numpy() + emb2res.detach().numpy()))
 
     def test_cat_merge(self):
         emb = self.emb1.merge(self.emb2, mode="cat")
@@ -270,7 +270,7 @@ class TestMergedWordEmb(TestCase):
         print(msk1)
         emb2res, msk2 = self.emb2(x)
         embres, msk = emb(x)
-        self.assertTrue(np.allclose(embres.data.numpy(), np.concatenate([emb1res.data.numpy(), emb2res.data.numpy()], axis=1)))
+        self.assertTrue(np.allclose(embres.detach().numpy(), np.concatenate([emb1res.detach().numpy(), emb2res.detach().numpy()], axis=1)))
 
 
 class TestZeroWordLinout(TestCase):
@@ -285,7 +285,7 @@ class TestZeroWordLinout(TestCase):
         y = self.linout(x, mask=msk)
         print(y)
         self.assertEqual(y.size(), (7, 7))
-        self.assertTrue(np.allclose(y.data.numpy(), np.zeros_like(y.data.numpy())))
+        self.assertTrue(np.allclose(y.detach().numpy(), np.zeros_like(y.detach().numpy())))
 
     def test_overridden(self):
         worddic = "second third fourth fifth"
@@ -326,11 +326,11 @@ class TestCosineWordLinout(TestCase):
         y = self.linout(x)
         print(y)
         self.assertEqual(y.size(), (7, 8))
-        self.assertTrue(np.all(y.data.numpy() < 1))
-        self.assertTrue(np.all(y.data.numpy() > -1))
-        x = x.data.numpy()
-        w = self. linout.lin.weight.data.numpy()
-        y = y.data.numpy()
+        self.assertTrue(np.all(y.detach().numpy() < 1))
+        self.assertTrue(np.all(y.detach().numpy() > -1))
+        x = x.detach().numpy()
+        w = self. linout.lin.weight.detach().numpy()
+        y = y.detach().numpy()
         for i in range(7):
             for j in range(8):
                 self.assertTrue(np.allclose(y[i, j], np.dot(x[i], w[j]) / (np.linalg.norm(x[i], 2) * np.linalg.norm(w[j], 2))))
@@ -338,7 +338,7 @@ class TestCosineWordLinout(TestCase):
         ny, cosnorm = self.linout(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1./2)
-        self.assertTrue(np.allclose(ny.data.numpy(), y))
+        self.assertTrue(np.allclose(ny.detach().numpy(), y))
 
 
 class TestPretrainedWordLinout(TestCase):
@@ -377,7 +377,7 @@ class TestAdaptedWordLinout(TestCase):
         wdic = {"<MASK>": 0, "<RARE>": 1, "the": 10, "a": 5, "his": 50, "abracadabrqmsd--qsdfmqgf-": 6}
         wdic2 = {"<MASK>": 0, "<RARE>": 1, "the": 2, "a": 3, "his": 4, "abracadabrqmsd--qsdfmqgf-": 5, "qsdfqsdf": 7}
         self.adapted = q.WordLinout(10, worddic=wdic, bias=False)
-        self.vanilla = q.WordLinout(10, worddic=wdic, weight=self.adapted.lin.weight.data.numpy(), bias=False)
+        self.vanilla = q.WordLinout(10, worddic=wdic, weight=self.adapted.lin.weight.detach().numpy(), bias=False)
         self.adapted = self.adapted.adapt(wdic2)
 
     def test_map(self):
@@ -399,7 +399,7 @@ class TestAdaptedWordLinout(TestCase):
         l = pred.sum()
         l.backward()
         grad = self.adapted.inner.lin.weight.grad
-        self.assertTrue(grad.norm().data.numpy()[0] > 0)
+        self.assertTrue(grad.norm().detach().numpy()[0] > 0)
 
     def test_adapted_prediction_shape(self):
         xval = np.stack([self.adapted % "the", self.adapted % "a"], axis=0)
@@ -414,17 +414,17 @@ class TestAdaptedWordLinout(TestCase):
         x = xval
         pred = self.adapted(x)
         self.assertEqual(pred.size(), (2, 8))
-        prednp = pred.data.numpy()
+        prednp = pred.detach().numpy()
         print(prednp)
         print(pred)
-        self.assertTrue(np.all(pred.data.numpy() <= 1.+EPS))
-        self.assertTrue(np.all(pred.data.numpy() >= -1-EPS))
+        self.assertTrue(np.all(pred.detach().numpy() <= 1.+EPS))
+        self.assertTrue(np.all(pred.detach().numpy() >= -1-EPS))
 
         ny, cosnorm = self.adapted(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1./2)
 
-        self.assertTrue(np.allclose(ny.data.numpy(), prednp))
+        self.assertTrue(np.allclose(ny.detach().numpy(), prednp))
 
 
 class TestOverriddenWordLinout(TestCase):
@@ -444,12 +444,12 @@ class TestOverriddenWordLinout(TestCase):
 
         l = pred.sum()
         l.backward()
-        self.assertTrue(self.base.lin.weight.grad.norm().data[0] > 0)
-        self.assertTrue(self.over.lin.weight.grad.norm().data[0] > 1)
+        self.assertTrue(self.base.lin.weight.grad.norm()[0] > 0)
+        self.assertTrue(self.over.lin.weight.grad.norm()[0] > 1)
 
-        basepred = basepred.data.numpy()
-        overpred = overpred.data.numpy()
-        pred = pred.data.numpy()
+        basepred = basepred.detach().numpy()
+        overpred = overpred.detach().numpy()
+        pred = pred.detach().numpy()
         self.assertTrue(np.allclose(pred[:, 10], overpred[:, 2]))
         self.assertTrue(np.allclose(pred[:, 5], overpred[:, 3]))
         self.assertTrue(np.allclose(pred[:, 6], basepred[:, 6]))
@@ -461,17 +461,17 @@ class TestOverriddenWordLinout(TestCase):
         x = torch.tensor(np.stack([self.base % x for x in "the a his".split()], axis=0))
         pred = self.overridden(x)
         self.assertEqual(pred.size(), (3, 51))
-        prednp = pred.data.numpy()
+        prednp = pred.detach().numpy()
         print(prednp)
         print(pred)
-        self.assertTrue(np.all(pred.data.numpy() <= 1. + EPS))
-        self.assertTrue(np.all(pred.data.numpy() >= -1 - EPS))
+        self.assertTrue(np.all(pred.detach().numpy() <= 1. + EPS))
+        self.assertTrue(np.all(pred.detach().numpy() >= -1 - EPS))
 
         ny, cosnorm = self.overridden(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1. / 2)
 
-        self.assertTrue(np.allclose(ny.data.numpy(), prednp))
+        self.assertTrue(np.allclose(ny.detach().numpy(), prednp))
 
 
 class TestComputedWordLinout(TestCase):
@@ -489,7 +489,7 @@ class TestComputedWordLinout(TestCase):
         data = self.linout.data
         computer = self.linout.computer
         cout = torch.matmul(x, computer(data).t())
-        self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+        self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     def test_cosiner(self):
         EPS = 1e-12
@@ -497,20 +497,20 @@ class TestComputedWordLinout(TestCase):
         x = Variable(torch.randn(3, 15)).float()
         out = self.linout(x)
         self.assertEqual(out.size(), (3, 7))
-        self.assertTrue(np.all(out.data.numpy() <= 1. + EPS))
-        self.assertTrue(np.all(out.data.numpy() >= -1 - EPS))
+        self.assertTrue(np.all(out.detach().numpy() <= 1. + EPS))
+        self.assertTrue(np.all(out.detach().numpy() >= -1 - EPS))
         data = self.linout.data
         computer = self.linout.computer
         cout = torch.matmul(x, computer(data).t())
         cout = cout / torch.norm(computer(data), 2, 1).unsqueeze(0)
         cout = cout / torch.norm(x, 2, 1).unsqueeze(1)
-        self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+        self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
         self.linout.cosnorm = False
         ny, cosnorm = self.linout(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1. / 2)
 
-        self.assertTrue(np.allclose(ny.data.numpy(), out.data.numpy()))
+        self.assertTrue(np.allclose(ny.detach().numpy(), out.detach().numpy()))
 
     def test_masked(self):
         x = Variable(torch.randn(3, 15)).float()
@@ -527,7 +527,7 @@ class TestComputedWordLinout(TestCase):
         cout = torch.matmul(x, computer(data).t())
         # cout = cout * msk.float()
         cout = cout + torch.log(msk.float())
-        self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+        self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     # def test_masked_with_rnn_computer(self):
     #     data = np.random.random((7, 5, 10)).astype("float32")
@@ -553,7 +553,7 @@ class TestComputedWordLinout(TestCase):
     #     cout = torch.matmul(x, computer(data).t())
     #     # cout = cout * msk.float()
     #     cout = cout + torch.log(msk.float())
-    #     self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+    #     self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     def test_all_masked(self):
         x = Variable(torch.randn(3, 15)).float()
@@ -566,7 +566,7 @@ class TestComputedWordLinout(TestCase):
         computer = self.linout.computer
         cout = torch.matmul(x, computer(data).t())
         cout = cout + torch.log(msk.float())
-        self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+        self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     # def test_masked_3D_data(self):
     #     self.linout.data = q.val(np.random.random((7, 10, 3)).astype(dtype="float32")).v
@@ -586,7 +586,7 @@ class TestComputedWordLinout(TestCase):
     #     cout = torch.matmul(x, computer(data).t())
     #     # cout = cout * msk.float()
     #     cout = cout + torch.log(msk.float())
-    #     self.assertTrue(np.allclose(cout.data.numpy(), out.data.numpy()))
+    #     self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     def test_basic_grad(self):
         x = Variable(torch.randn(3, 15)).float()
@@ -598,7 +598,7 @@ class TestComputedWordLinout(TestCase):
         agrads = []
         for p in self.linout.parameters():
             if p.requires_grad:
-                agrads.append(p.grad.data.numpy() + 0)
+                agrads.append(p.grad.detach().numpy() + 0)
 
         out = self.linout(y)
         loss = out.sum()
@@ -607,7 +607,7 @@ class TestComputedWordLinout(TestCase):
         bgrads = []
         for p in self.linout.parameters():
             if p.requires_grad:
-                bgrads.append(p.grad.data.numpy() + 0)
+                bgrads.append(p.grad.detach().numpy() + 0)
 
         pass
 
@@ -623,14 +623,14 @@ class TestMergedWordLinout(TestCase):
         self.linout.cosnorm = True
         x = torch.tensor(np.random.random((5, 50)), dtype=torch.float32)
         pred = self.linout(x)
-        self.assertTrue(np.all(pred.data.numpy() <= 1.))
-        self.assertTrue(np.all(pred.data.numpy() >= -1.))
+        self.assertTrue(np.all(pred.detach().numpy() <= 1.))
+        self.assertTrue(np.all(pred.detach().numpy() >= -1.))
 
         ny, cosnorm = self.linout(x, _retcosnorm=True)
         ny = ny / x.norm(2, 1).unsqueeze(1)
         ny = ny / cosnorm.pow(1. / 2)
 
-        self.assertTrue(np.allclose(ny.data.numpy(), pred.data.numpy()))
+        self.assertTrue(np.allclose(ny.detach().numpy(), pred.detach().numpy()))
 
 
 

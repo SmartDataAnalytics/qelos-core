@@ -27,7 +27,7 @@ class TimesharedDropout(torch.nn.Module):
         self.d = nn.Dropout(p=p, inplace=False)
 
     def forward(self, x):   # (batsize, seqlen, ndim)
-        base = x.data.new(x[:, 0, :].size()).fill_(1)
+        base = x.new(x[:, 0, :].size()).fill_(1)
         shareddropoutmask = self.d(base)
         shareddropoutmask = shareddropoutmask.unsqueeze(1)
         ret = x * shareddropoutmask

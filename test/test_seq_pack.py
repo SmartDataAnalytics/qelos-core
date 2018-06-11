@@ -20,7 +20,7 @@ class Test_seq_pack_unpack(TestCase):
         print(us)
         recons, remask = q.seq_unpack(o, us)
         print(recons)
-        seq = seq.cpu().data.numpy()
-        seq *= mask.cpu().data.numpy()[:, :, np.newaxis]
-        recons = recons.cpu().data.numpy()
+        seq = seq.cpu().detach().numpy()
+        seq *= mask.cpu().detach().numpy()[:, :, np.newaxis]
+        recons = recons.cpu().detach().numpy()
         self.assertTrue(np.allclose(seq[:, :recons.shape[1]], recons))

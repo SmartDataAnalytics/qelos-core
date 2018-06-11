@@ -88,10 +88,8 @@ class LossAndAgg(Aggregator):
         if len(l) == 2:     # loss returns numex too
             numex = l[1]
             l = l[0]
-        if isinstance(l, Variable):
-            lp = l.data[0]
-        elif isinstance(l, torch.Tensor):
-            lp = l[0]
+        if isinstance(l, torch.Tensor):
+            lp = l.item()
         else:
             lp = l
         self.update_agg(lp, numex)
@@ -762,7 +760,7 @@ class ClipGradNorm(AutoHooker):
             for param in model.parameters():
                 tgn += param.grad.pow(2).sum() if param.grad is not None else 0
             tgn = tgn.pow(1./2)
-            tgn = tgn.data[0]
+            tgn = tgn[0].item()
         return tgn
 
 
