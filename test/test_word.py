@@ -40,7 +40,7 @@ class TestWordEmb(TestCase):
         m = q.WordEmb(10, worddic=dic)
         embedding, _ = m(Variable(torch.LongTensor([0,1,2])))
         self.assertEqual(embedding.size(), (3, 10))
-        trueemb = m.embedding.weight.cpu().detach().numpy()[0]
+        trueemb = m.embedding.weight.cpu().detach().numpy()
         self.assertTrue(np.allclose(trueemb, embedding[0].detach().numpy()))
 
     def test_creation_masked(self):
@@ -82,7 +82,7 @@ class TestAdaptedWordEmb(TestCase):
         l = pred.sum()
         l.backward()
         grad = self.adapted.inner.embedding.weight.grad
-        self.assertTrue(grad.norm().detach().numpy()[0] > 0)
+        self.assertTrue(grad.norm().item() > 0)
 
         vpred = np.asarray([self.vanilla % x for x in "the a his".split()])
         self.assertTrue(np.allclose(pred.detach().numpy(), vpred))
@@ -322,13 +322,13 @@ class TestCosineWordLinout(TestCase):
         self.linout = q.WordLinout(10, worddic=worddic, cosnorm=True)
 
     def test_it(self):
-        x = Variable(torch.randn(7, 10))
+        x = torch.randn(7, 10)
         y = self.linout(x)
         print(y)
         self.assertEqual(y.size(), (7, 8))
         self.assertTrue(np.all(y.detach().numpy() < 1))
         self.assertTrue(np.all(y.detach().numpy() > -1))
-        x = x.detach().numpy()
+        #x = x.detach().numpy()
         w = self. linout.lin.weight.detach().numpy()
         y = y.detach().numpy()
         for i in range(7):
@@ -399,7 +399,7 @@ class TestAdaptedWordLinout(TestCase):
         l = pred.sum()
         l.backward()
         grad = self.adapted.inner.lin.weight.grad
-        self.assertTrue(grad.norm().detach().numpy()[0] > 0)
+        self.assertTrue(grad.norm().item() > 0)
 
     def test_adapted_prediction_shape(self):
         xval = np.stack([self.adapted % "the", self.adapted % "a"], axis=0)
@@ -411,7 +411,7 @@ class TestAdaptedWordLinout(TestCase):
         EPS = 1e-6
         self.adapted.inner.cosnorm = True
         xval = np.stack([self.adapted % "the", self.adapted % "a"], axis=0)
-        x = xval
+        x = torch.tensor(xval)
         pred = self.adapted(x)
         self.assertEqual(pred.size(), (2, 8))
         prednp = pred.detach().numpy()
@@ -556,10 +556,10 @@ class TestComputedWordLinout(TestCase):
     #     self.assertTrue(np.allclose(cout.detach().numpy(), out.detach().numpy()))
 
     def test_all_masked(self):
-        x = Variable(torch.randn(3, 15)).float()
+        x = torch.randn(3, 15)
         msk = np.zeros((3, 7)).astype("int32")
         print(msk)
-        msk = Variable(torch.from_numpy(msk))
+        msk = torch.tensor(msk)
         out = self.linout(x, mask=msk)
         self.assertEqual(out.size(), (3, 7))
         data = self.linout.data

@@ -462,10 +462,13 @@ class PartiallyPretrainedWordEmb(WordEmb, PretrainedWordVec):
                                      rareid=None)
         value = torch.tensor(value)
         self.mixmask = q.val(np.zeros((len(self.D),), dtype="float32")).v
+
         for k, v in self.D.items():
             if k in wdic:
                 self.embedding.weight[v, :] = value[wdic[k], :]
                 self.mixmask[v] = 1
+
+        self.embedding.weight = torch.nn.Parameter(self.embedding.weight)
 
         self.gradfrac_vanilla, self.gradfrac_pretrained = gradfracs
 
@@ -642,7 +645,7 @@ class ComputedWordLinout(WordLinoutBase):
             msk = mask.sum(0)       # --> (outdim,)
             msk = (msk > 0).long()
             compute_ids = msk.nonzero()    # which ids to compute
-            if len(compute_ids.size()) > 0:    # not all zeros
+            if compute_ids.size(0) > 0:    # not all zeros
                 compute_ids = compute_ids.squeeze(1)
                 data_select = self.data[compute_ids]
                 comp_weight = self.computer(data_select)        # (num_data_select, indim)
