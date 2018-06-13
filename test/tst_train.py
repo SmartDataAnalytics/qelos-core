@@ -18,6 +18,10 @@ def run(lr=0.001):
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
 
     trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).epochs(100)
+
+    for b, (i, e) in trainer.inf_batches():
+        print(i, e)
+
     validator = q.tester(m).on(validloader).loss(losses)
 
     q.train(trainer, validator).run()

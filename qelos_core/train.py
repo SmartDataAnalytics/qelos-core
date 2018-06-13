@@ -243,23 +243,24 @@ class eval(object):
         totaltestbats = len(self.dataloader)
         self.model.eval()
         outs = []
-        for i, batch in enumerate(self.dataloader):
-            batch = [batch_e.to(self._device) for batch_e in batch]
-            if self.transform_batch_inp is not None:
-                batch = self.transform_batch_inp(*batch)
+        with torch.no_grad():
+            for i, batch in enumerate(self.dataloader):
+                batch = [batch_e.to(self._device) for batch_e in batch]
+                if self.transform_batch_inp is not None:
+                    batch = self.transform_batch_inp(*batch)
 
-            modelouts = self.model(*batch)
+                modelouts = self.model(*batch)
 
-            if self.transform_batch_out is not None:
-                modelouts = self.transform_batch_out(modelouts)
+                if self.transform_batch_out is not None:
+                    modelouts = self.transform_batch_out(modelouts)
 
-            tt.live("eval - [{}/{}]"
-                .format(
-                i + 1,
-                totaltestbats
-            )
-            )
-            outs.append(modelouts)
+                tt.live("eval - [{}/{}]"
+                    .format(
+                    i + 1,
+                    totaltestbats
+                )
+                )
+                outs.append(modelouts)
         ttmsg = "eval done"
         tt.stoplive()
         tt.tock(ttmsg)
@@ -423,7 +424,26 @@ class trainer(EventEmitter, AutoHooker):
         return self
 
     # region LOOPS
+    def inf_batches(self, with_info=True):
+        """
+        iteration over this produces infinite batches from this trainer's dataloader
+        returns <batch_data>, (<batch_number>, <epoch_number>) if with_info=True
+            else just <batch_data>
+        """
+        epoch = 0
+        while True:
+            for i, _batch in enumerate(self.dataloader):
+                if with_info:
+                    yield _batch, (i, epoch)
+                else:
+                    yield _batch
+            epoch += 1
+
     def do_batch(self, _batch, i=-1):
+        """
+        performs a single batch of SGD on the provided batch
+        with configured model, dataloader and optimizer
+        """
         self.do_callbacks(self.START_BATCH)
         self.optim.zero_grad()
         params = q.params_of(self.model)
@@ -622,38 +642,39 @@ class tester(EventEmitter, AutoHooker):
         self.do_callbacks(self.START_TEST)
         self.losses.push_and_reset()
         totalbats = len(self.dataloader)
-        for i, _batch in enumerate(self.dataloader):
-            self.do_callbacks(self.START_BATCH)
-            _batch = [batch_e.to(self._device) for batch_e in _batch]
-            if self.transform_batch_inp is not None:
-                batch = self.transform_batch_inp(*_batch)
-            else:
-                batch = _batch
-            modelouts = self.model(*batch[:-1])
-            modelout2loss = modelouts
-            if self.transform_batch_out is not None:
-                modelout2loss = self.transform_batch_out(modelouts)
-            gold = batch[-1]
-            if self.transform_batch_gold is not None:
-                gold = self.transform_batch_gold(gold)
+        with torch.no_grad():
+            for i, _batch in enumerate(self.dataloader):
+                self.do_callbacks(self.START_BATCH)
+                _batch = [batch_e.to(self._device) for batch_e in _batch]
+                if self.transform_batch_inp is not None:
+                    batch = self.transform_batch_inp(*_batch)
+                else:
+                    batch = _batch
+                modelouts = self.model(*batch[:-1])
+                modelout2loss = modelouts
+                if self.transform_batch_out is not None:
+                    modelout2loss = self.transform_batch_out(modelouts)
+                gold = batch[-1]
+                if self.transform_batch_gold is not None:
+                    gold = self.transform_batch_gold(gold)
 
-            losses = self.losses(modelout2loss, gold)
+                losses = self.losses(modelout2loss, gold)
 
-            epochmsg = ""
-            if epoch is not None:
-                curepoch, maxepoch = epoch
-                epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
+                epochmsg = ""
+                if epoch is not None:
+                    curepoch, maxepoch = epoch
+                    epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
 
-            tt.live("{} - {}[{}/{}]: {}"
-                .format(
-                self._name,
-                epochmsg,
-                i + 1,
-                totalbats,
-                self.losses.pp()
-            )
-            )
-            self.do_callbacks(self.END_BATCH)
+                tt.live("{} - {}[{}/{}]: {}"
+                    .format(
+                    self._name,
+                    epochmsg,
+                    i + 1,
+                    totalbats,
+                    self.losses.pp()
+                )
+                )
+                self.do_callbacks(self.END_BATCH)
         # losses = self.losses.get_agg_errors()
         tt.stoplive()
         ttmsg = "{}: {}" \
