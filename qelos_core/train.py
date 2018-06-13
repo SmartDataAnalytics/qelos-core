@@ -85,7 +85,7 @@ class LossAndAgg(Aggregator):
     def __call__(self, pred, gold, **kw):
         l = self.loss(pred, gold, **kw)
         numex = pred.size(0)
-        if len(l) == 2:     # loss returns numex too
+        if isinstance(l, tuple) and len(l) == 2:     # loss returns numex too
             numex = l[1]
             l = l[0]
         if isinstance(l, torch.Tensor):
@@ -204,7 +204,7 @@ class eval(object):
     def __init__(self, model):
         super(eval, self).__init__()
         self.model = model
-        self.device = torch.device("cpu")
+        self._device = torch.device("cpu")
         self.transform_batch_inp = None
         self.transform_batch_out = None
         self.dataloader = None
@@ -212,7 +212,7 @@ class eval(object):
 
     def device(self, device):
         """ device for created data"""
-        self.device = device
+        self._device = device
         return self
 
     def initialize(self):
@@ -244,7 +244,7 @@ class eval(object):
         self.model.eval()
         outs = []
         for i, batch in enumerate(self.dataloader):
-            batch = [batch_e.to(self.device) for batch_e in batch]
+            batch = [batch_e.to(self._device) for batch_e in batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*batch)
 
@@ -370,7 +370,7 @@ class trainer(EventEmitter, AutoHooker):
         self.max_epochs = None
         self.current_epoch = 0
         self.stop_training = None
-        self.device = torch.device("cpu")
+        self._device = torch.device("cpu")
         self.optim = None
         self.transform_batch_inp = None
         self.transform_batch_out = None
@@ -390,7 +390,7 @@ class trainer(EventEmitter, AutoHooker):
             return super(trainer, self).hook(f, *es, **kw)
 
     def device(self, device):
-        self.device = device
+        self._device = device
         return self
 
     def initialize(self):
@@ -427,7 +427,7 @@ class trainer(EventEmitter, AutoHooker):
         self.do_callbacks(self.START_BATCH)
         self.optim.zero_grad()
         params = q.params_of(self.model)
-        _batch = [batch_e.to(self.device) for batch_e in _batch]
+        _batch = [batch_e.to(self._device) for batch_e in _batch]
         if self.transform_batch_inp is not None:
             batch = self.transform_batch_inp(*_batch)
         else:
@@ -562,9 +562,10 @@ class tester(EventEmitter, AutoHooker):
         self.transform_batch_gold = None
         self.dataloader = None
         self.tt = ticktock(self._name)
+        self._device = torch.device("cpu")
 
     def device(self, device):
-        self.device = device
+        self._device = device
         return self
 
     def initialize(self):
@@ -623,7 +624,7 @@ class tester(EventEmitter, AutoHooker):
         totalbats = len(self.dataloader)
         for i, _batch in enumerate(self.dataloader):
             self.do_callbacks(self.START_BATCH)
-            _batch = [batch_e.to(self.device) for batch_e in _batch]
+            _batch = [batch_e.to(self._device) for batch_e in _batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*_batch)
             else:

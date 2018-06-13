@@ -17,8 +17,8 @@ def run(lr=0.001):
 
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
 
-    trainer = q.trainer(m).on(trainloader, losses).optimizer(optim).epochs(100)
-    validator = q.tester(m).on(validloader, losses)
+    trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).epochs(100)
+    validator = q.tester(m).on(validloader).loss(losses)
 
     q.train(trainer, validator).run()
 

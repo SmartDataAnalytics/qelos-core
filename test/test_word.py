@@ -40,7 +40,7 @@ class TestWordEmb(TestCase):
         m = q.WordEmb(10, worddic=dic)
         embedding, _ = m(Variable(torch.LongTensor([0,1,2])))
         self.assertEqual(embedding.size(), (3, 10))
-        trueemb = m.embedding.weight.cpu().detach().numpy()
+        trueemb = m.embedding.weight.cpu().detach().numpy()[0]
         self.assertTrue(np.allclose(trueemb, embedding[0].detach().numpy()))
 
     def test_creation_masked(self):
