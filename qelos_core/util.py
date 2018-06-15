@@ -14,6 +14,8 @@ import numpy as np
 import unidecode
 from IPython import embed
 import qelos_core as q
+import torch
+from torch.utils.data.dataset import Dataset
 # torch-independent utils
 
 
@@ -216,8 +218,59 @@ def tokenize(s, preserve_patterns=None, extrasubs=True):
     return tokens
 
 
+def dataset(x):
+    if not issequence(x):
+        x = (x,)
+    return tensor_dataset(*x)
+
+
+def datacat(datasets, mode=1):
+    if mode == 0:
+        return torch.utils.data.dataset.ConcatDataset(datasets)
+    elif mode == 1:
+        return MultiDatasets(datasets)
+    else:
+        raise q.SumTingWongException("mode {} not recognized".format(mode))
+
+
+class MultiDatasets(Dataset):
+    def __init__(self, datasets):
+        """ datasets to index together, result will be concatenated in one list """
+        for xe in datasets:
+            assert(len(xe) == len(datasets[0]))
+        super(MultiDatasets, self).__init__()
+        self.datasets = datasets
+
+    def __getitem__(self, item):
+        ret = tuple()
+        for dataset in self.datasets:
+            ret_a = dataset[item]
+            if not isinstance(ret_a, tuple):
+                ret_a = (ret_a,)
+            ret += ret_a
+        return ret
+
+    def __len__(self):
+        return len(self.datasets[0])
+
+
+def tensor_dataset(*x):
+    tensors = []
+    for xe in x:
+        if isinstance(xe, np.ndarray):
+            xe = torch.tensor(xe)
+        tensors.append(xe)
+    for xe in tensors:
+        assert(xe.size(0) == tensors[0].size(0))
+    ret = torch.utils.data.dataset.TensorDataset(*tensors)
+    return ret
+
+
 def dataload(*tensors, **kw):
-    tensordataset = q.TensorDataset(*tensors)
+    if len(tensors) == 1 and isinstance(tensors[0], Dataset):
+        tensordataset = tensors[0]
+    else:
+        tensordataset = tensor_dataset(*tensors)
     dataloader = torch.utils.data.DataLoader(tensordataset, **kw)
     return dataloader
 

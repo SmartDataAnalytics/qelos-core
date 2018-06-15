@@ -66,8 +66,24 @@ class PairRankingLoss(Loss):
 class LinearLoss(Loss):
     """ LinearLoss or NoLoss. Use this if model returns loss """
     def _forward(self, x, gold, **kw):
-        """ x is minimized, gold is ignored"""
+        """ x is minimized, gold is ignored (and should be None) """
         return x, None
+
+
+class SelectedLinearLoss(Loss):
+    """ Same as LinearLoss, but with selection from tuple of outputs from model (that specifies lossses)
+        To be used to output multiple losses from the model/ select one model output as training loss
+    """
+    def __init__(self, which, size_average=True, **kw):
+        super(SelectedLinearLoss, self).__init__(size_average=size_average, **kw)
+        self.which = which
+
+    def _forward(self, model_outs, gold, **kw):
+        if q.issequence(model_outs):
+            return model_outs[self.which], None
+        else:
+            assert(self.which == 0)
+            return model_outs, None
 
 
 class DiscreteLoss(Loss):

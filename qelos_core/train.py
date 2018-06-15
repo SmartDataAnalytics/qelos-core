@@ -1,6 +1,6 @@
 import torch
 from torch.autograd import Variable
-from torch.utils.data.dataset import Dataset
+from torch.utils.data.dataset import Dataset, TensorDataset as PytorchTensorDataset
 from torch.utils.data import DataLoader
 from torch import nn
 import numpy as np
@@ -12,26 +12,20 @@ from qelos_core.util import isnumber, isstring, ticktock, issequence
 # TODO: write tests
 
 
-class TensorDataset(Dataset):      # TODO
+class TensorDataset(PytorchTensorDataset):      # TODO
     def __init__(self, *x):
         """
         :param x: tensors in torch or numpy (converted to tensors). Last tensor must be gold.
         """
-        super(TensorDataset, self).__init__()
-        self.tensors = []
+        print("WARNING! don't use this")
+        tensors = []
         for xe in x:
             if isinstance(xe, np.ndarray):
-                xe = torch.from_numpy(xe)
-            self.tensors.append(xe)
-        for xe in self.tensors:
-            assert(xe.size(0) == self.tensors[0].size(0))
-
-    def __getitem__(self, index):
-        ret = tuple([xe[index] for xe in self.tensors])
-        return ret
-
-    def __len__(self):
-        return self.tensors[0].size(0)
+                xe = torch.tensor(xe)
+            tensors.append(xe)
+        for xe in tensors:
+            assert(xe.size(0) == tensors[0].size(0))
+        super(TensorDataset, self).__init__(*tensors)
 
 
 class Aggregator(object):
@@ -84,7 +78,7 @@ class LossAndAgg(Aggregator):
 
     def __call__(self, pred, gold, **kw):
         l = self.loss(pred, gold, **kw)
-        numex = pred.size(0)
+        numex = pred.size(0) if not q.issequence(pred) else pred[0].size(0)
         if isinstance(l, tuple) and len(l) == 2:     # loss returns numex too
             numex = l[1]
             l = l[0]
@@ -158,6 +152,7 @@ class lossarray(EventEmitter):
             In the latter case, there is full control over the inputs as
             prediction, gold and input arguments are passed to transf.
     """
+    # TODO: supports normal PyTorch losses?
     BEFORE_PUSH = 1
     AFTER_PUSH = 2
 
@@ -197,6 +192,11 @@ class lossarray(EventEmitter):
     def reset(self):
         for loss in self.losses:
             loss._reset()
+
+
+class no_losses(lossarray):
+    def __init__(self, n):
+        super(no_losses, self).__init__(*[q.SelectedLinearLoss(i) for i in range(n)])
 
 
 class eval(object):
@@ -245,6 +245,7 @@ class eval(object):
         outs = []
         with torch.no_grad():
             for i, batch in enumerate(self.dataloader):
+                batch = (batch,) if not q.issequence(batch) else batch
                 batch = [batch_e.to(self._device) for batch_e in batch]
                 if self.transform_batch_inp is not None:
                     batch = self.transform_batch_inp(*batch)
@@ -280,6 +281,7 @@ class LoopRunner(object):
     pass
 
 
+# region basic training loop
 class BasicRunner(LoopRunner, EventEmitter):
     START = 0
     END = 1
@@ -337,12 +339,13 @@ class BasicRunner(LoopRunner, EventEmitter):
                 self.do_callbacks(self.END_VALID)
             self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
-            self.do_callbacks(self.END)
             tt.tock(ttmsg)
+        self.do_callbacks(self.END)
 
 
 def train(trainer, validator=None):
     return BasicRunner(trainer, validator=validator)
+# endregion
 
 
 class trainer(EventEmitter, AutoHooker):
@@ -402,12 +405,25 @@ class trainer(EventEmitter, AutoHooker):
         self.dataloader = dataloader
         return self
 
-    def loss(self, *args):
+    def loss(self, *args):      # TODO: supports normal PyTorch losses too ???
+        # can be unspecified
         if len(args) == 1 and isinstance(args[0], lossarray):
             self.losses = args[0]
         else:
             self.losses = q.lossarray(*args)
         return self
+
+    @property
+    def no_gold(self):
+        all_linear = True
+        some_linear = False
+        for loss in self.losses.losses:
+            if isinstance(loss.loss, (q.LinearLoss, q.SelectedLinearLoss)):
+                some_linear = True
+            else:
+                all_linear = False
+        assert(all_linear == some_linear)
+        return all_linear
 
     def optimizer(self, optimizer):
         self.optim = optimizer
@@ -446,17 +462,29 @@ class trainer(EventEmitter, AutoHooker):
         """
         self.do_callbacks(self.START_BATCH)
         self.optim.zero_grad()
+        self.model.train()
         params = q.params_of(self.model)
+
+        _batch = (_batch,) if not q.issequence(_batch) else _batch
         _batch = [batch_e.to(self._device) for batch_e in _batch]
         if self.transform_batch_inp is not None:
             batch = self.transform_batch_inp(*_batch)
         else:
             batch = _batch
-        modelouts = self.model(*batch[:-1])
+
+        if self.no_gold:
+            batch_in = batch
+            gold = None
+        else:
+            batch_in = batch[:-1]
+            gold = batch[-1]
+
+        modelouts = self.model(*batch_in)
+
         modelout2loss = modelouts
         if self.transform_batch_out is not None:
             modelout2loss = self.transform_batch_out(modelouts)
-        gold = batch[-1]
+
         if self.transform_batch_gold is not None:
             gold = self.transform_batch_gold(gold)
         trainlosses = self.losses(modelout2loss, gold)
@@ -485,7 +513,6 @@ class trainer(EventEmitter, AutoHooker):
         self.stop_training = self.current_epoch + 1 == self.max_epochs
         self.losses.push_and_reset(epoch=self.current_epoch-1)
         # tt.tick()
-        self.model.train()
         self.do_callbacks(self.START_EPOCH)
         self.do_callbacks(self.START_TRAIN)
 
@@ -522,8 +549,7 @@ class trainer(EventEmitter, AutoHooker):
 
     def reset(self):
         self.current_epoch = 0
-        if self.losses is not None:
-            self.losses.reset()
+        self.losses.reset()
         self.do_callbacks(self.RESET)
         return self
 
@@ -645,6 +671,8 @@ class tester(EventEmitter, AutoHooker):
         with torch.no_grad():
             for i, _batch in enumerate(self.dataloader):
                 self.do_callbacks(self.START_BATCH)
+
+                _batch = (_batch,) if not q.issequence(_batch) else _batch
                 _batch = [batch_e.to(self._device) for batch_e in _batch]
                 if self.transform_batch_inp is not None:
                     batch = self.transform_batch_inp(*_batch)

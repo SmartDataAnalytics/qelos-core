@@ -19,8 +19,8 @@ def run(lr=0.001):
 
     trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).epochs(100)
 
-    for b, (i, e) in trainer.inf_batches():
-        print(i, e)
+    # for b, (i, e) in trainer.inf_batches():
+    #     print(i, e)
 
     validator = q.tester(m).on(validloader).loss(losses)
 
