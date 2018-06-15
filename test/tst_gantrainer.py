@@ -65,7 +65,7 @@ def run(lr=0.001):
 
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 
-    gan_trainer.run(50)
+    gan_trainer.run(50, disciters=10, geniters=3)
 
 
 

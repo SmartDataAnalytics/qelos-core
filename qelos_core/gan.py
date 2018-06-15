@@ -51,7 +51,7 @@ class GAN(torch.nn.Module):
         fake = fake.detach()
         fake_score = self.discriminator(fake)
         loss = self.disc_loss(real_score, fake_score)
-        return loss, loss
+        return loss
 
     def disc_loss(self, real_score, fake_score, *args, **kw):
         return - torch.log(real_score) - torch.log(1 - fake_score)
@@ -62,7 +62,7 @@ class GAN(torch.nn.Module):
         loss = self.gen_loss(fake_score)
         return loss
 
-    def gen_loss(self, fake_score):
+    def gen_loss(self, fake_score, *args, **kw):
         return - torch.log(fake_score)
 
     def forward(self, *x):
