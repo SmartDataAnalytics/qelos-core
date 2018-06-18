@@ -4,6 +4,199 @@ from unittest import TestCase
 import numpy as np
 
 
+# region TEST CELLS
+class TestGRUCell(TestCase):
+    def test_gru_shapes(self):
+        batsize = 5
+        gru = q.GRUCell(9, 10)
+        x_t = torch.randn(batsize, 9)
+        h_tm1 = torch.randn(1, 10)
+        gru.h_0 = q.val(h_tm1).v
+        y_t = gru(x_t)
+        self.assertEqual((batsize, 10), y_t.detach().numpy().shape)
+
+    def test_dropout_rec(self):
+        batsize = 5
+        gru = q.GRUCell(9, 10, dropout_rec=0.5)
+        x_t = torch.randn(batsize, 9)
+        h_tm1 = torch.randn(1, 10)
+        gru.h_0 = q.val(h_tm1).v
+        y_t = gru(x_t)
+        self.assertEqual((5, 10), y_t.detach().numpy().shape)
+
+        self.assertEqual(gru.training, True)
+        gru.train(False)
+        self.assertEqual(gru.training, False)
+
+        gru.rec_reset()
+        pred1 = gru(x_t)
+        gru.rec_reset()
+        pred2 = gru(x_t)
+
+        self.assertTrue(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+        gru.train(True)
+        self.assertEqual(gru.training, True)
+
+        gru.rec_reset()
+        pred1 = gru(x_t)
+        gru.rec_reset()
+        pred2 = gru(x_t)
+
+        self.assertFalse(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+    def test_zoneout(self):
+        batsize = 5
+        gru = q.GRUCell(9, 10, zoneout=0.5)
+        x_t = torch.randn(batsize, 9)
+        h_tm1 = torch.randn(1, 10)
+        gru.h_0 = q.val(h_tm1).v
+        y_t = gru(x_t)
+        self.assertEqual((5, 10), y_t.detach().numpy().shape)
+
+        self.assertEqual(gru.training, True)
+        gru.train(False)
+        self.assertEqual(gru.training, False)
+
+        gru.rec_reset()
+        pred1 = gru(x_t)
+        gru.rec_reset()
+        pred2 = gru(x_t)
+
+        self.assertTrue(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+        gru.train(True)
+        self.assertEqual(gru.training, True)
+
+        gru.rec_reset()
+        pred1 = gru(x_t)
+        gru.rec_reset()
+        pred2 = gru(x_t)
+
+        self.assertFalse(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+    def test_mask_t(self):
+        batsize = 5
+        gru = q.GRUCell(9, 10)
+        x_t = torch.randn(batsize, 9)
+        mask_t = torch.tensor([1, 1, 0, 1, 0])
+        h_tm1 = torch.randn(1, 10)
+        gru.h_0 = q.val(h_tm1).v
+        y_t = gru(x_t, mask_t=mask_t)
+        self.assertEqual((batsize, 10), y_t.detach().numpy().shape)
+
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), y_t[2].detach().numpy()))
+        self.assertFalse(np.allclose(h_tm1[0].detach().numpy(), y_t[1].detach().numpy()))
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), y_t[4].detach().numpy()))
+
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), gru.h_tm1[2].detach().numpy()))
+        self.assertFalse(np.allclose(h_tm1[0].detach().numpy(), gru.h_tm1[1].detach().numpy()))
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), gru.h_tm1[4].detach().numpy()))
+
+
+class TestLSTM(TestCase):
+    def test_lstm_shapes(self):
+        batsize = 5
+        lstm = q.LSTMCell(9, 10)
+        x_t = torch.randn(batsize, 9)
+        c_tm1 = torch.randn(1, 10)
+        y_tm1 = torch.randn(1, 10)
+        lstm.c_0 = q.val(c_tm1).v
+        lstm.y_0 = q.val(y_tm1).v
+
+        y_t = lstm(x_t)
+        self.assertEqual((5, 10), y_t.detach().numpy().shape)
+
+        self.assertTrue(np.allclose(lstm.y_tm1.detach().numpy(), y_t.detach().numpy()))
+
+        q.rec_reset(lstm)
+
+    def test_dropout_rec(self):
+        batsize = 5
+        lstm = q.LSTMCell(9, 10, dropout_rec=0.5)
+        x_t = torch.randn(batsize, 9)
+        c_tm1 = torch.randn(1, 10)
+        y_tm1 = torch.randn(1, 10)
+        lstm.c_0 = q.val(c_tm1).v
+        lstm.y_0 = q.val(y_tm1).v
+        y_t = lstm(x_t)
+        self.assertEqual((5, 10), y_t.detach().numpy().shape)
+
+        self.assertEqual(lstm.training, True)
+        lstm.train(False)
+        self.assertEqual(lstm.training, False)
+
+        lstm.rec_reset()
+        pred1 = lstm(x_t)
+        lstm.rec_reset()
+        pred2 = lstm(x_t)
+
+        self.assertTrue(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+        lstm.train(True)
+        self.assertEqual(lstm.training, True)
+
+        lstm.rec_reset()
+        pred1 = lstm(x_t)
+        lstm.rec_reset()
+        pred2 = lstm(x_t)
+
+        self.assertFalse(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+    def test_zoneout(self):
+        batsize = 5
+        lstm = q.LSTMCell(9, 10, zoneout=0.5)
+        x_t = torch.randn(batsize, 9)
+        c_tm1 = torch.randn(1, 10)
+        y_tm1 = torch.randn(1, 10)
+        lstm.c_0 = q.val(c_tm1).v
+        lstm.y_0 = q.val(y_tm1).v
+        y_t = lstm(x_t)
+        self.assertEqual((5, 10), y_t.detach().numpy().shape)
+
+        self.assertEqual(lstm.training, True)
+        lstm.train(False)
+        self.assertEqual(lstm.training, False)
+
+        lstm.rec_reset()
+        pred1 = lstm(x_t)
+        lstm.rec_reset()
+        pred2 = lstm(x_t)
+
+        self.assertTrue(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+        lstm.train(True)
+        self.assertEqual(lstm.training, True)
+
+        lstm.rec_reset()
+        pred1 = lstm(x_t)
+        lstm.rec_reset()
+        pred2 = lstm(x_t)
+
+        self.assertFalse(np.allclose(pred1.detach().numpy(), pred2.detach().numpy()))
+
+    def test_mask_t(self):
+        batsize = 5
+        lstm = q.LSTMCell(9, 10)
+        x_t = torch.randn(batsize, 9)
+        mask_t = torch.tensor([1, 1, 0, 1, 0])
+        c_tm1 = torch.randn(1, 10)
+        h_tm1 = torch.randn(1, 10)
+        lstm.c_0 = q.val(c_tm1).v
+        lstm.y_0 = q.val(h_tm1).v
+        y_t = lstm(x_t, mask_t=mask_t)
+        self.assertEqual((batsize, 10), y_t.detach().numpy().shape)
+
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), y_t[2].detach().numpy()))
+        self.assertFalse(np.allclose(h_tm1[0].detach().numpy(), y_t[1].detach().numpy()))
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), y_t[4].detach().numpy()))
+
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[2].detach().numpy()))
+        self.assertFalse(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[1].detach().numpy()))
+        self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[4].detach().numpy()))
+# endregion
+
+
 # region TEST FASTEST LSTM
 class TestFastestLSTM(TestCase):
     def setUp(self):

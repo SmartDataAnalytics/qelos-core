@@ -1,5 +1,45 @@
 import torch
 import qelos_core as q
+from qelos_core.basic import Dropout
+
+
+def rec_reset(module):
+    """ resets the rec states (incl. RNN states, dropouts etc) of the module and all its descendants
+        by calling their rec_reset(), if present() """
+    for modu in module.modules():
+        if hasattr(modu, "rec_reset"):
+            modu.rec_reset()
+
+
+class RecDropout(Dropout):
+    """ Variational Dropout """
+    def __init__(self, p=.5):
+        super(RecDropout, self).__init__(p=p)
+        self.mask = None
+
+    def rec_reset(self):
+        self.mask = None
+
+    def forward(self, *x):
+        y = x
+        if self.training:
+            if self.mask is None:
+                self.mask = map(lambda xe: self.d(torch.ones_like(xe).to(xe.device)), x)
+            y = map(lambda (xe, me): xe * me, zip(x, self.mask))
+        y = y[0] if len(y) == 1 else y
+        return y
+
+
+class Zoneout(RecDropout):
+    def forward(self, *x):
+        y = [xe[1] for xe in x]
+        if self.training:
+            if self.mask is None:
+                self.mask = map(lambda (_, xe): self.d(torch.ones_like(xe).to(xe.device)).clamp(0, 1), x)
+            y = [(1 - zoner) + h_t + zoner * h_tm1
+                 for (h_tm1, h_t), zoner in zip(x, self.mask)]
+        y = y[0] if len(y) == 1 else y
+        return y
 
 
 class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
@@ -7,10 +47,10 @@ class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
 
     def __init__(self, d_hid, d_inner_hid, activation="relu", dropout=0.1):
         super(PositionwiseForward, self).__init__()
-        self.w_1 = nn.Conv1d(d_hid, d_inner_hid, 1) # position-wise
-        self.w_2 = nn.Conv1d(d_inner_hid, d_hid, 1) # position-wise
+        self.w_1 = torch.nn.Conv1d(d_hid, d_inner_hid, 1) # position-wise
+        self.w_2 = torch.nn.Conv1d(d_inner_hid, d_hid, 1) # position-wise
         self.layer_norm = q.LayerNormalization(d_hid)
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = torch.nn.Dropout(dropout)
         self.activation_fn = q.name2fn(activation)()
 
     def forward(self, x):
@@ -21,17 +61,111 @@ class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
         return self.layer_norm(output + residual)
 
 
-class TimesharedDropout(torch.nn.Module):
-    def __init__(self, p=0.5):
-        super(TimesharedDropout, self).__init__()
-        self.d = nn.Dropout(p=p, inplace=False)
+class RecCell(torch.nn.Module):
+    def __init__(self, dropout_in=None, dropout_rec=None, zoneout=None, **kw):
+        super(RecCell, self).__init__(**kw)
+        self.dropout_in, self.dropout_rec, self.zoneout = dropout_in, dropout_rec, zoneout
 
-    def forward(self, x):   # (batsize, seqlen, ndim)
-        base = x.new(x[:, 0, :].size()).fill_(1)
-        shareddropoutmask = self.d(base)
-        shareddropoutmask = shareddropoutmask.unsqueeze(1)
-        ret = x * shareddropoutmask
-        return ret
+        if self.dropout_in and not isinstance(self.dropout_in, q.Dropout):
+            self.dropout_in = RecDropout(p=self.dropout_in)
+        if self.dropout_rec and not isinstance(self.dropout_rec, q.Dropout):
+            self.dropout_rec = RecDropout(p=self.dropout_rec)
+        if self.zoneout and not isinstance(self.zoneout, (Zoneout,)):
+            self.zoneout = Zoneout(p=self.zoneout)
+        assert(isinstance(self.zoneout, (Zoneout, type(None))))
+        assert(isinstance(self.zoneout, (q.Dropout, type(None))))
+
+    def rec_reset(self):
+        if isinstance(self.dropout_in, RecDropout):
+            self.dropout_in.rec_reset()
+        if isinstance(self.dropout_rec, RecDropout):
+            self.dropout_rec.rec_reset()
+        if isinstance(self.zoneout, Zoneout):
+            self.zoneout.rec_reset()
+
+    def apply_mask_t(self, *statepairs, **kw):
+        mask_t = q.getkw(kw, "mask_t", None)
+        if mask_t is not None:
+            mask_t = mask_t.float().unsqueeze(1)
+            ret = [h_t * mask_t + h_tm1 * (1 - mask_t) for h_tm1, h_t in statepairs]
+            return tuple(ret)
+        else:
+            return tuple([statepair[1] for statepair in statepairs])
+
+
+class GRUCell(RecCell):
+    """ wrapper around PyTorch GRUCell with extra features """
+    def __init__(self, indim, outdim, bias=True,
+                 dropout_in=None, dropout_rec=None, zoneout=None, **kw):
+        super(GRUCell, self).__init__(dropout_in=dropout_in, dropout_rec=dropout_rec, zoneout=zoneout, **kw)
+        self.indim, self.outdim, self.bias, = indim, outdim, bias
+
+        self.cell = torch.nn.GRUCell(self.indim, self.outdim, bias=self.bias)
+
+        self.h_tm1 = None
+        self.h_0 = q.val(torch.zeros(1, outdim)).v
+
+    def rec_reset(self):
+        self.h_tm1 = None      # reset state
+        super(GRUCell, self).rec_reset()
+
+    def forward(self, x_t, mask_t=None, **kw):
+        batsize = x_t.size(0)
+        x_t = self.dropout_in(x_t) if self.dropout_in else x_t
+
+        # previous state
+        h_tm1 = self.h_0.expand(batsize, -1) if self.h_tm1 is None else self.h_tm1
+        h_tm1 = self.dropout_rec(h_tm1) if self.dropout_rec else h_tm1
+
+        h_t = self.cell(x_t, h_tm1)
+
+        # next state
+        h_t = self.zoneout((h_tm1, h_t)) if self.zoneout else h_t
+        h_t, = self.apply_mask_t((h_tm1, h_t), mask_t=mask_t)
+        self.h_tm1 = h_t
+        return h_t
+
+
+class LSTMCell(RecCell):
+    """ wrapper around PyTorch GRUCell with extra features """
+    def __init__(self, indim, outdim, bias=True,
+                 dropout_in=None, dropout_rec=None, zoneout=None, **kw):
+        super(LSTMCell, self).__init__(dropout_in=dropout_in, dropout_rec=dropout_rec, zoneout=zoneout, **kw)
+        self.indim, self.outdim, self.bias = indim, outdim, bias
+
+        self.cell = torch.nn.LSTMCell(self.indim, self.outdim, bias=self.bias)
+
+        self.y_tm1 = None
+        self.c_tm1 = None
+        self.y_0 = q.val(torch.zeros(1, outdim)).v
+        self.c_0 = q.val(torch.zeros(1, outdim)).v
+
+    def rec_reset(self):
+        self.y_tm1 = None
+        self.c_tm1 = None
+        super(LSTMCell, self).rec_reset()
+
+    def forward(self, x_t, mask_t=None, **kw):
+        batsize = x_t.size(0)
+        x_t = self.dropout_in(x_t) if self.dropout_in else x_t
+
+        # previous states
+        y_tm1 = self.y_0.expand(batsize, -1) if self.y_tm1 is None else self.y_tm1
+        c_tm1 = self.c_0.expand(batsize, -1) if self.c_tm1 is None else self.c_tm1
+        y_tm1, c_tm1 = self.dropout_rec(y_tm1, c_tm1) if self.dropout_rec else (y_tm1, c_tm1)
+
+        y_t, c_t = self.cell(x_t, (y_tm1, c_tm1))
+
+        # next state
+        y_t, c_t = self.zoneout((y_tm1, y_t), (c_tm1, c_t)) if self.zoneout else (y_t, c_t)
+        y_t, c_t = self.apply_mask_t((y_tm1, y_t), (c_tm1, c_t), mask_t=mask_t)
+        self.y_tm1, self.c_tm1 = y_t, c_t
+        return y_t
+
+
+
+
+
 
 
 

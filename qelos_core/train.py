@@ -250,6 +250,7 @@ class eval(object):
                 if self.transform_batch_inp is not None:
                     batch = self.transform_batch_inp(*batch)
 
+                batch_reset(self.model)
                 modelouts = self.model(*batch)
 
                 if self.transform_batch_out is not None:
@@ -346,6 +347,10 @@ class BasicRunner(LoopRunner, EventEmitter):
 def train(trainer, validator=None):
     return BasicRunner(trainer, validator=validator)
 # endregion
+
+
+def batch_reset(module):        # performs all resetting operations on module before using it in the next batch
+    q.rec_reset(module)
 
 
 class trainer(EventEmitter, AutoHooker):
@@ -479,6 +484,7 @@ class trainer(EventEmitter, AutoHooker):
             batch_in = batch[:-1]
             gold = batch[-1]
 
+        batch_reset(self.model)
         modelouts = self.model(*batch_in)
 
         modelout2loss = modelouts
@@ -678,6 +684,7 @@ class tester(EventEmitter, AutoHooker):
                     batch = self.transform_batch_inp(*_batch)
                 else:
                     batch = _batch
+                batch_reset(self.model)
                 modelouts = self.model(*batch[:-1])
                 modelout2loss = modelouts
                 if self.transform_batch_out is not None:
