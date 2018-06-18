@@ -58,12 +58,15 @@ class Discriminator(torch.nn.Module):
         # outs: (batsize, seqlen)
         return outs
 
+
 # TODO: use discriminator certainty contribs in discriminator training
 # TODO: add actor critic
 class SeqGAN_DCL(q.gan.GAN):
-    def __init__(self, discriminator, generator, gan_mode=None, rebasehalf=True):
-        super(SeqGAN_DCL, self).__init__(discriminator, generator, gan_mode=gan_mode)
+    def __init__(self, discriminator, decoder, gan_mode=None, rebasehalf=True, accumulate=True, critic=None):
+        super(SeqGAN_DCL, self).__init__(discriminator, decoder, gan_mode=gan_mode)
         self.rebasehalf = rebasehalf
+        self.accumulate = accumulate
+        self.critic = critic        # TODO
 
     def forward_disc_train(self, x, z):
         real_score = self.discriminator(*x)
@@ -75,6 +78,7 @@ class SeqGAN_DCL(q.gan.GAN):
         real_loss = - torch.log(real_score)
         fake_loss = - torch.log(1 - fake_score)
         loss = (real_loss - fake_loss).sum(1)
+        # TODO
         return loss
 
     def get_contribs(self, scores):
@@ -98,7 +102,7 @@ class SeqGAN_DCL(q.gan.GAN):
         fake_sym, fake_probs = self.generator(z)
         fake_scores = self.discriminator(fake_sym).detach()
 
-        #fake_scores += - torch.max(fake_scores) + 0.9999        # TODO: for debugging --> REMOVE
+        fake_scores += - torch.max(fake_scores) + 0.85        # TODO: for debugging --> REMOVE
 
         contribs, endcontrib = self.get_contribs(fake_scores)
 
@@ -112,10 +116,12 @@ class SeqGAN_DCL(q.gan.GAN):
             _fake_scores = (fake_scores - 0.5) * 2
         _fake_scores = _fake_scores * contribs      # use contribs to ignore irrelevant future
 
-        # accumulate without horizon
-        seqlen = _fake_scores.size(1)
-        advantage = torch.cumsum(_fake_scores[:, seqlen - torch.arange(seqlen, dtype=torch.int64) - 1], 1) \
-            [:, seqlen - torch.arange(seqlen, dtype=torch.int64) - 1]
+        if self.accumulate:     # accumulate without horizon
+            seqlen = _fake_scores.size(1)
+            advantage = torch.cumsum(_fake_scores[:, seqlen - torch.arange(seqlen, dtype=torch.int64) - 1], 1) \
+                [:, seqlen - torch.arange(seqlen, dtype=torch.int64) - 1]
+        else:                           # no accumulation
+            advantage = _fake_scores
 
         # compute loss
         loss = logprobs * advantage
@@ -136,7 +142,7 @@ def run(lr=0.001):
 
     # test seqgan dcl
     decoder.maxtime = 10
-    seqgan = SeqGAN_DCL(discr, decoder)
+    seqgan = SeqGAN_DCL(discr, decoder, advantage=None)
     q.batch_reset(seqgan)
     seqgan._gan_mode = SeqGAN_DCL.DISC_TRAIN
     ret = seqgan(torch.randint(1, 7, (4, 10), dtype=torch.int64), sample_z)
