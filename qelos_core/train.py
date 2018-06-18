@@ -351,6 +351,9 @@ def train(trainer, validator=None):
 
 def batch_reset(module):        # performs all resetting operations on module before using it in the next batch
     q.rec_reset(module)
+    for modu in module.modules():
+        if hasattr(modu, "batch_reset"):
+            modu.batch_reset()
 
 
 class trainer(EventEmitter, AutoHooker):

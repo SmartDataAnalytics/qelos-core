@@ -13,7 +13,15 @@ def run(lr=0.001):
     m = torch.nn.Sequential(torch.nn.Linear(5, 100),
                             torch.nn.Linear(100, 5))
 
+    m[1].weight.requires_grad = False
+
     losses = q.lossarray(torch.nn.CrossEntropyLoss())
+
+    params = m.parameters()
+    for param in params:
+        print(param.requires_grad)
+
+    init_val = m[1].weight.detach().numpy()
 
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
 
@@ -25,6 +33,10 @@ def run(lr=0.001):
     validator = q.tester(m).on(validloader).loss(losses)
 
     q.train(trainer, validator).run()
+
+    new_val = m[1].weight.detach().numpy()
+
+    print(np.linalg.norm(new_val - init_val))
 
 
 if __name__ == "__main__":
