@@ -1,5 +1,8 @@
 import torch
 import qelos_core as q
+import numpy as np
+
+EPS = 1e-8
 
 
 class Decoder(torch.nn.Module):
@@ -15,7 +18,7 @@ class Decoder(torch.nn.Module):
         ])
         self.linout = q.WordLinout(innerdim[-1], worddic=D)
         self.sm = torch.nn.Softmax(-1)
-        self.maxtime = 100
+        self.maxtime = q.getkw(kw, "maxtime", 100)
         self.startid = D[startsym]
 
     def forward(self, z, maxtime=None):
@@ -59,7 +62,7 @@ class Discriminator(torch.nn.Module):
         return outs
 
 
-# TODO: use discriminator certainty contribs in discriminator training
+# TODO: burn in discriminator first ! + something wrong happens here regarding contribs
 # TODO: add actor critic
 class SeqGAN_DCL(q.gan.GAN):
     def __init__(self, discriminator, decoder, gan_mode=None, rebasehalf=True, accumulate=True, critic=None):
@@ -75,15 +78,21 @@ class SeqGAN_DCL(q.gan.GAN):
         fake = fake_sym
         fake_score = self.discriminator(fake)
 
-        real_loss = - torch.log(real_score)
-        fake_loss = - torch.log(1 - fake_score)
-        loss = (real_loss - fake_loss).sum(1)
-        # TODO
-        return loss
+        #fake_score += - torch.min(fake_score) + 0.05  # TODO: for debugging --> REMOVE
 
-    def get_contribs(self, scores):
-        certainties = 1 + scores * torch.log2(scores) + (1 - scores) * torch.log2(1 - scores)
-        certainties = certainties.detach()
+        contribs, endcontribs = self.get_contribs(fake_score)
+
+        real_loss = - torch.log(real_score.clamp(EPS, np.infty))
+        fake_loss = - torch.log((1 - fake_score).clamp(EPS, np.infty))
+        loss = real_loss + fake_loss
+        loss = loss * contribs
+        loss = loss.sum(1)
+        return loss, endcontribs.float()
+
+    def get_contribs(self, scores):     # TODO: _contribs must always sum up to one???
+        scores = scores.detach()
+        certainties = 1 + scores * torch.log2(scores.clamp(EPS, np.infty)) \
+                      + (1 - scores) * torch.log2((1 - scores).clamp(EPS, np.infty))
         contribs = torch.cumsum(certainties, 1)
         _contribs = contribs.clamp(0, 1)
         _contribs = torch.cat([torch.zeros(_contribs.size(0), 1), _contribs], 1)
@@ -102,13 +111,13 @@ class SeqGAN_DCL(q.gan.GAN):
         fake_sym, fake_probs = self.generator(z)
         fake_scores = self.discriminator(fake_sym).detach()
 
-        fake_scores += - torch.max(fake_scores) + 0.85        # TODO: for debugging --> REMOVE
+        #fake_scores += - torch.max(fake_scores) + 0.85        # TODO: for debugging --> REMOVE
 
         contribs, endcontrib = self.get_contribs(fake_scores)
 
         # gather probabilities of sampled sequence
         logprobs = torch.gather(fake_probs, 2, fake_sym.unsqueeze(2)).squeeze(2)
-        logprobs = - torch.log(logprobs)
+        logprobs = - torch.log(logprobs.clamp(EPS, np.infty))
 
         # compute scores to be used in update
         _fake_scores = fake_scores
@@ -126,10 +135,10 @@ class SeqGAN_DCL(q.gan.GAN):
         # compute loss
         loss = logprobs * advantage
         loss = loss.sum(1)
-        return loss
+        return loss, endcontrib.float()
 
 
-def run(lr=0.001):
+def test_local():
     # test decoder
     words = "<MASK> <START> a b c d e".split()
     wD = dict(zip(words, range(len(words))))
@@ -142,7 +151,7 @@ def run(lr=0.001):
 
     # test seqgan dcl
     decoder.maxtime = 10
-    seqgan = SeqGAN_DCL(discr, decoder, advantage=None)
+    seqgan = SeqGAN_DCL(discr, decoder, accumulate=True)
     q.batch_reset(seqgan)
     seqgan._gan_mode = SeqGAN_DCL.DISC_TRAIN
     ret = seqgan(torch.randint(1, 7, (4, 10), dtype=torch.int64), sample_z)
@@ -151,8 +160,62 @@ def run(lr=0.001):
     ret = seqgan(sample_z)
 
 
+def gen_toy_data(N, seqlen=10, mode="oneletter"):      # abcdefg <-- letters allowed
+    import random
+    vocab = "<START> a b c d e f g".split()
+    vocab = dict(zip(vocab, range(len(vocab))))
+    ret = []
+    for i in range(N):
+        if mode == "oneletter":     # just one letter
+            ret.append("a"*seqlen)
+    return ret, vocab
+
+
+def run_toy(lr=0.001,
+            seqlen=8,
+            batsize=10,
+            epochs=1000,
+            embdim=16,
+            innerdim=32,
+            z_dim=20,
+            ):
+    # generate some toy data
+    N = 1000
+    data, vocab = gen_toy_data(N, seqlen=seqlen, mode="oneletter")
+    datasm = q.StringMatrix()
+    datasm.set_dictionary(vocab)
+    datasm.tokenize = lambda x: list(x)
+    for data_e in data:
+        datasm.add(data_e)
+    datasm.finalize()
+
+    real_data = q.dataset(datasm.matrix)
+    gen_data_d = q.gan.gauss_dataset(z_dim, len(real_data))
+    disc_data = q.datacat([real_data, gen_data_d], 1)
+
+    gen_data = q.gan.gauss_dataset(z_dim)
+
+    disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
+    gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
+
+    discriminator = Discriminator(datasm.D, embdim, innerdim)
+    generator = Decoder(datasm.D, embdim, z_dim, "<START>", innerdim, maxtime=seqlen)
+
+    disc_model = SeqGAN_DCL(discriminator, generator, gan_mode=q.gan.GAN.DISC_TRAIN)
+    gen_model = SeqGAN_DCL(discriminator, generator, gan_mode=q.gan.GAN.GEN_TRAIN)
+
+    disc_optim = torch.optim.Adam(q.params_of(discriminator), lr=lr)
+    gen_optim = torch.optim.Adam(q.params_of(generator), lr=lr)
+
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(q.no_losses(2))
+    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(q.no_losses(2))
+
+    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
+
+    gan_trainer.run(epochs, disciters=10, geniters=1)
+
     print("done")
 
 
 if __name__ == "__main__":
-    q.argprun(run)
+    q.argprun(run_toy)
