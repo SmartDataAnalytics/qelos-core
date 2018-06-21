@@ -99,7 +99,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
         self.validator = validator
         self.stop_training = False
 
-    def runloop(self, iters, disciters=1, geniters=1, validinter=1):
+    def runloop(self, iters, disciters=1, geniters=1, validinter=1, burnin=10):
         tt = q.ticktock("gan runner")
         self.do_callbacks(self.START)
         current_iter = 0
@@ -111,11 +111,13 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             self.do_callbacks(self.START_TRAIN)
             self.do_callbacks(self.START_DISC)
 
-            for disc_iter in range(disciters):  # discriminator iterations
+            _disciters = burnin if current_iter == 0 else disciters
+
+            for disc_iter in range(_disciters):  # discriminator iterations
                 batch = disc_batch_iter.next()
                 self.disc_trainer.do_batch(batch)
                 ttmsg = "iter {}/{} - disc: {}/{} - {}".format(current_iter, iters,
-                                                               disc_iter, disciters,
+                                                               disc_iter, _disciters,
                                                                self.disc_trainer.losses.pp())
                 tt.live(ttmsg)
             tt.stoplive()
@@ -152,13 +154,13 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             self.stop_training = current_iter >= iters
         self.do_callbacks(self.END)
 
-    def run(self, iters, disciters=1, geniters=1, validinter=1):
+    def run(self, iters, disciters=1, geniters=1, validinter=1, burnin=10):
         self.stop_training = False
         self.gen_trainer.pre_run()
         self.disc_trainer.pre_run()
         if isinstance(self.validator, q.tester):
             self.validator.pre_run()
-        self.runloop(iters, disciters=disciters, geniters=geniters, validinter=validinter)
+        self.runloop(iters, disciters=disciters, geniters=geniters, validinter=validinter, burnin=burnin)
         self.gen_trainer.post_run()
         self.disc_trainer.post_run()
         if isinstance(self.validator, q.tester):
