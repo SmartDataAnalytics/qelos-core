@@ -67,7 +67,7 @@ class GAN(torch.nn.Module):
 
     def forward(self, *x):
         if self._gan_mode == self.DISC_TRAIN:
-            return self.forward_disc_train(x[:-1], [x[-1]])
+            return self.forward_disc_train(*x)
         elif self._gan_mode == self.GEN_TRAIN:
             return self.forward_gen_train(*x)
         else:

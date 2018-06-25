@@ -12,7 +12,7 @@ class BasicHierarchicalEncoderDecoder(torch.nn.Module):
         self.emb = emb
         self.utterance_enc = q.FastestLSTMEncoder(embdim, *encdims)
         self.dialog_enc = q.FastestLSTMEncoder(encdims[-1], *diadims)
-        self.utterance_dec = q.FastestLSTMEncoder(embdim + diadims[-1], *decdims)
+        self.utterance_dec = q.FastestLSTMEncoder(embdim + diadims[-1], *decdims)       # make timestep wise network
         self.outlin = outlin
         self.sm = torch.nn.Softmax(-1)
 
@@ -27,11 +27,11 @@ class BasicHierarchicalEncoderDecoder(torch.nn.Module):
         #grad_check_param = torch.nn.Parameter(torch.zeros_like(all_utt_emb))
         #all_utt_emb = all_utt_emb + grad_check_param
 
-        all_utt_emb = all_utt_emb.view(-1, x.size(-1), all_utt_emb.size(-1))
+        all_utt_emb = all_utt_emb.view(-1, x.size(-1), all_utt_emb.size(-1))    # (batsize * nr_turns, seqlen, embdim)
         _all_utt_mask = all_utt_mask.view(-1, x.size(-1))
         all_utt_outs, all_out_states = self.utterance_enc(all_utt_emb, mask=_all_utt_mask, ret_states=True)
         all_out_states = all_out_states[-1][0][:, 0, :]
-        all_out_states = all_out_states.view(x.size(0), x.size(1), -1)
+        all_out_states = all_out_states.view(x.size(0), x.size(1), -1)      # (batsize, nr_turns, enc_dim)
         all_utt_outs = all_utt_outs.view(x.size(0), x.size(1), x.size(2), -1)
         # shaping back into x's shape seems to work (checked couple gradients)
 
