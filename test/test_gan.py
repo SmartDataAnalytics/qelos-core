@@ -47,5 +47,5 @@ def tst_inception_cifar10(cuda=False, gpu=1):
 
 
 if __name__ == '__main__':
-    q.argprun(tst_inception_cifar10())
+    q.argprun(tst_inception_cifar10)
 
