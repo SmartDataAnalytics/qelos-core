@@ -11,7 +11,7 @@ class MyTestCase(TestCase):
         self.assertEqual(True, True)
 
 
-def tst_inception_cifar10(self):
+def tst_inception_cifar10():
     class IgnoreLabelDataset(torch.utils.data.Dataset):
         def __init__(self, orig):
             self.orig = orig
