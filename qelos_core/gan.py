@@ -275,6 +275,7 @@ class IS(InceptionMetric):
         allprobs = []
         for batch in data:
             batch = torch.tensor(batch, device=self.device)
+            print(batch.device)
             scores, activations = self.inception(batch)
 
             probs = torch.nn.functional.softmax(scores).detach()
