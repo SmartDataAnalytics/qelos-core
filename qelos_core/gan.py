@@ -273,12 +273,18 @@ class IS(InceptionMetric):
 
     def get_scores(self, data, splits=10):     # dataloader
         allprobs = []
-        for batch in data:
+        tt = q.ticktock("scorer")
+        tt.tick("getting probs")
+        for i, batch in enumerate(data):
             batch = torch.tensor(batch).to(self.device)
             scores, activations = self.inception(batch)
 
             probs = torch.nn.functional.softmax(scores).detach()
             allprobs.append(probs)
+            tt.live("{}/{}".format(i, len(data)))
+        tt.stoplive()
+        tt.tock("gotten probs")
+        tt.tick("calculating scores")
         allprobs = torch.cat(allprobs, 0)
         allprobs = allprobs.detach().cpu().numpy()
 
@@ -290,6 +296,7 @@ class IS(InceptionMetric):
             kl = np.mean(np.sum(kl, 1))
             scores.append(np.exp(kl))
 
+        tt.tock("calculated scores")
         return np.mean(scores), np.std(scores)
 
 
