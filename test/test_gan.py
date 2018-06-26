@@ -40,5 +40,5 @@ def tst_inception_cifar10(self):
 
 
 if __name__ == '__main__':
-    unittest.main()
     tst_inception_cifar10()
+    unittest.main()
