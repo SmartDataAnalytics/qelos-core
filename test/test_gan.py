@@ -29,6 +29,7 @@ def tst_inception_cifar10(cuda=False, gpu=1):
                          ])
                          )
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
+    print(device, cuda)
     cifar = IgnoreLabelDataset(cifar)
     cifar_loader = q.dataload(cifar, batch_size=32)
     inception_scorer = q.gan.IS(device=device)
@@ -41,6 +42,7 @@ def tst_inception_cifar10(cuda=False, gpu=1):
 
     print("Calculating FIDs...")
     fids = fid_scorer.get_distance(cifar_loader, cifar_loader)
+    print(fids)
 
 
 
