@@ -11,7 +11,7 @@ class MyTestCase(TestCase):
         self.assertEqual(True, True)
 
 
-def tst_inception_cifar10(cuda=False, gpu=1):
+def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
     class IgnoreLabelDataset(torch.utils.data.Dataset):
         def __init__(self, orig):
             self.orig = orig
@@ -31,7 +31,7 @@ def tst_inception_cifar10(cuda=False, gpu=1):
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
     print(device, cuda)
     cifar = IgnoreLabelDataset(cifar)
-    cifar_loader = q.dataload(cifar, batch_size=32)
+    cifar_loader = q.dataload(cifar, batch_size=batsize)
     inception_scorer = q.gan.IS(device=device)
     fid_scorer = q.gan.FID(inception=inception_scorer.inception, device=device)
 
