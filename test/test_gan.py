@@ -32,11 +32,16 @@ def tst_inception_cifar10():
     cifar = IgnoreLabelDataset(cifar)
     cifar_loader = q.dataload(cifar, batch_size=32)
     inception_scorer = q.gan.IS()
+    fid_scorer = q.gan.FID()
 
     print ("Calculating Inception Score...")
 
     scores = inception_scorer.get_scores(cifar_loader)
     print(scores)
+
+    print("Calculating FIDs...")
+    fids = fid_scorer.get_distance(cifar_loader, cifar_loader)
+
 
 
 if __name__ == '__main__':
