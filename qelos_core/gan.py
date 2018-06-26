@@ -3,7 +3,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 import torchvision
 import numpy as np
-from numpy import linalg
+from scipy import linalg
 
 
 class SampleDataset(Dataset):
