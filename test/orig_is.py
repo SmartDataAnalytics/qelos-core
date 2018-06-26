@@ -25,7 +25,7 @@ def get_inception_score(images, splits=10):
   if images is None:
      images = np.load("cifar.npy")
      images = list(images)
-     images = [np.transpose(image[np.newaxis, :, :, :], (0, 2, 3, 1)) for image in images]
+     images = [np.transpose(image, (1, 2, 0)) for image in images]
   assert(type(images) == list)
   assert(type(images[0]) == np.ndarray)
   assert(len(images[0].shape) == 3)
