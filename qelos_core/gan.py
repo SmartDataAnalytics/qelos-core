@@ -3,6 +3,7 @@ import torch
 from torch.utils.data.dataset import Dataset
 import torchvision
 import numpy as np
+from numpy import linalg
 
 
 class SampleDataset(Dataset):
@@ -222,46 +223,76 @@ class InceptionMetric(object):
         self.inception = self.inception.to(device)
         self.inception.eval()   # put adapted inception network officially in eval model
 
-
-class FID(InceptionMetric):
-
-    def get_activations(self, data):     # dataloader
-        tocat = []
-        tt = q.ticktock("scorer")
-        tt.tick("getting activations")
+    def get_inception_outs(self, data):     # dataloader
+        tt = q.ticktock("inception")
+        tt.tick("running data through network")
+        probses = []
+        activationses = []
         for i, batch in enumerate(data):
             batch = torch.tensor(batch).to(self.device)
             probs, activations = self.inception(batch)
-            tocat.append(activations)
+            probs = torch.nn.functional.softmax(probs)
+            probses.append(probs.detach())
+            activationses.append(activations.detach())
             tt.live("{}/{}".format(i, len(data)))
         tt.stoplive()
-        tt.tock("gotten activations")
-        allactivations = torch.cat(tocat, 0)
-        return allactivations
+        tt.tock("done")
+        probses = torch.cat(probses, 0)
+        activationses = torch.cat(activationses, 0)
+        return probses, activationses
 
-    def get_activation_stats(self, data):
-        activations = self.get_activations(data).to(torch.device("cpu")).detach().numpy()
+
+class FIDandIS(InceptionMetric):
+    def __init__(self, inception=None, device=torch.device("cpu")):
+        super(FIDandIS, self).__init__(inception=inception, device=device)
+        self.fid = FID(inception=self.inception, device=self.device)
+        self.is_score = IS(inception=self.inception, device=self.device)
+
+    def set_real_stats_with(self, data):
+        self.fid.set_real_stats_with(data)
+
+    def get_scores(self, data, is_splits=10):
+        probs, acts = self.get_inception_outs(data)
+        ises = self.is_score.get_scores_from_probs(probs, splits=is_splits)
+        fids = self.fid.get_distance_from_activations(acts)
+        return ises, fids
+
+
+class FID(InceptionMetric):
+
+    def get_data_activations(self, data):
+        probs, activations = self.get_inception_outs(data)
+        return activations
+
+    def get_activation_stats(self, activations):
+        activations = activations.detach().cpu().numpy()
         mu = np.mean(activations, axis=0)
         sigma = np.cov(activations, rowvar=False)
         return mu, sigma
 
-    def get_distance(self, real_data, gen_data, eps=1e-6):
-        tt = q.ticktock("scorer")
-        mu1, sigma1 = self.get_activation_stats(gen_data)
-        mu2, sigma2 = self.get_activation_stats(real_data)
+    def get_distance_from_data(self, gen_data, real_data=None, eps=1e-6):
+        acts1 = self.get_data_activations(gen_data)
+        acts2 = self.get_data_activations(real_data) if real_data is not None else None
 
+        return self.get_distance_from_activations(acts1, acts2, eps=eps)
+
+    def get_distance_from_activations(self, gen_acts, real_acts=None, eps=1e-6):
+        mu1, sigma1 = self.get_activation_stats(gen_acts)
+        mu2, sigma2 = self.get_activation_stats(real_acts) if real_acts is not None else self.real_stats
+
+        tt = q.ticktock("scorer")
         tt.tick("computing fid")
         # from https://github.com/mseitzer/pytorch-fid/blob/master/fid_score.py
         diff = mu1 - mu2
 
         # Product might be almost singular
-        covmean, _ = np.linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+        covmean, _ = linalg.sqrtm(sigma1.dot(sigma2), disp=False)
         if not np.isfinite(covmean).all():
             msg = ('fid calculation produces singular product; '
                    'adding %s to diagonal of cov estimates') % eps
             print(msg)
             offset = np.eye(sigma1.shape[0]) * eps
-            covmean = np.linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
+            covmean = linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
 
         # Numerical error might give slight imaginary component
         if np.iscomplexobj(covmean):
@@ -276,25 +307,23 @@ class FID(InceptionMetric):
         return (diff.dot(diff) + np.trace(sigma1) +
                 np.trace(sigma2) - 2 * tr_covmean)
 
+    def set_real_stats_with(self, data):        # dataloader
+        acts = self.get_data_activations(data)
+        mu, sigma = self.get_activation_stats(acts)
+        self.real_stats = (mu, sigma)
+
 
 class IS(InceptionMetric):
 
-    def get_scores(self, data, splits=10):     # dataloader
-        allprobs = []
-        tt = q.ticktock("scorer")
-        tt.tick("getting probs")
-        for i, batch in enumerate(data):
-            batch = torch.tensor(batch).to(self.device)
-            scores, activations = self.inception(batch)
+    def get_scores_from_data(self, data, splits=10):     # dataloader
+        allprobs, _ = self.get_inception_outs(data)
+        return self.get_scores_from_probs(allprobs, splits=splits)
 
-            probs = torch.nn.functional.softmax(scores).detach()
-            allprobs.append(probs)
-            tt.live("{}/{}".format(i, len(data)))
-        tt.stoplive()
-        tt.tock("gotten probs")
+    def get_scores_from_probs(self, probs, splits=10):
+        tt = q.ticktock("scorer")
+
         tt.tick("calculating scores")
-        allprobs = torch.cat(allprobs, 0)
-        allprobs = allprobs.detach().cpu().numpy()
+        allprobs = probs.detach().cpu().numpy()
 
         scores = []
         for i in range(splits):

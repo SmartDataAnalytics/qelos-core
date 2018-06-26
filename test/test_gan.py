@@ -32,17 +32,12 @@ def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
     print(device, cuda)
     cifar = IgnoreLabelDataset(cifar)
     cifar_loader = q.dataload(cifar, batch_size=batsize)
-    inception_scorer = q.gan.IS(device=device)
-    fid_scorer = q.gan.FID(inception=inception_scorer.inception, device=device)
+    scorer = q.gan.FIDandIS(device=device)
 
-    print ("Calculating Inception Score...")
+    print ("Calculating FID and IS ... ")
 
-    scores = inception_scorer.get_scores(cifar_loader)
+    scores = scorer.get_scores(cifar_loader)
     print(scores)
-
-    print("Calculating FIDs...")
-    fids = fid_scorer.get_distance(cifar_loader, cifar_loader)
-    print(fids)
 
 
 
