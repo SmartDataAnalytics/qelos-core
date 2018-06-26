@@ -227,10 +227,15 @@ class FID(InceptionMetric):
 
     def get_activations(self, data):     # dataloader
         tocat = []
-        for batch in data:
+        tt = q.ticktock("scorer")
+        tt.tick("getting activations")
+        for i, batch in enumerate(data):
             batch = torch.tensor(batch).to(self.device)
             probs, activations = self.inception(batch)
             tocat.append(activations)
+            tt.live("{}/{}".format(i, len(data)))
+        tt.stoplive()
+        tt.tock("gotten activations")
         allactivations = torch.cat(tocat, 0)
         return allactivations
 
@@ -241,9 +246,11 @@ class FID(InceptionMetric):
         return mu, sigma
 
     def get_distance(self, real_data, gen_data, eps=1e-6):
+        tt = q.ticktock("scorer")
         mu1, sigma1 = self.get_activation_stats(gen_data)
         mu2, sigma2 = self.get_activation_stats(real_data)
 
+        tt.tick("computing fid")
         # from https://github.com/mseitzer/pytorch-fid/blob/master/fid_score.py
         diff = mu1 - mu2
 
@@ -265,6 +272,7 @@ class FID(InceptionMetric):
 
         tr_covmean = np.trace(covmean)
 
+        tt.tock("fid computed")
         return (diff.dot(diff) + np.trace(sigma1) +
                 np.trace(sigma2) - 2 * tr_covmean)
 
