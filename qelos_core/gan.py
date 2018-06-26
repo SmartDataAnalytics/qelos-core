@@ -1,6 +1,8 @@
 import qelos_core as q
 import torch
 from torch.utils.data.dataset import Dataset
+import torchvision
+import numpy as np
 
 
 class SampleDataset(Dataset):
@@ -165,3 +167,130 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
         self.disc_trainer.post_run()
         if isinstance(self.validator, q.tester):
             self.validator.post_run()
+
+
+class InceptionForEval(torch.nn.Module):
+    def __init__(self, normalize_input=True, resize_input=True):
+        super(InceptionForEval, self).__init__()
+        self.inception = torchvision.models.inception_v3(pretrained=True)
+        self.inception.eval()       # set to eval mode
+        self.layers = torch.nn.Sequential(
+            self.inception.Conv2d_1a_3x3,
+            self.inception.Conv2d_2a_3x3,
+            self.inception.Conv2d_2b_3x3,
+            torch.nn.MaxPool2d(3, stride=2),
+            self.inception.Conv2d_3b_1x1,
+            self.inception.Conv2d_4a_3x3,
+            torch.nn.MaxPool2d(3, stride=2),
+            self.inception.Mixed_5b,
+            self.inception.Mixed_5c,
+            self.inception.Mixed_5d,
+            self.inception.Mixed_6a,
+            self.inception.Mixed_6b,
+            self.inception.Mixed_6c,
+            self.inception.Mixed_6d,
+            self.inception.Mixed_6e,
+            self.inception.Mixed_7a,
+            self.inception.Mixed_7b,
+            self.inception.Mixed_7c,
+            torch.nn.AvgPool2d(8)
+        )
+        self.normalize_input = normalize_input
+        self.resize_input = resize_input
+
+    def forward(self, x):
+        """ run the forward of inception layer, take prefinal activations as well as outputs """
+        if self.resize_input:
+            x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
+        if self.normalize_input:
+            x = x.clone()
+            x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+        prefinal = self.layers(x)
+        prefinal = torch.nn.functional.dropout(prefinal, training=self.training)
+        prefinal = prefinal.view(prefinal.size(0), -1)      # 2048
+        outprobs = self.inception.fc(prefinal)
+        return outprobs.detach(), prefinal.detach()
+
+
+class InceptionMetric(object):
+    def __init__(self, inception=None, device=torch.device("cpu")):
+        super(InceptionMetric, self).__init__()
+        self.inception = inception if inception is not None else InceptionForEval()
+        self.device = device
+        self.inception = self.inception.to(device)
+        self.inception.eval()   # put adapted inception network officially in eval model
+
+
+class FID(InceptionMetric):
+
+    def get_activations(self, data):     # dataloader
+        tocat = []
+        for batch in data:
+            batch = torch.tensor(batch, device=self.device)
+            probs, activations = self.inception(batch)
+            tocat.append(activations)
+        allactivations = torch.cat(tocat, 0)
+        return allactivations
+
+    def get_activation_stats(self, data):
+        activations = self.get_activations(data).to(torch.device("cpu")).detach().numpy()
+        mu = np.mean(activations, axis=0)
+        sigma = np.cov(activations, rowvar=False)
+        return mu, sigma
+
+    def get_distance(self, real_data, gen_data, eps=1e-6):
+        mu1, sigma1 = self.get_activation_stats(gen_data)
+        mu2, sigma2 = self.get_activation_stats(real_data)
+
+        # from https://github.com/mseitzer/pytorch-fid/blob/master/fid_score.py
+        diff = mu1 - mu2
+
+        # Product might be almost singular
+        covmean, _ = np.linalg.sqrtm(sigma1.dot(sigma2), disp=False)
+        if not np.isfinite(covmean).all():
+            msg = ('fid calculation produces singular product; '
+                   'adding %s to diagonal of cov estimates') % eps
+            print(msg)
+            offset = np.eye(sigma1.shape[0]) * eps
+            covmean = np.linalg.sqrtm((sigma1 + offset).dot(sigma2 + offset))
+
+        # Numerical error might give slight imaginary component
+        if np.iscomplexobj(covmean):
+            if not np.allclose(np.diagonal(covmean).imag, 0, atol=1e-3):
+                m = np.max(np.abs(covmean.imag))
+                raise ValueError('Imaginary component {}'.format(m))
+            covmean = covmean.real
+
+        tr_covmean = np.trace(covmean)
+
+        return (diff.dot(diff) + np.trace(sigma1) +
+                np.trace(sigma2) - 2 * tr_covmean)
+
+
+class IS(InceptionMetric):
+
+    def get_scores(self, data, splits=10):     # dataloader
+        allprobs = []
+        for batch in data:
+            batch = torch.tensor(batch, device=self.device)
+            scores, activations = self.inception(batch)
+
+            probs = torch.nn.functional.softmax(scores).detach()
+            allprobs.append(probs)
+        allprobs = torch.cat(allprobs, 0)
+        allprobs = allprobs.detach().cpu().numpy()
+
+        scores = []
+        for i in range(splits):
+            part = allprobs[(i * allprobs.shape[0] // splits):((i + 1) * allprobs.shape[0] // splits), :]
+            part_means = np.expand_dims(np.mean(part, 0), 0)
+            kl = part * (np.log(part) - np.log(part_means))
+            kl = np.mean(np.sum(kl, 1))
+            scores.append(np.exp(kl))
+
+        return np.mean(scores), np.std(scores)
+
+
+

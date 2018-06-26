@@ -65,7 +65,10 @@ class GenConvBlock(torch.nn.Module):
     def __init__(self, scale, channels, dims, paddings, leakiness=0.2, **kw):
         super(GenConvBlock, self).__init__()
         self.layers = torch.nn.ModuleList()
-        self.layers.append(torch.nn.Upsample(scale_factor=scale))
+        if scale > 1:
+            self.layers.append(torch.nn.Upsample(scale_factor=scale))
+        else:
+            self.layers.append(q.NoneLayer())
         for i in range(len(dims)):
             dim, padding = dims[i], paddings[i]
             inp_chan, out_chan = channels[i], channels[i+1]
@@ -83,8 +86,8 @@ class GenConvBlock(torch.nn.Module):
 
 def create_gen_1kx1k_basic(z_dim=512):
     layers = []
-    layers.append(GenConvBlock(1, (z_dim, z_dim), (3,), (1,)))
-    layers[-1].layers[0] = torch.nn.ConvTranspose2d(z_dim, z_dim, 4)
+    layers.append(GenConvBlock(1, (z_dim, z_dim, z_dim), (3, 3), (1, 1)))
+    layers[-1].layers[1] = torch.nn.ConvTranspose2d(z_dim, z_dim, 4)
     layers.append(GenConvBlock(2, (z_dim, z_dim, z_dim), (3, 3), (1, 1)))
     layers.append(GenConvBlock(2, (z_dim, z_dim, z_dim), (3, 3), (1, 1)))
     layers.append(GenConvBlock(2, (z_dim, z_dim, z_dim), (3, 3), (1, 1)))
