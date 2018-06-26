@@ -228,7 +228,7 @@ class FID(InceptionMetric):
     def get_activations(self, data):     # dataloader
         tocat = []
         for batch in data:
-            batch = torch.tensor(batch, device=self.device)
+            batch = torch.tensor(batch).to(self.device)
             probs, activations = self.inception(batch)
             tocat.append(activations)
         allactivations = torch.cat(tocat, 0)
@@ -274,8 +274,7 @@ class IS(InceptionMetric):
     def get_scores(self, data, splits=10):     # dataloader
         allprobs = []
         for batch in data:
-            batch = torch.tensor(batch, device=self.device)
-            print(batch.device, self.device)
+            batch = torch.tensor(batch).to(self.device)
             scores, activations = self.inception(batch)
 
             probs = torch.nn.functional.softmax(scores).detach()
