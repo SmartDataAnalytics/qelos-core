@@ -202,7 +202,7 @@ class InceptionForEval(torch.nn.Module):
     def forward(self, x):
         """ run the forward of inception layer, take prefinal activations as well as outputs """
         if self.resize_input:
-            x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
+            x = torch.nn.functional.upsample(x, size=(300, 300), mode='bilinear')
         if self.normalize_input:
             x = x.clone()
             x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
