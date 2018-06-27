@@ -49,11 +49,11 @@ class GAN(torch.nn.Module):
         self._gan_mode = gan_mode
 
     def forward_disc_train(self, x, z):
-        real_score = self.discriminator(*x)
-        fake = self.generator(*z)
+        real_score = self.discriminator(x)
+        fake = self.generator(z)
         fake = fake.detach()
         fake_score = self.discriminator(fake)
-        loss = self.disc_loss(real_score, fake_score)
+        loss = self.disc_loss(real_score, fake_score, x, fake)
         return loss
 
     def disc_loss(self, real_score, fake_score, *args, **kw):
@@ -75,6 +75,30 @@ class GAN(torch.nn.Module):
             return self.forward_gen_train(*x)
         else:
             return self.generate(1)
+
+
+class WGAN(GAN):
+    def __init__(self, critic, gen, gan_mode=None, mode="LP", lamda=5):
+        super(WGAN, self).__init__(critic, gen, gan_mode=gan_mode)
+        self.mode = mode
+        self.lamda = lamda
+
+    def disc_loss(self, real_score, fake_score, real, fake, *args, **kw):
+        core = - (real_score - fake_score)
+        interp_alpha = torch.rand(real.size(0), 1, 1, 1)
+        interp_points = interp_alpha * real + (1 - interp_alpha) * fake
+        interp_points.requires_grad = True
+        interp_score = self.discriminator(interp_points)
+        interp_grad, = torch.autograd.grad(interp_score.sum(), interp_points, create_graph=True)
+        interp_grad_norm = (interp_grad ** 2).view(interp_grad.size(0), -1).sum(1) ** 0.5
+        if self.mode == "LP":
+            penalty = (interp_grad_norm - 1).clamp(0, np.infty) ** 2
+        penalty = self.lamda * penalty
+        loss = core + penalty
+        return loss, core, penalty
+
+    def gen_loss(self, fake_score, *args, **kw):
+        return - fake_score
 
 
 class GANTrainer(q.LoopRunner, q.EventEmitter):

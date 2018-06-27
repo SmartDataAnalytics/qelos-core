@@ -415,7 +415,9 @@ class trainer(EventEmitter, AutoHooker):
 
     def loss(self, *args):      # TODO: supports normal PyTorch losses too ???
         # can be unspecified
-        if len(args) == 1 and isinstance(args[0], lossarray):
+        if len(args) == 1 and isinstance(args[0], int):
+            self.losses = q.no_losses(args[0])
+        elif len(args) == 1 and isinstance(args[0], lossarray):
             self.losses = args[0]
         else:
             self.losses = q.lossarray(*args)
