@@ -182,7 +182,7 @@ def load_cifar_dataset():
 
 
 def run(lr=0.0001,
-        batsize=2,
+        batsize=128,
         epochs=10000,
         lamda=5,
         cuda=False,
@@ -220,8 +220,8 @@ def run(lr=0.0001,
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
 
-    disc_model = q.gan.WGAN(crit, gen, gan_mode=q.gan.GAN.DISC_TRAIN, lamda=lamda)
-    gen_model = q.gan.WGAN(crit, gen, gan_mode=q.gan.GAN.GEN_TRAIN, lamda=lamda)
+    disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
+    gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
 
     disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr)
@@ -232,7 +232,7 @@ def run(lr=0.0001,
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 
     tt.tick("training")
-    gan_trainer.run(epochs, disciters=5, geniters=1, burnin=500)
+    gan_trainer.run(epochs, disciters=10, geniters=1, burnin=500)
     tt.tock("trained")
 
 
