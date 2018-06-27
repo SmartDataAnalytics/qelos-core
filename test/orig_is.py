@@ -98,4 +98,5 @@ def _init_inception():
 
 if softmax is None:
   _init_inception()
-  get_inception_score(None)
+  scores = get_inception_score(None)
+  print(scores)
