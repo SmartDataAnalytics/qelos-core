@@ -209,7 +209,7 @@ class InceptionForEval(torch.nn.Module):
             x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
             x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
         prefinal = self.layers(x)
-        prefinal = torch.nn.functional.dropout(prefinal, training=self.training)
+        # prefinal = torch.nn.functional.dropout(prefinal, training=self.training)
         prefinal = prefinal.view(prefinal.size(0), -1)      # 2048
         outprobs = self.inception.fc(prefinal)
         return outprobs.detach(), prefinal.detach()
