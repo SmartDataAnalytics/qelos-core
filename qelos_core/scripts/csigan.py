@@ -115,15 +115,15 @@ class CriticBlock(torch.nn.Module):
 class LastCriticBlock(torch.nn.Module):
     def __init__(self, dim, leakiness=0.2, **kw):
         super(LastCriticBlock, self).__init__(**kw)
-        self.interlin = torch.nn.Linear(dim, dim, bias=True)
-        self.interlin_act = torch.nn.LeakyReLU(leakiness)
+        # self.interlin = torch.nn.Linear(dim, dim, bias=True)
+        # self.interlin_act = torch.nn.LeakyReLU(leakiness)
         self.lin = torch.nn.Linear(dim, 1, bias=True)
 
     def forward(self, x, rgb=None):
         _x = x.squeeze(3).squeeze(2)
         assert(_x.dim() == 2)
-        _x = self.interlin(_x)
-        _x = self.interlin_act(_x)
+        # _x = self.interlin(_x)
+        # _x = self.interlin_act(_x)
         _x = self.lin(_x)
         _x = _x.squeeze(1)
         assert(_x.dim() == 1)
