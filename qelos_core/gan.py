@@ -76,6 +76,14 @@ class GAN(torch.nn.Module):
         else:
             return self.generate(1)
 
+    def disc_train(self):       # switches model for discriminator training
+        self._gan_mode = self.DISC_TRAIN
+        return self
+
+    def gen_train(self):        # switches model for generator training
+        self._gan_mode = self.GEN_TRAIN
+        return self
+
 
 class WGAN(GAN):
     def __init__(self, critic, gen, gan_mode=None, mode="LP", lamda=5):
@@ -85,7 +93,7 @@ class WGAN(GAN):
 
     def disc_loss(self, real_score, fake_score, real, fake, *args, **kw):
         core = - (real_score - fake_score)
-        interp_alpha = torch.rand(real.size(0), 1, 1, 1)
+        interp_alpha = torch.rand(real.size(0), 1, 1, 1, device=real_score.device)
         interp_points = interp_alpha * real + (1 - interp_alpha) * fake
         interp_points.requires_grad = True
         interp_score = self.discriminator(interp_points)
