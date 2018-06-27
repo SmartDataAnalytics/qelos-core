@@ -45,8 +45,8 @@ class ZeroGenBlock(torch.nn.Module):
 
 
 class GenConvBlock(torch.nn.Module):
-    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, **kw):
-        super(GenConvBlock, self).__init__()
+    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, subtract_mean=True, **kw):
+        super(GenConvBlock, self).__init__(**kw)
         self.layers = torch.nn.ModuleList()
         self.scale = scale
         channels = (inp_channels+3,) + channels
@@ -56,6 +56,7 @@ class GenConvBlock(torch.nn.Module):
             self.layers.append(torch.nn.Conv2d(inp_chan, out_chan, dim, padding=padding))
             self.layers.append(torch.nn.LeakyReLU(leakiness))
         self.torgb = torch.nn.Conv2d(channels[-1], 3, 1)    # 1x1 convolution to RGB
+        self.subtract_mean = subtract_mean
 
     def forward(self, x, prevrgb):
         _x = x
@@ -68,6 +69,12 @@ class GenConvBlock(torch.nn.Module):
         for layer in self.layers:
             _x = layer(_x)
         rgb = self.torgb(_x)
+
+        if self.subtract_mean and self.scale > 1:
+            means = torch.nn.functional.upsample(
+                        torch.nn.functional.avg_pool2d(rgb, self.scale),
+                    scale_factor=self.scale, mode="nearest")
+            rgb = rgb - means
 
         rgb = _prgb + rgb
         #rgb = rgb.clamp(-1, 1)
@@ -185,7 +192,7 @@ def run(lr=0.0001,
         batsize=64,
         epochs=100000,
         lamda=5,
-        disciters=5,
+        disciters=10,
         cuda=False,
         gpu=0,
         z_dim=64):
