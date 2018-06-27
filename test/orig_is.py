@@ -14,6 +14,7 @@ import glob
 import scipy.misc
 import math
 import sys
+import torch
 
 MODEL_DIR = '/tmp/imagenet'
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
@@ -26,6 +27,10 @@ def get_inception_score(images, splits=10):
      images = np.load("cifar_scaled.npy")
      images = list(images)
      images = [np.transpose(image, (1, 2, 0)) for image in images]
+     images = [torch.nn.functional.upsample(
+                    torch.tensor(x).unsqueeze(0), size=(299, 299), mode="bilinear"
+                ).numpy()
+                for x in images]
   assert(type(images) == list)
   assert(type(images[0]) == np.ndarray)
   assert(len(images[0].shape) == 3)
