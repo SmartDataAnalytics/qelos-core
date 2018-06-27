@@ -200,7 +200,7 @@ def run(lr=0.0001,
     tt.tock("created networks")
 
     # test
-    z = torch.randn(3, z_dim)
+    z = torch.randn(3, z_dim).to(device)
     x = gen(z)
     s = crit(x)
 
