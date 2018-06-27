@@ -45,7 +45,7 @@ class ZeroGenBlock(torch.nn.Module):
 
 
 class GenConvBlock(torch.nn.Module):
-    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, subtract_mean=True, **kw):
+    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, subtract_mean=False, **kw):
         super(GenConvBlock, self).__init__(**kw)
         self.layers = torch.nn.ModuleList()
         self.scale = scale
