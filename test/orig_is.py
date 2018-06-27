@@ -48,7 +48,7 @@ def get_inception_score(images, splits=10):
         inp = np.concatenate(inp, 0)
         inp = torch.nn.functional.upsample(
                 torch.tensor(inp), size=(299, 299), mode="bilinear").numpy()
-        inp = np.transpose(inp, 1, 2, 0)
+        inp = np.transpose(inp, (1, 2, 0))
         pred = sess.run(softmax, {'ExpandDims:0': inp})
         preds.append(pred)
     preds = np.concatenate(preds, 0)
