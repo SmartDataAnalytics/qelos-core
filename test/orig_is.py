@@ -23,7 +23,7 @@ softmax = None
 # numpy array with values ranging from 0 to 255.
 def get_inception_score(images, splits=10):
   if images is None:
-     images = np.load("cifar.npy")
+     images = np.load("cifar_scaled.npy")
      images = list(images)
      images = [np.transpose(image, (1, 2, 0)) for image in images]
   assert(type(images) == list)
