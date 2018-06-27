@@ -182,9 +182,10 @@ def load_cifar_dataset():
 
 
 def run(lr=0.0001,
-        batsize=128,
-        epochs=10000,
+        batsize=64,
+        epochs=100000,
         lamda=5,
+        disciters=5,
         cuda=False,
         gpu=0,
         z_dim=64):
@@ -232,7 +233,7 @@ def run(lr=0.0001,
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 
     tt.tick("training")
-    gan_trainer.run(epochs, disciters=10, geniters=1, burnin=500)
+    gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=500)
     tt.tock("trained")
 
 
