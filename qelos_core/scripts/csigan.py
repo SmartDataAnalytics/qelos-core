@@ -45,11 +45,16 @@ class ZeroGenBlock(torch.nn.Module):
 
 
 class GenConvBlock(torch.nn.Module):
-    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, subtract_mean=False, **kw):
+    def __init__(self, scale, inp_channels, channels, dims, paddings, leakiness=0.2, subtract_mean=True, **kw):
         super(GenConvBlock, self).__init__(**kw)
         self.layers = torch.nn.ModuleList()
         self.scale = scale
-        channels = (inp_channels+3,) + channels
+        if self.scale > 1:
+            channels = (inp_channels,) + channels
+            self.layers.append(torch.nn.ConvTranspose2d(inp_channels+3, inp_channels, self.scale, stride=self.scale))
+            self.layers.append(torch.nn.LeakyReLU(0.2))
+        else:
+            channels = (inp_channels+3,) + channels
         for i in range(len(dims)):
             dim, padding = dims[i], paddings[i]
             inp_chan, out_chan = channels[i], channels[i+1]
@@ -61,13 +66,11 @@ class GenConvBlock(torch.nn.Module):
     def forward(self, x, prevrgb):
         _x = x
         _prgb = prevrgb
-        if self.scale > 1:
-            _x = torch.nn.functional.upsample(_x, scale_factor=self.scale, mode="bilinear")
-            _prgb = torch.nn.functional.upsample(_prgb, scale_factor=self.scale, mode="bilinear")
         _x = torch.cat([_x, _prgb], 1)
 
         for layer in self.layers:
             _x = layer(_x)
+
         rgb = self.torgb(_x)
 
         if self.subtract_mean and self.scale > 1:
@@ -75,6 +78,9 @@ class GenConvBlock(torch.nn.Module):
                         torch.nn.functional.avg_pool2d(rgb, self.scale),
                     scale_factor=self.scale, mode="nearest")
             rgb = rgb - means
+
+        if self.scale > 1:
+            _prgb = torch.nn.functional.upsample(_prgb, scale_factor=self.scale, mode="bilinear")
 
         rgb = _prgb + rgb
         #rgb = rgb.clamp(-1, 1)
@@ -101,11 +107,14 @@ class CriticBlock(torch.nn.Module):
         self.layers = torch.nn.ModuleList()
         self.scale = scale
         self.inp_channels = inp_channels
-        channels = (inp_channels + 3,) + channels
+        channels = (inp_channels+3,) + channels
         for i in range(len(dims)):
             dim, padding = dims[i], paddings[i]
             inp_chan, out_chan = channels[i], channels[i+1]
             self.layers.append(torch.nn.Conv2d(inp_chan, out_chan, dim, padding=padding))
+            self.layers.append(torch.nn.LeakyReLU(leakiness))
+        if self.scale > 1:
+            self.layers.append(torch.nn.Conv2d(channels[-1], channels[-1], self.scale, stride=self.scale))
             self.layers.append(torch.nn.LeakyReLU(leakiness))
 
     def forward(self, x, rgb=None):
@@ -114,7 +123,6 @@ class CriticBlock(torch.nn.Module):
         for layer in self.layers:
             _x = layer(_x)
         if self.scale > 1:
-            _x = torch.nn.functional.avg_pool2d(_x, self.scale)
             _rgb = torch.nn.functional.avg_pool2d(_rgb, self.scale)
         return _x, _rgb
 
@@ -191,7 +199,7 @@ def load_cifar_dataset():
 def run(lr=0.0001,
         batsize=64,
         epochs=100000,
-        lamda=5,
+        lamda=10,
         disciters=10,
         cuda=False,
         gpu=0,
