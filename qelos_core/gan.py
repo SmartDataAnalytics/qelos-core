@@ -6,6 +6,7 @@ import numpy as np
 from scipy import linalg
 import json
 import os
+from PIL import Image
 
 
 class SampleDataset(Dataset):
@@ -204,6 +205,25 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             self.validator.post_run()
 
 
+def make_img(arr, size=None):
+    """
+    :param img: numpy array containing a single image in RGB, values in range (-1, +1), DxHxW
+    :param size: if specified, automatically determines a upscale/downscale factor and resizes image
+    :return: image object that can be shown or saved
+    """
+    arr = (arr/0.5 + 0.5) * 255
+    arr = arr.transpose(1, 2, 0)
+    height, width, _ = arr.shape
+    img = Image.fromarray(arr, "RGB")
+
+    if size is not None:
+        scale = size * 1. / max(height, width)
+        newsize = (int(round(scale * width)), int(round(scale * height)))
+        img = img.resize(newsize, Image.ANTIALIAS)
+
+    return img
+
+
 class Validator(object):
     def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None):
         """
@@ -247,7 +267,7 @@ class Validator(object):
                 if ret is not None:
                     rets.append(ret)
             if self.logger is not None:
-                self.logger.liner_write("validator", " ".join(map(str, rets)))
+                self.logger.liner_write("validator.txt", " ".join(map(str, rets)))
             self._iter += 1
         return " ".join(map(str, rets[1:]))
 
