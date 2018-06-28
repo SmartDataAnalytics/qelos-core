@@ -337,7 +337,7 @@ class InceptionMetric(object):
 
 
 class FIDandIS(InceptionMetric):
-    def __init__(self, inception=None, device=torch.device("cpu"), **kw):
+    def __init__(self, inception=None, device=torch.device("cpu"), is_splits=10, **kw):
         super(FIDandIS, self).__init__(inception=inception, device=device)
         self.fid = FID(inception=self.inception, device=self.device)
         self.is_score = IS(inception=self.inception, device=self.device, splits=is_splits)
