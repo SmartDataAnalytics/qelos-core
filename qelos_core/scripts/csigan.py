@@ -213,11 +213,7 @@ def run(lr=0.0001,
     logger = q.log.Logger(prefix="csigan")
     logger.save_settings(**settings)
 
-    if not test:
-        settings = locals().copy()
-        logger = q.log.Logger(prefix="csigan")
-        logger.save_settings(**settings)
-    else:
+    if test:
         validinter=1
         burnin=1
         batsize=2
