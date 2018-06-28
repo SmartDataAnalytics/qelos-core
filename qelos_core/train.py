@@ -175,7 +175,7 @@ class lossarray(EventEmitter):
 
     def pp(self):
         aggouts = self.get_agg_errors()
-        ret = " - ".join(["{:.4f}".format(aggout) for aggout in aggouts])
+        ret = " :: ".join(["{:.4f}".format(aggout) for aggout in aggouts])
         return ret
 
     def device(self, device):

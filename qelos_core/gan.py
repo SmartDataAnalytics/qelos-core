@@ -5,6 +5,7 @@ import torchvision
 import numpy as np
 from scipy import linalg
 import json
+import os
 
 
 class SampleDataset(Dataset):
@@ -152,7 +153,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             for disc_iter in range(_disciters):  # discriminator iterations
                 batch = disc_batch_iter.next()
                 self.disc_trainer.do_batch(batch)
-                ttmsg = "iter {}/{} - disc: {}/{} - {}".format(current_iter, iters,
+                ttmsg = "iter {}/{} - disc: {}/{} :: {}".format(current_iter, iters,
                                                                disc_iter, _disciters,
                                                                self.disc_trainer.losses.pp())
                 tt.live(ttmsg)
@@ -162,7 +163,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             for gen_iter in range(geniters):  # generator iterations
                 batch = gen_batch_iter.next()
                 self.gen_trainer.do_batch(batch)
-                ttmsg = "iter {}/{} - gen: {}/{} - {}".format(current_iter, iters,
+                ttmsg = "iter {}/{} - gen: {}/{} :: {}".format(current_iter, iters,
                                                               gen_iter, geniters,
                                                               self.gen_trainer.losses.pp())
                 tt.live(ttmsg)
@@ -229,23 +230,26 @@ class Validator(object):
             generated = []
             self.tt.tick("running generator")
             for i, batch in enumerate(self.gendata):
-                batch = batch.to(self.device)
-                _gen = self.generator(batch).detach().cpu()
+                batch = (batch,) if not q.issequence(batch) else batch
+                batch = [torch.tensor(batch_e).to(self.device) for batch_e in batch]
+                _gen = self.generator(*batch).detach().cpu()
+                _gen = _gen[0] if q.issequence(_gen) else _gen
                 generated.append(_gen)
                 self.tt.live("{}/{}".format(i, len(self.gendata)))
             batsize = max(map(len, generated))
             generated = torch.cat(generated, 0)
             self.tt.tock("generated data")
 
-            gen_loaded = q.dataload([generated], batch_size=batsize, shuffle=False)
+            gen_loaded = q.dataload(generated, batch_size=batsize, shuffle=False)
             rets = [iter]
             for scorer in self.scorers:
                 ret = scorer(gen_loaded)
                 if ret is not None:
                     rets.append(ret)
             if self.logger is not None:
-                self.logger.liner_write("validator", json.dumps(rets))
-        self._iter += 1
+                self.logger.liner_write("validator", " ".join(map(str, rets)))
+            self._iter += 1
+        return " ".join(map(str, rets[1:]))
 
     def post_run(self):
         if self.logger is not None:
@@ -254,14 +258,21 @@ class Validator(object):
 
 class GenDataSaver(object):
     """ saves generated data as a single ndarray, overwrites previously saved data """
-    def __init__(self, p="saved", **kw):
+    def __init__(self, logger=None, p="saved", **kw):
         super(GenDataSaver, self).__init__(**kw)
-        self.p = p
+        self.p = p; self.logger=logger
 
     def __call__(self, gendata):
-        ret = [batch.cpu() for batch in gendata]
-        ret = torch.cat(ret, 0).numpy()
-        np.save(self.p, ret)
+        ret = []
+        for batch in gendata:
+            if not q.issequence(batch):
+                batch = (batch,)
+            ret.append(batch)
+        ret = [[batch_e.cpu() for batch_e in batch] for batch in ret]
+        ret = [torch.cat(ret_i, 0).numpy() for ret_i in zip(*ret)]
+        tosave = dict(zip(map(str, range(len(ret))), ret))
+        if self.logger is not None:
+            np.savez(os.path.join(self.logger.p, self.p), **tosave)
 
 
 class InceptionForEval(torch.nn.Module):
@@ -323,8 +334,9 @@ class InceptionMetric(object):
         probses = []
         activationses = []
         for i, batch in enumerate(data):
-            batch = torch.tensor(batch).to(self.device)
-            probs, activations = self.inception(batch)
+            batch = (batch,) if not q.issequence(batch) else batch
+            batch = [torch.tensor(batch_e).to(self.device) for batch_e in batch]
+            probs, activations = self.inception(*batch)
             probs = torch.nn.functional.softmax(probs)
             probses.append(probs.detach())
             activationses.append(activations.detach())
@@ -333,7 +345,7 @@ class InceptionMetric(object):
         tt.tock("done")
         probses = torch.cat(probses, 0)
         activationses = torch.cat(activationses, 0)
-        return probses, activationses
+        return probses.cpu().detach().numpy(), activationses.cpu().detach().numpy()
 
 
 class FIDandIS(InceptionMetric):
@@ -371,7 +383,6 @@ class FID(InceptionMetric):
         return activations
 
     def get_activation_stats(self, activations):
-        activations = activations.detach().cpu().numpy()
         mu = np.mean(activations, axis=0)
         sigma = np.cov(activations, rowvar=False)
         return mu, sigma
@@ -433,11 +444,10 @@ class IS(InceptionMetric):
         allprobs, _ = self.get_inception_outs(data)
         return self.get_scores_from_probs(allprobs)
 
-    def get_scores_from_probs(self, probs):
+    def get_scores_from_probs(self, allprobs):
         tt = q.ticktock("scorer")
 
         tt.tick("calculating scores")
-        allprobs = probs.detach().cpu().numpy()
 
         scores = []
         splits = self.splits

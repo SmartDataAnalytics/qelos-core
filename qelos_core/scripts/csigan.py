@@ -205,10 +205,23 @@ def run(lr=0.0001,
         validinter=500,
         cuda=False,
         gpu=0,
-        z_dim=64):
+        z_dim=64,
+        test=False):
+    splits = (7, 1, 2)
+
     settings = locals().copy()
     logger = q.log.Logger(prefix="csigan")
     logger.save_settings(**settings)
+
+    if not test:
+        settings = locals().copy()
+        logger = q.log.Logger(prefix="csigan")
+        logger.save_settings(**settings)
+    else:
+        validinter=1
+        burnin=1
+        batsize=2
+        splits = (50, 50, 49900)
 
     tt = q.ticktock("script")
 
@@ -230,7 +243,7 @@ def run(lr=0.0001,
     # load cifar
     tt.tick("loading data")
     cifar = load_cifar_dataset()
-    traincifar, validcifar, testcifar = q.datasplit([cifar], splits=(7, 1, 2), random=True)
+    traincifar, validcifar, testcifar = q.datasplit([cifar], splits=splits, random=True)
 
     realdata = q.dataset(traincifar)
     gen_data_d = q.gan.gauss_dataset(z_dim, len(realdata))
@@ -242,7 +255,7 @@ def run(lr=0.0001,
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
-    validcifar_loader = q.dataload(*validcifar, batch_size=batsize, shuffle=False)
+    validcifar_loader = q.dataload(validcifar[0], batch_size=batsize, shuffle=False)
     # q.embed()
     tt.tock("loaded data")
 
@@ -257,7 +270,7 @@ def run(lr=0.0001,
 
     fidandis = q.gan.FIDandIS(device=device)
     fidandis.set_real_stats_with(validcifar_loader)
-    saver = q.gan.GenDataSaver("saved")
+    saver = q.gan.GenDataSaver(logger, "saved.npz")
     validator = q.gan.Validator(gen, [fidandis, saver], gen_data_valid, device=device, logger=logger)
 
     tt.tick("training")

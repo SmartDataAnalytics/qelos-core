@@ -53,7 +53,7 @@ class Logger(object):
             os.makedirs(self.p)
         self._current_train_file = None
         self._current_numbers = []
-        self.open_liners = []
+        self.open_liners = {}
 
     def save_settings(self, **kw):
         p = self.p + "/" + OPT_SETTINGS_NAME

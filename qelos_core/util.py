@@ -218,9 +218,12 @@ def tokenize(s, preserve_patterns=None, extrasubs=True):
     return tokens
 
 
-def dataset(x):
-    if not issequence(x):
-        x = (x,)
+def dataset(*x):
+    if q.issequence(x):
+        assert(len(x) == 1)
+        x = x[0]
+    # if not issequence(x):
+    #     x = (x,)
     return tensor_dataset(*x)
 
 
