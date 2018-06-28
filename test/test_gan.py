@@ -25,8 +25,8 @@ def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
                          transform=transforms.Compose([
                              transforms.Scale(32),
                              transforms.ToTensor(),
-                             transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                  std=[0.229, 0.224, 0.225])
+                             transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                                                  std=[0.5, 0.5, 0.5])
                          ])
                          )
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
@@ -34,6 +34,7 @@ def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
     cifar = IgnoreLabelDataset(cifar)
     cifar_loader = q.dataload(cifar, batch_size=batsize)
     scorer = q.gan.FIDandIS(device=device)
+    print(scorer.inception.training)
     scorer.set_real_stats_with(cifar_loader)
 
     print ("Calculating FID and IS ... ")

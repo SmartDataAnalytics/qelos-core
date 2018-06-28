@@ -203,7 +203,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
 
 
 class InceptionForEval(torch.nn.Module):
-    def __init__(self, normalize_input=True, resize_input=True):
+    def __init__(self, normalize_input=False, resize_input=True):
         super(InceptionForEval, self).__init__()
         self.inception = torchvision.models.inception_v3(pretrained=True)
         self.inception.eval()       # set to eval mode
@@ -293,6 +293,7 @@ class FIDandIS(InceptionMetric):
 class FID(InceptionMetric):
 
     def get_data_activations(self, data):
+        self.inception.eval()
         probs, activations = self.get_inception_outs(data)
         return activations
 
@@ -348,6 +349,7 @@ class FID(InceptionMetric):
 class IS(InceptionMetric):
 
     def get_scores_from_data(self, data, splits=10):     # dataloader
+        self.inception.eval()
         allprobs, _ = self.get_inception_outs(data)
         return self.get_scores_from_probs(allprobs, splits=splits)
 
