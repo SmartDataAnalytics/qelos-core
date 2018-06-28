@@ -207,7 +207,7 @@ def run(lr=0.0001,
         gpu=0,
         z_dim=64,
         test=False):
-    splits = (7, 1, 2)
+    splits = (8, 1, 1)
 
     settings = locals().copy()
     logger = q.log.Logger(prefix="csigan")
