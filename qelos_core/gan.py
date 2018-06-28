@@ -4,6 +4,7 @@ from torch.utils.data.dataset import Dataset
 import torchvision
 import numpy as np
 from scipy import linalg
+import json
 
 
 class SampleDataset(Dataset):
@@ -180,7 +181,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
                     self.validator.do_epoch()
                     ttmsg += " -- {}".format(self.validator.losses.pp())
                 else:
-                    toprint = self.validator()
+                    toprint = self.validator(iter=current_iter)
                     ttmsg += " -- {}".format(toprint)
                 self.do_callbacks(self.END_VALID)
             self.do_callbacks(self.END_EPOCH)
@@ -193,13 +194,74 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
         self.stop_training = False
         self.gen_trainer.pre_run()
         self.disc_trainer.pre_run()
-        if isinstance(self.validator, q.tester):
+        if hasattr(self.validator, "pre_run"):
             self.validator.pre_run()
         self.runloop(iters, disciters=disciters, geniters=geniters, validinter=validinter, burnin=burnin)
         self.gen_trainer.post_run()
         self.disc_trainer.post_run()
-        if isinstance(self.validator, q.tester):
+        if hasattr(self.validator, "post_run"):
             self.validator.post_run()
+
+
+class Validator(object):
+    def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None):
+        """
+        :param generator:   the generator
+        :param scorers:     scorers (FID, IS, Imagesaver)
+        :param gendata:     dataloader of data to feed to generator to generate images
+        :param device:      device used only for batches (generator/scorers are not set to this device)
+        """
+        super(Validator, self).__init__()
+        self.history = {}
+        self.generator = generator
+        self.scorers = scorers
+        self.gendata = gendata
+        self.device = device
+        self.tt = q.ticktock("validator")
+        self._iter = 0
+        self.logger = logger
+
+    def __call__(self, iter=None):
+        iter = self._iter if iter is None else iter
+        self.generator.eval()
+        with torch.no_grad():
+            # collect generated images
+            generated = []
+            self.tt.tick("running generator")
+            for i, batch in enumerate(self.gendata):
+                batch = batch.to(self.device)
+                _gen = self.generator(batch).detach().cpu()
+                generated.append(_gen)
+                self.tt.live("{}/{}".format(i, len(self.gendata)))
+            batsize = max(map(len, generated))
+            generated = torch.cat(generated, 0)
+            self.tt.tock("generated data")
+
+            gen_loaded = q.dataload([generated], batch_size=batsize, shuffle=False)
+            rets = [iter]
+            for scorer in self.scorers:
+                ret = scorer(gen_loaded)
+                if ret is not None:
+                    rets.append(ret)
+            if self.logger is not None:
+                self.logger.liner_write("validator", json.dumps(rets))
+        self._iter += 1
+
+    def post_run(self):
+        if self.logger is not None:
+            self.logger.liner_close("validator")
+
+
+class GenDataSaver(object):
+    """ saves generated data as a single ndarray, overwrites previously saved data """
+    def __init__(self, p="saved", **kw):
+        super(GenDataSaver, self).__init__(**kw)
+        self.p = p
+
+    def __call__(self, gendata):
+        ret = [batch.cpu() for batch in gendata]
+        ret = torch.cat(ret, 0).numpy()
+        np.save(self.p, ret)
 
 
 class InceptionForEval(torch.nn.Module):
@@ -275,19 +337,30 @@ class InceptionMetric(object):
 
 
 class FIDandIS(InceptionMetric):
-    def __init__(self, inception=None, device=torch.device("cpu")):
+    def __init__(self, inception=None, device=torch.device("cpu"), **kw):
         super(FIDandIS, self).__init__(inception=inception, device=device)
         self.fid = FID(inception=self.inception, device=self.device)
-        self.is_score = IS(inception=self.inception, device=self.device)
+        self.is_score = IS(inception=self.inception, device=self.device, splits=is_splits)
 
     def set_real_stats_with(self, data):
         self.fid.set_real_stats_with(data)
 
-    def get_scores(self, data, is_splits=10):
+    def get_scores(self, data):
+        """
+        :param data:    dataloader
+        :return:
+        """
         probs, acts = self.get_inception_outs(data)
-        ises = self.is_score.get_scores_from_probs(probs, splits=is_splits)
+        ises = self.is_score.get_scores_from_probs(probs)
         fids = self.fid.get_distance_from_activations(acts)
         return ises, fids
+
+    def __call__(self, data):
+        """
+        :param data:    dataloader
+        :return:
+        """
+        return self.get_scores(data)
 
 
 class FID(InceptionMetric):
@@ -345,21 +418,29 @@ class FID(InceptionMetric):
         mu, sigma = self.get_activation_stats(acts)
         self.real_stats = (mu, sigma)
 
+    def __call__(self, data):
+        return self.get_distance_from_data(data)
+
 
 class IS(InceptionMetric):
 
-    def get_scores_from_data(self, data, splits=10):     # dataloader
+    def __init__(self, inception=None, device=torch.device("cpu"), splits=10):
+        super(IS, self).__init__(inception=inception, device=device)
+        self.splits = splits
+
+    def get_scores_from_data(self, data):     # dataloader
         # self.inception.eval()
         allprobs, _ = self.get_inception_outs(data)
-        return self.get_scores_from_probs(allprobs, splits=splits)
+        return self.get_scores_from_probs(allprobs)
 
-    def get_scores_from_probs(self, probs, splits=10):
+    def get_scores_from_probs(self, probs):
         tt = q.ticktock("scorer")
 
         tt.tick("calculating scores")
         allprobs = probs.detach().cpu().numpy()
 
         scores = []
+        splits = self.splits
         for i in range(splits):
             part = allprobs[(i * allprobs.shape[0] // splits):((i + 1) * allprobs.shape[0] // splits), :]
             part_means = np.expand_dims(np.mean(part, 0), 0)
@@ -369,6 +450,9 @@ class IS(InceptionMetric):
 
         tt.tock("calculated scores")
         return np.mean(scores), np.std(scores)
+
+    def __call__(self, data):
+        return self.get_scores_from_data(data)
 
 
 

@@ -53,6 +53,7 @@ class Logger(object):
             os.makedirs(self.p)
         self._current_train_file = None
         self._current_numbers = []
+        self.open_liners = []
 
     def save_settings(self, **kw):
         p = self.p + "/" + OPT_SETTINGS_NAME
@@ -89,6 +90,23 @@ class Logger(object):
     def loglosses(self, looper, logfilename):
         sublogger = LossesWriter(looper, self.p + "/" + logfilename)
         sublogger.start()
+
+    def liner_write(self, p, msg):
+        """
+        :param p:   path under this logger's path (filename)
+        :return:
+        """
+        if p not in self.open_liners:
+            # open new liner
+            linerf = open(os.path.join(self.p, p), "w")
+            self.open_liners[p] = linerf
+        msg = str(msg) + "\n"
+        self.open_liners[p].write(msg)
+        self.open_liners[p].flush()
+
+    def liner_close(self, p):
+        if p in self.open_liners:
+            self.open_liners[p].close()
 
 
 class LossesWriter(q.AutoHooker):

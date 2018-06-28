@@ -201,9 +201,15 @@ def run(lr=0.0001,
         epochs=100000,
         lamda=10,
         disciters=10,
+        burnin=500,
+        validinter=500,
         cuda=False,
         gpu=0,
         z_dim=64):
+    settings = locals().copy()
+    logger = q.log.Logger(prefix="csigan")
+    logger.save_settings(**settings)
+
     tt = q.ticktock("script")
 
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
@@ -224,17 +230,20 @@ def run(lr=0.0001,
     # load cifar
     tt.tick("loading data")
     cifar = load_cifar_dataset()
-    traincifar, validcifar, testcifar = q.datasplit([cifar], splits=(8, 1, 2), random=True)
+    traincifar, validcifar, testcifar = q.datasplit([cifar], splits=(7, 1, 2), random=True)
 
     realdata = q.dataset(traincifar)
     gen_data_d = q.gan.gauss_dataset(z_dim, len(realdata))
     disc_data = q.datacat([realdata, gen_data_d], 1)
 
     gen_data = q.gan.gauss_dataset(z_dim)
-    tt.tock("loaded data")
+    gen_data_valid = q.gan.gauss_dataset(z_dim, len(validcifar))
 
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
+    gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
+    validcifar_loader = q.dataload(validcifar, batch_size=batsize, shuffle=False)
+    tt.tock("loaded data")
 
     disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
     gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
@@ -245,10 +254,15 @@ def run(lr=0.0001,
     disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(3).device(device)
     gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(1).device(device)
 
-    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
+    fidandis = q.gan.FIDandIS(device=device)
+    fidandis.set_real_stats_with(validcifar_loader)
+    saver = q.gan.GenDataSaver("saved")
+    validator = q.gan.Validator(gen, [fidandis, saver], gen_data_valid, device=device, logger=logger)
 
     tt.tick("training")
-    gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=500)
+    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validator=validator)
+
+    gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin, validinter=validinter)
     tt.tock("trained")
 
 
