@@ -237,13 +237,13 @@ def run(lr=0.0001,
     disc_data = q.datacat([realdata, gen_data_d], 1)
 
     gen_data = q.gan.gauss_dataset(z_dim)
-    gen_data_valid = q.gan.gauss_dataset(z_dim, len(validcifar))
+    gen_data_valid = q.gan.gauss_dataset(z_dim, len(validcifar[0]))
 
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
     validcifar_loader = q.dataload(*validcifar, batch_size=batsize, shuffle=False)
-    q.embed()
+    # q.embed()
     tt.tock("loaded data")
 
     disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
