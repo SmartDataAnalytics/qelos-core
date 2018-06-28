@@ -203,7 +203,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
 
 
 class InceptionForEval(torch.nn.Module):
-    def __init__(self, normalize_input=False, resize_input=False):
+    def __init__(self, normalize_input=True, resize_input=True):
         super(InceptionForEval, self).__init__()
         self.inception = torchvision.models.inception_v3(pretrained=True)
         self.inception.eval()       # set to eval mode
