@@ -293,7 +293,7 @@ class FIDandIS(InceptionMetric):
 class FID(InceptionMetric):
 
     def get_data_activations(self, data):
-        self.inception.eval()
+        # self.inception.eval()
         probs, activations = self.get_inception_outs(data)
         return activations
 
@@ -349,7 +349,7 @@ class FID(InceptionMetric):
 class IS(InceptionMetric):
 
     def get_scores_from_data(self, data, splits=10):     # dataloader
-        self.inception.eval()
+        # self.inception.eval()
         allprobs, _ = self.get_inception_outs(data)
         return self.get_scores_from_probs(allprobs, splits=splits)
 

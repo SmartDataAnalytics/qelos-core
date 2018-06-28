@@ -35,6 +35,7 @@ def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
     cifar_loader = q.dataload(cifar, batch_size=batsize)
     scorer = q.gan.FIDandIS(device=device)
     print(scorer.inception.training)
+    print(scorer.inception.layers[0].training)
     scorer.set_real_stats_with(cifar_loader)
 
     print ("Calculating FID and IS ... ")
