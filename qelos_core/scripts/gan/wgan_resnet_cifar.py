@@ -94,7 +94,7 @@ class Generator(torch.nn.Module):
             ResBlock(dim_g, dim_g, 3, resample='up'),
             ResBlock(dim_g, dim_g, 3, resample='up'),
             ResBlock(dim_g, dim_g, 3, resample='up'),
-            torch.nn.Conv2d(dim_g, 3, 3),
+            torch.nn.Conv2d(dim_g, 3, 3, padding=1),
             torch.nn.Tanh(),
         ])
 
