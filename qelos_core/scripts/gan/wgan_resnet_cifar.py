@@ -123,6 +123,20 @@ class Discriminator(torch.nn.Module):
         return x
 
 
+class UnquantizeTransform(object):
+    def __init__(self, levels=256, range=(-1, 1)):
+        super(UnquantizeTransform, self).__init__()
+        self.rand_range = (range[1] - range[0]) * 1. / (1. * levels)
+
+    def __call__(self, x):
+        rand = (torch.rand_like(x) - 0.5) * self.rand_range
+        x = x + rand
+        return x
+
+    def __repr__(self):
+        return self.__class__.__name__ + '(rand_range={0})'.format(self.rand_range)
+
+
 def load_cifar_dataset():
     class IgnoreLabelDataset(torch.utils.data.Dataset):
         def __init__(self, orig):
@@ -154,7 +168,7 @@ def run(lr=0.0001,
         batsize=64,
         epochs=100000,
         lamda=10,
-        disciters=10,
+        disciters=5,
         burnin=500,
         validinter=1000,
         cuda=False,
@@ -216,7 +230,10 @@ def run(lr=0.0001,
     disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr)
 
-    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(3).device(device)
+    disc_bt = UnquantizeTransform()
+
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(3).device(device)\
+        .set_batch_transformer(lambda x: disc_bt(x[0]), x[1])
     gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(1).device(device)
 
     fidandis = q.gan.FIDandIS(device=device)
