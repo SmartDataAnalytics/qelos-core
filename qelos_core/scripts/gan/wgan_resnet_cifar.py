@@ -169,7 +169,7 @@ def run(lr=0.0001,
     splits = (8, 1, 1)
 
     settings = locals().copy()
-    logger = q.log.Logger(prefix="csigan")
+    logger = q.log.Logger(prefix="resnet_cifar")
     logger.save_settings(**settings)
 
     if test:
