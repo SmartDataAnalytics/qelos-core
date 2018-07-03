@@ -6,11 +6,22 @@ import numpy as np
 
 # region from https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 class ResamplingConv(torch.nn.Module):
-    def __init__(self, in_planes, out_planes, kernel=3, resample=None):
+    def __init__(self, in_planes, out_planes, kernel=3, padding=None, resample=None, bias=True):
+        """
+        Combines resampling (up/down) with convolution.
+        If resample is "up", then nn.Upsample(x2) is applied before the conv
+        If resample is "down", then nn.MaxPool2D(x2) is applied after the conv
+        Padding is automatically set to preserve spatial shapes of input.
+        If kernel is 0, no conv is applied and the module is reduced to up/down sampling (if any)
+        Resample=None and kernel=0  ==>  nothing happens
+        """
         super(ResamplingConv, self).__init__()
-        assert(kernel in (1, 3, 5, 7))
-        padding = (kernel - 1) // 2
-        self.conv = torch.nn.Conv2d(in_planes, out_planes, kernel_size=kernel, padding=padding, bias=False)
+        assert(kernel in (0, 1, 3, 5, 7))
+        padding = (kernel - 1) // 2 if padding is None else padding
+        if kernel == 0:
+            self.conv = None
+        else:
+            self.conv = torch.nn.Conv2d(in_planes, out_planes, kernel_size=kernel, padding=padding, bias=bias)
         self.resample = resample
         if resample == "up":
             self.resampler = torch.nn.Upsample(scale_factor=2)
@@ -20,35 +31,49 @@ class ResamplingConv(torch.nn.Module):
     def forward(self, x):
         if self.resample == "up":
             x = self.resampler(x)
-        x = self.conv(x)
+        if self.conv is not None:
+            x = self.conv(x)
         if self.resample == "down":
             x = self.resampler(x)
         return x
 
 
 class ResBlock(torch.nn.Module):
-    def __init__(self, inplanes, planes, kernel=3, resample=None):
-        super(ResBlock, self).__init__()
-        self.conv1 = ResamplingConv(inplanes, planes, kernel, resample=resample if resample != "down" else None)
-        self.bn1 = torch.nn.BatchNorm2d(planes)
-        self.relu = torch.nn.ReLU(inplace=True)
-        self.conv2 = ResamplingConv(planes, planes, kernel, resample=resample if resample != "up" else None)
-        self.bn2 = torch.nn.BatchNorm2d(planes)
+    def __init__(self, inplanes, planes, kernel=3, resample=None, bias=True, batnorm=True):
+        """
+        Residual block with two convs and optional resample.
+        If resample == "up", the first conv is upsampling by 2, residual is upsampled too
+        If resample == "down", the last conv is downsampling by 2, residual is downsampled too
+        If resample == None, no resampling anywhere
 
-        self.shortcut = ResamplingConv(inplanes, planes, 1, resample=resample)
+        1x1 conv is applied to residual only if inplanes != planes and resample is None.
+        """
+        super(ResBlock, self).__init__()
+        self.conv1 = ResamplingConv(inplanes, planes, kernel,
+                                    resample=resample if resample != "down" else None,
+                                    bias=bias)
+        self.bn1 = torch.nn.BatchNorm2d(planes) if batnorm else None
+        self.relu = torch.nn.ReLU(inplace=True)
+        self.conv2 = ResamplingConv(planes, planes, kernel,
+                                    resample=resample if resample != "up" else None,
+                                    bias=bias)
+        self.bn2 = torch.nn.BatchNorm2d(planes) if batnorm else None
+        self.resample = resample
+        self.shortcut = ResamplingConv(inplanes, planes, 0 if (inplanes == planes and resample is None) else 1,
+                                       resample=resample,
+                                       bias=bias)
 
     def forward(self, x):
         residual = x
 
         out = self.conv1(x)
-        out = self.bn1(out)
+        out = self.bn1(out) if self.bn1 is not None else out
         out = self.relu(out)
 
         out = self.conv2(out)
-        out = self.bn2(out)
+        out = self.bn2(out) if self.bn2 is not None else out
 
-        if self.resample is not None:
-            residual = self.resample(x)
+        residual = self.shortcut(residual)
 
         out += residual
         out = self.relu(out)
@@ -62,12 +87,13 @@ class Generator(torch.nn.Module):
     def __init__(self, z_dim, dim_g, **kw):
         super(Generator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
+            q.Lambda(lambda x: x.unsqueeze(2).unsqueeze(3)),
             torch.nn.ConvTranspose2d(z_dim, dim_g, 4),
-            ResBlock(dim_g, dim_g, 3, resample='up'),
-            ResBlock(dim_g, dim_g, 3, resample='up'),
-            ResBlock(dim_g, dim_g, 3, resample='up'),
             torch.nn.BatchNorm2d(dim_g),
             torch.nn.ReLU(),
+            ResBlock(dim_g, dim_g, 3, resample='up'),
+            ResBlock(dim_g, dim_g, 3, resample='up'),
+            ResBlock(dim_g, dim_g, 3, resample='up'),
             torch.nn.Conv2d(dim_g, 3, 3),
             torch.nn.Tanh(),
         ])
@@ -81,6 +107,20 @@ class Generator(torch.nn.Module):
 class Discriminator(torch.nn.Module):
     def __init__(self, dim_d, **kw):
         super(Discriminator, self).__init__(**kw)
+        self.layers = torch.nn.ModuleList([
+            ResBlock(3, dim_d, 3, resample='down', batnorm=False),
+            ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
+            ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
+            ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
+            q.Lambda(lambda x: x.mean(3).mean(2)),      # global average pooling over spatial dims
+            torch.nn.Linear(dim_d, 1),
+            q.Lambda(lambda x: x.squeeze(1))
+        ])
+
+    def forward(self, x):   # (batsize, channels, h?, w?)
+        for layer in self.layers:
+            x = layer(x)
+        return x
 
 
 
@@ -118,11 +158,14 @@ def run(lr=0.0001,
         lamda=10,
         disciters=10,
         burnin=500,
-        validinter=500,
+        validinter=1000,
         cuda=False,
         gpu=0,
-        z_dim=64,
-        test=False):
+        z_dim=128,
+        test=False,
+        dim_d=128,
+        dim_g=128,
+        ):
     splits = (8, 1, 1)
 
     settings = locals().copy()
@@ -140,10 +183,8 @@ def run(lr=0.0001,
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
 
     tt.tick("creating networks")
-    gen_layers = create_basic_gen(z_dim)
-    gen = Generator(gen_layers).to(device)
-    crit_layers = create_basic_critic(z_dim)
-    crit = Critic(crit_layers).to(device)
+    gen = Generator(z_dim, dim_g).to(device)
+    crit = Discriminator(dim_d).to(device)
     tt.tock("created networks")
 
     # test
@@ -162,7 +203,7 @@ def run(lr=0.0001,
     disc_data = q.datacat([realdata, gen_data_d], 1)
 
     gen_data = q.gan.gauss_dataset(z_dim)
-    gen_data_valid = q.gan.gauss_dataset(z_dim, len(validcifar[0]))
+    gen_data_valid = q.gan.gauss_dataset(z_dim, 50000)
 
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)

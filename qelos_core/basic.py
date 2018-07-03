@@ -41,3 +41,16 @@ class NoneLayer(torch.nn.Module):
         if len(ret) == 1:
             ret = ret[0]
         return ret
+
+
+class Lambda(torch.nn.Module):
+    def __init__(self, lamda, reg_params=None, reg_modules=None):
+        super(Lambda, self).__init__()
+        self.lamda = lamda
+        if reg_params is not None:
+            self._reg_params = torch.nn.ParameterList(parameters=reg_params)
+        if reg_modules is not None:
+            self._reg_modules = torch.nn.ModuleList(modules=reg_modules)
+
+    def forward(self, x):
+        return self.lamda(x)
