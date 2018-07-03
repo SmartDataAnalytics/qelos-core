@@ -221,6 +221,10 @@ def run(lr=0.0001,
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
     validcifar_loader = q.dataload(validcifar[0], batch_size=batsize, shuffle=False)
+
+    dev_data_real = q.dataset(validcifar)
+    dev_data_gauss = q.gan.gauss_dataset(z_dim, len(dev_data_real))
+    dev_disc_data = q.datacat([dev_data_real, dev_data_gauss], 1)
     # q.embed()
     tt.tock("loaded data")
 
@@ -239,12 +243,18 @@ def run(lr=0.0001,
     fidandis = q.gan.FIDandIS(device=device)
     fidandis.set_real_stats_with(validcifar_loader)
     saver = q.gan.GenDataSaver(logger, "saved.npz")
-    validator = q.gan.Validator(gen, [fidandis, saver], gen_data_valid, device=device, logger=logger)
+    generator_validator = q.gan.GeneratorValidator(gen, [fidandis, saver], gen_data_valid, device=device,
+                                         logger=logger, validinter=validinter)
+
+    train_validator = q.tester(disc_model).on(dev_disc_data).loss(3).device(device)\
+        .set_batch_transformer(lambda a, b: (disc_bt(a), b))
+
+    train_validator.validinter = 100
 
     tt.tick("training")
-    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validator=validator)
+    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validators=(generator_validator, train_validator))
 
-    gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin, validinter=validinter)
+    gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin)
     tt.tock("trained")
 
 

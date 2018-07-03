@@ -126,21 +126,25 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
     START_GEN = 10
     END_GEN = 11
 
-    def __init__(self, disc_trainer, gen_trainer, validator=None):
+    def __init__(self, disc_trainer, gen_trainer, validators=None):
         """
         Creates a GAN trainer given a gen_trainer and disc_trainer.
         both trainers already contain the model, optimizer and losses and implement updating and batching
+
+        Takes a validator or a list of validators (with different validinters).
         """
         super(GANTrainer, self).__init__()
         self.disc_trainer = disc_trainer
         self.gen_trainer = gen_trainer
-        self.validator = validator
+        if not q.issequence(validators) and validators is not None:
+            validators = (validators,)
+        self.validators = validators
         self.stop_training = False
 
-    def runloop(self, iters, disciters=1, geniters=1, validinter=1, burnin=10):
+    def runloop(self, iters, disciters=1, geniters=1, burnin=10):
         tt = q.ticktock("gan runner")
         self.do_callbacks(self.START)
-        current_iter = 0
+        current_iter = 1
         disc_batch_iter = self.disc_trainer.inf_batches(with_info=False)
         gen_batch_iter = self.gen_trainer.inf_batches(with_info=False)
         while self.stop_training is not True:
@@ -155,7 +159,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
                 batch = disc_batch_iter.next()
                 self.disc_trainer.do_batch(batch)
                 ttmsg = "iter {}/{} - disc: {}/{} :: {}".format(current_iter, iters,
-                                                               disc_iter, _disciters,
+                                                               disc_iter+1, _disciters,
                                                                self.disc_trainer.losses.pp())
                 tt.live(ttmsg)
             tt.stoplive()
@@ -165,7 +169,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
                 batch = gen_batch_iter.next()
                 self.gen_trainer.do_batch(batch)
                 ttmsg = "iter {}/{} - gen: {}/{} :: {}".format(current_iter, iters,
-                                                              gen_iter, geniters,
+                                                              gen_iter+1, geniters,
                                                               self.gen_trainer.losses.pp())
                 tt.live(ttmsg)
             tt.stoplive()
@@ -177,32 +181,36 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             self.gen_trainer.losses.push_and_reset()
             self.do_callbacks(self.END_TRAIN)
 
-            if self.validator is not None and current_iter % validinter == 0:
-                self.do_callbacks(self.START_VALID)
-                if isinstance(self.validator, q.tester):
-                    self.validator.do_epoch()
-                    ttmsg += " -- {}".format(self.validator.losses.pp())
-                else:
-                    toprint = self.validator(iter=current_iter)
-                    ttmsg += " -- {}".format(toprint)
-                self.do_callbacks(self.END_VALID)
+            if self.validators is not None:
+                for validator in self.validators:
+                    if current_iter % validator.validinter == 0:
+                        self.do_callbacks(self.START_VALID)
+                        if isinstance(validator, q.tester):
+                            validator.do_epoch()
+                            ttmsg += " -- {}".format(validator.losses.pp())
+                        else:
+                            toprint = validator(iter=current_iter)
+                            ttmsg += " -- {}".format(toprint)
+                        self.do_callbacks(self.END_VALID)
             self.do_callbacks(self.END_EPOCH)
             tt.tock(ttmsg)
             current_iter += 1
             self.stop_training = current_iter >= iters
         self.do_callbacks(self.END)
 
-    def run(self, iters, disciters=1, geniters=1, validinter=1, burnin=10):
+    def run(self, iters, disciters=1, geniters=1, burnin=10):
         self.stop_training = False
         self.gen_trainer.pre_run()
         self.disc_trainer.pre_run()
-        if hasattr(self.validator, "pre_run"):
-            self.validator.pre_run()
-        self.runloop(iters, disciters=disciters, geniters=geniters, validinter=validinter, burnin=burnin)
+        for validator in self.validators:
+            if hasattr(validator, "pre_run"):
+                validator.pre_run()
+        self.runloop(iters, disciters=disciters, geniters=geniters, burnin=burnin)
         self.gen_trainer.post_run()
         self.disc_trainer.post_run()
-        if hasattr(self.validator, "post_run"):
-            self.validator.post_run()
+        for validator in self.validators:
+            if hasattr(validator, "post_run"):
+                validator.post_run()
 
 
 def make_img(arr, size=None):
@@ -225,14 +233,19 @@ def make_img(arr, size=None):
 
 
 class Validator(object):
-    def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None):
+    pass    # TODO: validator for monitoring disc and gen scores on a dev set
+
+
+class GeneratorValidator(object):
+    """ Validator for generator. Runs generator on gendata and executes scorers on generated data """
+    def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None, validinter=1):
         """
         :param generator:   the generator
         :param scorers:     scorers (FID, IS, Imagesaver)
         :param gendata:     dataloader of data to feed to generator to generate images
         :param device:      device used only for batches (generator/scorers are not set to this device)
         """
-        super(Validator, self).__init__()
+        super(GeneratorValidator, self).__init__()
         self.history = {}
         self.generator = generator
         self.scorers = scorers
@@ -241,6 +254,7 @@ class Validator(object):
         self.tt = q.ticktock("validator")
         self._iter = 0
         self.logger = logger
+        self.validinter = validinter
 
     def __call__(self, iter=None):
         iter = self._iter if iter is None else iter

@@ -634,7 +634,10 @@ class tester(EventEmitter, AutoHooker):
         return self
 
     def loss(self, *args):
-        if len(args) == 1 and isinstance(args[0], lossarray):
+        # can be unspecified
+        if len(args) == 1 and isinstance(args[0], int):
+            self.losses = q.no_losses(args[0])
+        elif len(args) == 1 and isinstance(args[0], lossarray):
             self.losses = args[0]
         else:
             self.losses = q.lossarray(*args)

@@ -267,7 +267,7 @@ def run(lr=0.0001,
     fidandis = q.gan.FIDandIS(device=device)
     fidandis.set_real_stats_with(validcifar_loader)
     saver = q.gan.GenDataSaver(logger, "saved.npz")
-    validator = q.gan.Validator(gen, [fidandis, saver], gen_data_valid, device=device, logger=logger)
+    validator = q.gan.GeneratorValidator(gen, [fidandis, saver], gen_data_valid, device=device, logger=logger)
 
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validator=validator)
