@@ -694,51 +694,50 @@ class tester(EventEmitter, AutoHooker):
         self.do_callbacks(self.START_TEST)
         self.losses.push_and_reset()
         totalbats = len(self.dataloader)
-        with torch.no_grad():
-            for i, _batch in enumerate(self.dataloader):
-                self.do_callbacks(self.START_BATCH)
+        for i, _batch in enumerate(self.dataloader):
+            self.do_callbacks(self.START_BATCH)
 
-                _batch = (_batch,) if not q.issequence(_batch) else _batch
-                _batch = [batch_e.to(self._device) for batch_e in _batch]
-                if self.transform_batch_inp is not None:
-                    batch = self.transform_batch_inp(*_batch)
-                else:
-                    batch = _batch
+            _batch = (_batch,) if not q.issequence(_batch) else _batch
+            _batch = [batch_e.to(self._device) for batch_e in _batch]
+            if self.transform_batch_inp is not None:
+                batch = self.transform_batch_inp(*_batch)
+            else:
+                batch = _batch
 
-                if self.no_gold:
-                    batch_in = batch
-                    gold = None
-                else:
-                    batch_in = batch[:-1]
-                    gold = batch[-1]
-
-                batch_reset(self.model)
-                modelouts = self.model(*batch_in)
-
-                modelout2loss = modelouts
-                if self.transform_batch_out is not None:
-                    modelout2loss = self.transform_batch_out(modelouts)
+            if self.no_gold:
+                batch_in = batch
+                gold = None
+            else:
+                batch_in = batch[:-1]
                 gold = batch[-1]
-                if self.transform_batch_gold is not None:
-                    gold = self.transform_batch_gold(gold)
 
-                losses = self.losses(modelout2loss, gold)
+            batch_reset(self.model)
+            modelouts = self.model(*batch_in)
 
-                epochmsg = ""
-                if epoch is not None:
-                    curepoch, maxepoch = epoch
-                    epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
+            modelout2loss = modelouts
+            if self.transform_batch_out is not None:
+                modelout2loss = self.transform_batch_out(modelouts)
+            gold = batch[-1]
+            if self.transform_batch_gold is not None:
+                gold = self.transform_batch_gold(gold)
 
-                tt.live("{} - {}[{}/{}]: {}"
-                    .format(
-                    self._name,
-                    epochmsg,
-                    i + 1,
-                    totalbats,
-                    self.losses.pp()
-                )
-                )
-                self.do_callbacks(self.END_BATCH)
+            losses = self.losses(modelout2loss, gold)
+
+            epochmsg = ""
+            if epoch is not None:
+                curepoch, maxepoch = epoch
+                epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
+
+            tt.live("{} - {}[{}/{}]: {}"
+                .format(
+                self._name,
+                epochmsg,
+                i + 1,
+                totalbats,
+                self.losses.pp()
+            )
+            )
+            self.do_callbacks(self.END_BATCH)
         # losses = self.losses.get_agg_errors()
         tt.stoplive()
         ttmsg = "{}: {}" \
