@@ -185,7 +185,7 @@ def run(lr=0.0001,
     logger.save_settings(**settings)
 
     if test:
-        validinter=1
+        validinter=10
         burnin=1
         batsize=2
         splits = (50, 50, 49900)
@@ -225,6 +225,7 @@ def run(lr=0.0001,
     dev_data_real = q.dataset(validcifar)
     dev_data_gauss = q.gan.gauss_dataset(z_dim, len(dev_data_real))
     dev_disc_data = q.datacat([dev_data_real, dev_data_gauss], 1)
+    dev_disc_data = q.dataload(dev_disc_data, batch_size=batsize, shuffle=False)
     # q.embed()
     tt.tock("loaded data")
 
@@ -241,7 +242,8 @@ def run(lr=0.0001,
     gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(1).device(device)
 
     fidandis = q.gan.FIDandIS(device=device)
-    fidandis.set_real_stats_with(validcifar_loader)
+    if not test:
+        fidandis.set_real_stats_with(validcifar_loader)
     saver = q.gan.GenDataSaver(logger, "saved.npz")
     generator_validator = q.gan.GeneratorValidator(gen, [fidandis, saver], gen_data_valid, device=device,
                                          logger=logger, validinter=validinter)
@@ -249,7 +251,7 @@ def run(lr=0.0001,
     train_validator = q.tester(disc_model).on(dev_disc_data).loss(3).device(device)\
         .set_batch_transformer(lambda a, b: (disc_bt(a), b))
 
-    train_validator.validinter = 100
+    train_validator.validinter = 100 if not test else 1
 
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validators=(generator_validator, train_validator))
