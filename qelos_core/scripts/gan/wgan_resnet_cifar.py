@@ -123,8 +123,6 @@ class Discriminator(torch.nn.Module):
         return x
 
 
-
-
 def load_cifar_dataset():
     class IgnoreLabelDataset(torch.utils.data.Dataset):
         def __init__(self, orig):
@@ -135,7 +133,7 @@ def load_cifar_dataset():
 
         def __len__(self):
             return len(self.orig)
-    cifar = torchvision.datasets.CIFAR10(root='../../datasets/cifar/', download=True,
+    cifar = torchvision.datasets.CIFAR10(root='../../../datasets/cifar/', download=True,
                          transform=torchvision.transforms.Compose([
                              torchvision.transforms.Scale(32),
                              torchvision.transforms.ToTensor(),
