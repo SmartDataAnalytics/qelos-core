@@ -643,6 +643,18 @@ class tester(EventEmitter, AutoHooker):
             self.losses = q.lossarray(*args)
         return self
 
+    @property
+    def no_gold(self):
+        all_linear = True
+        some_linear = False
+        for loss in self.losses.losses:
+            if isinstance(loss.loss, (q.LinearLoss, q.SelectedLinearLoss)):
+                some_linear = True
+            else:
+                all_linear = False
+        assert(all_linear == some_linear)
+        return all_linear
+
     def set_batch_transformer(self, input_transform=None, output_transform=None, gold_transform=None):
         self.transform_batch_inp = input_transform
         self.transform_batch_out = output_transform
@@ -692,8 +704,17 @@ class tester(EventEmitter, AutoHooker):
                     batch = self.transform_batch_inp(*_batch)
                 else:
                     batch = _batch
+
+                if self.no_gold:
+                    batch_in = batch
+                    gold = None
+                else:
+                    batch_in = batch[:-1]
+                    gold = batch[-1]
+
                 batch_reset(self.model)
-                modelouts = self.model(*batch[:-1])
+                modelouts = self.model(*batch_in)
+
                 modelout2loss = modelouts
                 if self.transform_batch_out is not None:
                     modelout2loss = self.transform_batch_out(modelouts)
