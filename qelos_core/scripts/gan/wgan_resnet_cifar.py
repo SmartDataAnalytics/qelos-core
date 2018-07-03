@@ -233,7 +233,7 @@ def run(lr=0.0001,
     disc_bt = UnquantizeTransform()
 
     disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(3).device(device)\
-        .set_batch_transformer(lambda x: disc_bt(x[0]), x[1])
+        .set_batch_transformer(lambda a, b: disc_bt(a), b)
     gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(1).device(device)
 
     fidandis = q.gan.FIDandIS(device=device)
