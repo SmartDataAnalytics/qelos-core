@@ -171,7 +171,7 @@ def run(lr=0.0001,
         disciters=5,
         burnin=500,
         validinter=1000,
-        devinter=10,
+        devinter=100,
         cuda=False,
         gpu=0,
         z_dim=128,
@@ -190,6 +190,7 @@ def run(lr=0.0001,
         burnin=1
         batsize=2
         splits = (50, 50, 49900)
+        devinter = 1
 
     tt = q.ticktock("script")
 
@@ -252,7 +253,7 @@ def run(lr=0.0001,
     train_validator = q.tester(disc_model).on(dev_disc_data).loss(3).device(device)\
         .set_batch_transformer(lambda a, b: (disc_bt(a), b))
 
-    train_validator.validinter = 100 if not test else 1
+    train_validator.validinter = devinter
 
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validators=(generator_validator, train_validator))

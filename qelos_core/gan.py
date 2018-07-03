@@ -144,7 +144,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
     def runloop(self, iters, disciters=1, geniters=1, burnin=10):
         tt = q.ticktock("gan runner")
         self.do_callbacks(self.START)
-        current_iter = 1
+        current_iter = 0
         disc_batch_iter = self.disc_trainer.inf_batches(with_info=False)
         gen_batch_iter = self.gen_trainer.inf_batches(with_info=False)
         while self.stop_training is not True:
