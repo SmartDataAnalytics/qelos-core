@@ -169,7 +169,7 @@ def run(lr=0.0001,
         epochs=100000,
         lamda=10,
         disciters=5,
-        burnin=500,
+        burnin=5,
         validinter=1000,
         devinter=100,
         cuda=False,
@@ -235,8 +235,8 @@ def run(lr=0.0001,
     disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
     gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
 
-    disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr, betas=(0, 0.9))
-    gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0, 0.9))
+    disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr, betas=(0.5, 0.9))
+    gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0.5, 0.9))
 
     disc_bt = UnquantizeTransform()
 
