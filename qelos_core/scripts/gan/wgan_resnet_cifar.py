@@ -202,15 +202,16 @@ def run(lr=0.0001,
     tt.tock("created networks")
 
     # test
-    z = torch.randn(3, z_dim).to(device)
-    x = gen(z)
-    s = crit(x)
+    # z = torch.randn(3, z_dim).to(device)
+    # x = gen(z)
+    # s = crit(x)
 
     # data
     # load cifar
     tt.tick("loading data")
     cifar = load_cifar_dataset()
     traincifar, validcifar, testcifar = q.datasplit([cifar], splits=splits, random=True)
+    print(len(traincifar[0]))
 
     realdata = q.dataset(traincifar)
     gen_data_d = q.gan.gauss_dataset(z_dim, len(realdata))
