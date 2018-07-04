@@ -234,8 +234,8 @@ def run(lr=0.0001,
     disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
     gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
 
-    disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr)
-    gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr)
+    disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr, betas=(0, 0.9))
+    gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0, 0.9))
 
     disc_bt = UnquantizeTransform()
 
@@ -256,7 +256,9 @@ def run(lr=0.0001,
     train_validator.validinter = devinter
 
     tt.tick("training")
-    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer, validators=(generator_validator, train_validator))
+    gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer,
+                                   validators=(generator_validator, train_validator),
+                                   lr_decay=True)
 
     gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin)
     tt.tock("trained")

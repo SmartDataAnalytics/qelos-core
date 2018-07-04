@@ -126,7 +126,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
     START_GEN = 10
     END_GEN = 11
 
-    def __init__(self, disc_trainer, gen_trainer, validators=None):
+    def __init__(self, disc_trainer, gen_trainer, validators=None, lr_decay=False):
         """
         Creates a GAN trainer given a gen_trainer and disc_trainer.
         both trainers already contain the model, optimizer and losses and implement updating and batching
@@ -140,6 +140,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             validators = (validators,)
         self.validators = validators
         self.stop_training = False
+        self.lr_decay = lr_decay
 
     def runloop(self, iters, disciters=1, geniters=1, burnin=10):
         tt = q.ticktock("gan runner")
@@ -147,11 +148,24 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
         current_iter = 0
         disc_batch_iter = self.disc_trainer.inf_batches(with_info=False)
         gen_batch_iter = self.gen_trainer.inf_batches(with_info=False)
+
+        lr_decay_disc, lr_decay_gen = None, None
+        if self.lr_decay:
+            lr_decay_disc = torch.optim.lr_scheduler.LambdaLR(self.disc_trainer.optim,
+                                                              lr_lambda=lambda ep: max(0, 1. - ep*1./iters))
+            lr_decay_gen = torch.optim.lr_scheduler.LambdaLR(self.gen_trainer.optim,
+                                                              lr_lambda=lambda ep: max(0, 1. - ep*1./iters))
+
         while self.stop_training is not True:
             tt.tick()
             self.do_callbacks(self.START_EPOCH)
             self.do_callbacks(self.START_TRAIN)
             self.do_callbacks(self.START_DISC)
+
+            if lr_decay_disc is not None:
+                lr_decay_disc.step()
+            if lr_decay_gen is not None:
+                lr_decay_gen.step()
 
             _disciters = burnin if current_iter == 0 else disciters
 
