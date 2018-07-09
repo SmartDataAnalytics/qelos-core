@@ -326,7 +326,7 @@ class GenDataSaver(object):
 
 
 class InceptionForEval(torch.nn.Module):
-    def __init__(self, normalize_input=False, resize_input=True):
+    def __init__(self, normalize_input=True, resize_input=True):
         super(InceptionForEval, self).__init__()
         self.inception = torchvision.models.inception_v3(pretrained=True)
         self.inception.eval()       # set to eval mode
@@ -360,9 +360,12 @@ class InceptionForEval(torch.nn.Module):
             x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
         if self.normalize_input:
             x = x.clone()
-            x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
-            x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
-            x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
+            x[:, 0] = (x[:, 0] - 0.485) / 0.229
+            x[:, 0] = (x[:, 0] - 0.456) / 0.224
+            x[:, 0] = (x[:, 0] - 0.406) / 0.225
+            # x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
+            # x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
+            # x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5
         prefinal = self.layers(x)
         # prefinal = torch.nn.functional.dropout(prefinal, training=self.training)
         prefinal = prefinal.view(prefinal.size(0), -1)      # 2048
