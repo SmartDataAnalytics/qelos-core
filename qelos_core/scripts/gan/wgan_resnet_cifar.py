@@ -137,7 +137,7 @@ class UnquantizeTransform(object):
         return self.__class__.__name__ + '(rand_range={0})'.format(self.rand_range)
 
 
-def load_cifar_dataset():
+def load_cifar_dataset(train=True):
     class IgnoreLabelDataset(torch.utils.data.Dataset):
         def __init__(self, orig):
             self.orig = orig
@@ -147,7 +147,7 @@ def load_cifar_dataset():
 
         def __len__(self):
             return len(self.orig)
-    cifar = torchvision.datasets.CIFAR10(root='../../../datasets/cifar/', download=True,
+    cifar = torchvision.datasets.CIFAR10(root='../../../datasets/cifar/', download=True, train=train,
                          transform=torchvision.transforms.Compose([
                              torchvision.transforms.Scale(32),
                              torchvision.transforms.ToTensor(),
@@ -155,13 +155,7 @@ def load_cifar_dataset():
                          ])
                          )
     cifar = IgnoreLabelDataset(cifar)
-
-    cifar_npy = []
-    for i in range(len(cifar)):
-        cifar_npy.append(cifar[i].unsqueeze(0).numpy())
-    cifar_npy = np.concatenate(cifar_npy, 0)
-
-    return cifar_npy
+    return cifar
 
 
 def run(lr=0.0001,
@@ -169,7 +163,7 @@ def run(lr=0.0001,
         epochs=100000,
         lamda=10,
         disciters=5,
-        burnin=5,
+        burnin=-1,
         validinter=1000,
         devinter=100,
         cuda=False,
@@ -179,17 +173,17 @@ def run(lr=0.0001,
         dim_d=128,
         dim_g=128,
         ):
-    splits = (8, 1, 1)
 
     settings = locals().copy()
     logger = q.log.Logger(prefix="resnet_cifar")
     logger.save_settings(**settings)
 
+    burnin = disciters if burnin == -1 else burnin
+
     if test:
         validinter=10
         burnin=1
         batsize=2
-        splits = (50, 50, 49900)
         devinter = 1
 
     tt = q.ticktock("script")
@@ -209,13 +203,11 @@ def run(lr=0.0001,
     # data
     # load cifar
     tt.tick("loading data")
-    cifar = load_cifar_dataset()
-    traincifar, validcifar, testcifar = q.datasplit([cifar], splits=splits, random=True)
-    print(len(traincifar[0]))
+    traincifar, testcifar = load_cifar_dataset(train=True), load_cifar_dataset(train=False)
+    print(len(traincifar))
 
-    realdata = q.dataset(traincifar)
-    gen_data_d = q.gan.gauss_dataset(z_dim, len(realdata))
-    disc_data = q.datacat([realdata, gen_data_d], 1)
+    gen_data_d = q.gan.gauss_dataset(z_dim, len(traincifar))
+    disc_data = q.datacat([traincifar, gen_data_d], 1)
 
     gen_data = q.gan.gauss_dataset(z_dim)
     gen_data_valid = q.gan.gauss_dataset(z_dim, 50000)
@@ -223,11 +215,10 @@ def run(lr=0.0001,
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
-    validcifar_loader = q.dataload(validcifar[0], batch_size=batsize, shuffle=False)
+    validcifar_loader = q.dataload(testcifar, batch_size=batsize, shuffle=False)
 
-    dev_data_real = q.dataset(validcifar)
-    dev_data_gauss = q.gan.gauss_dataset(z_dim, len(dev_data_real))
-    dev_disc_data = q.datacat([dev_data_real, dev_data_gauss], 1)
+    dev_data_gauss = q.gan.gauss_dataset(z_dim, len(testcifar))
+    dev_disc_data = q.datacat([testcifar, dev_data_gauss], 1)
     dev_disc_data = q.dataload(dev_disc_data, batch_size=batsize, shuffle=False)
     # q.embed()
     tt.tock("loaded data")
