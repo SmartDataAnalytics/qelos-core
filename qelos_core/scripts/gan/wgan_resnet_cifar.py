@@ -109,7 +109,7 @@ class Discriminator(torch.nn.Module):
         super(Discriminator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
             ResBlock(3, dim_d, 3, resample='down', batnorm=False),
-            ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
+            ResBlock(dim_d, dim_d, 3, resample='down', batnorm=False),
             ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
             ResBlock(dim_d, dim_d, 3, resample=None, batnorm=False),
             q.Lambda(lambda x: x.mean(3).mean(2)),      # global average pooling over spatial dims

@@ -100,8 +100,10 @@ class WGAN(GAN):
         interp_points = interp_alpha * real + (1 - interp_alpha) * fake
         interp_points.requires_grad = True
         interp_score = self.discriminator(interp_points)
-        interp_grad, = torch.autograd.grad(interp_score.sum(), interp_points, create_graph=True)
-        interp_grad_norm = (interp_grad ** 2).view(interp_grad.size(0), -1).sum(1) ** 0.5
+        interp_grad, = torch.autograd.grad(interp_score, interp_points,
+                                           grad_outputs=torch.ones_like(interp_score),
+                                           create_graph=True)
+        interp_grad_norm = interp_grad.view(interp_grad.size(0), -1).norm(p=2, dim=1)
         if self.mode == "LP":
             penalty = (interp_grad_norm - 1).clamp(0, np.infty) ** 2
         penalty = self.lamda * penalty
