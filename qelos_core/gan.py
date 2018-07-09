@@ -355,14 +355,16 @@ class InceptionForEval(torch.nn.Module):
         self.resize_input = resize_input
 
     def forward(self, x):
-        """ run the forward of inception layer, take prefinal activations as well as outputs """
+        """ run the forward of inception layer, take prefinal activations as well as outputs
+            x: in range (-1, 1) --> normalize to (0, 1), apply pytorch numbers
+        """
         if self.resize_input:
             x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
         if self.normalize_input:
             x = x.clone()
             x[:, 0] = (x[:, 0] - 0.485) / 0.229
-            x[:, 0] = (x[:, 0] - 0.456) / 0.224
-            x[:, 0] = (x[:, 0] - 0.406) / 0.225
+            x[:, 1] = (x[:, 1] - 0.456) / 0.224
+            x[:, 2] = (x[:, 2] - 0.406) / 0.225
             # x[:, 0] = x[:, 0] * (0.229 / 0.5) + (0.485 - 0.5) / 0.5
             # x[:, 1] = x[:, 1] * (0.224 / 0.5) + (0.456 - 0.5) / 0.5
             # x[:, 2] = x[:, 2] * (0.225 / 0.5) + (0.406 - 0.5) / 0.5

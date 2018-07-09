@@ -95,7 +95,7 @@ class Generator(torch.nn.Module):
             ResBlock(dim_g, dim_g, 3, resample='up'),
             ResBlock(dim_g, dim_g, 3, resample='up'),
             torch.nn.Conv2d(dim_g, 3, 3, padding=1),
-            torch.nn.Tanh(),
+            torch.nn.Sigmoid(),
         ])
 
     def forward(self, x):
@@ -151,8 +151,8 @@ def load_cifar_dataset():
                          transform=torchvision.transforms.Compose([
                              torchvision.transforms.Scale(32),
                              torchvision.transforms.ToTensor(),
-                             torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                                              std=[0.229, 0.224, 0.225])
+                             # torchvision.transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                             #                                  std=[0.229, 0.224, 0.225])
                          ])
                          )
     cifar = IgnoreLabelDataset(cifar)
