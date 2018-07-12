@@ -326,8 +326,21 @@ class GenDataSaver(object):
 
 
 class InceptionForEval(torch.nn.Module):
-    def __init__(self, normalize_input=False, resize_input=True):
+    def __init__(self, resize_input=True, normalize_input=False):
         super(InceptionForEval, self).__init__()
+        assert(normalize_input == False)
+        self.resize_input = resize_input
+        self.inception = q.ganutil.inceptionresnetv2(num_classes=1000, pretrained="imagenet")
+        self.inception.eval()
+
+    def forward(self, x):
+        y, acts = self.inception(x)
+        return y.detach(), acts.detach()
+
+
+class InceptionV3ForEval(torch.nn.Module):
+    def __init__(self, normalize_input=False, resize_input=True):
+        super(InceptionV3ForEval, self).__init__()
         self.inception = torchvision.models.inception_v3(pretrained=True)
         self.inception.eval()       # set to eval mode
         self.layers = torch.nn.Sequential(

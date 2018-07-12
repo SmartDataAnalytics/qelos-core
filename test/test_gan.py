@@ -21,7 +21,7 @@ def tst_inception_cifar10(cuda=False, gpu=1, batsize=32):
 
         def __len__(self):
             return len(self.orig)
-    cifar = dset.CIFAR10(root='data/', download=True,
+    cifar = dset.CIFAR10(root='../data/cifar/', download=True, train=True,
                          transform=transforms.Compose([
                              transforms.Scale(32),
                              transforms.ToTensor(),
