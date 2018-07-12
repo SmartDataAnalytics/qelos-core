@@ -334,9 +334,10 @@ class InceptionForEval(torch.nn.Module):
         self.inception.eval()
 
     def forward(self, x):
+        """ input is RGB, channel first, range=(-1, 1)"""
         if self.resize_input:
             x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
-        x = (x + 1.) * 255.
+        x = (x + 1.) * 127.5
         y, acts = self.inception(x, with_activations=True)
         return y.detach(), acts.detach()
 
@@ -430,9 +431,14 @@ class FIDandIS(InceptionMetric):
         :param data:    dataloader
         :return:
         """
-        probs, acts = self.get_inception_outs(data)
-        ises = self.is_score.get_scores_from_probs(probs)
-        fids = self.fid.get_distance_from_activations(acts)
+        ises = -1
+        fids = -1
+        try:
+            probs, acts = self.get_inception_outs(data)
+            ises = self.is_score.get_scores_from_probs(probs)
+            fids = self.fid.get_distance_from_activations(acts)
+        except Exception as e:
+            print(e)
         return ises, fids
 
     def __call__(self, data):
