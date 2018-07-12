@@ -37,7 +37,7 @@ def get_inception_score(images, splits=10):
   for img in images:
     img = img.astype(np.float32)
     inps.append(np.expand_dims(img, 0))
-  bs = 1
+  bs = 100
   with tf.Session() as sess:
     preds = []
     n_batches = int(math.ceil(float(len(inps)) / float(bs)))
@@ -46,8 +46,8 @@ def get_inception_score(images, splits=10):
         sys.stdout.flush()
         inp = inps[(i * bs):min((i + 1) * bs, len(inps))]
         inp = np.concatenate(inp, 0)
-        inp = torch.nn.functional.upsample(
-                torch.tensor(inp), size=(299, 299), mode="bilinear").numpy()
+        # inp = torch.nn.functional.upsample(
+        #         torch.tensor(inp), size=(299, 299), mode="bilinear").numpy()
         inp = np.transpose(inp, (0, 2, 3, 1))
         pred = sess.run(softmax, {'ExpandDims:0': inp})
         preds.append(pred)
