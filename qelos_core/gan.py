@@ -336,6 +336,7 @@ class InceptionForEval(torch.nn.Module):
     def forward(self, x):
         if self.resize_input:
             x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
+        x = (x + 1.) * 255.
         y, acts = self.inception(x, with_activations=True)
         return y.detach(), acts.detach()
 
