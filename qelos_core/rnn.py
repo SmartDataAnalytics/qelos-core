@@ -84,6 +84,7 @@ class RecCell(torch.nn.Module):
             self.zoneout.rec_reset()
 
     def apply_mask_t(self, *statepairs, **kw):
+        """ interpolates between previous and new state inside a timestep in a batch based on mask"""
         mask_t = q.getkw(kw, "mask_t", None)
         if mask_t is not None:
             mask_t = mask_t.float().unsqueeze(1)
@@ -163,12 +164,334 @@ class LSTMCell(RecCell):
         return y_t
 
 
+class Attention(torch.nn.Module):
+    """ Abstract class for attention """
+    def __init__(self, **kw):
+        super(Attention, self).__init__(**kw)
+        self.alpha_tm1, self.summ_tm1 = None, None
+        self.sm = torch.nn.Softmax(-1)
+
+    def forward(self, q, ctx, ctx_mask=None, values=None):
+        """
+        :param ctx:     context (keys), (batsize, seqlen, dim)
+        :param q:       query, (batsize, dim)
+        :param ctxmask: context mask (batsize, seqlen)
+        :param values:  values to summarize, (batsize, seqlen, dim), if unspecified, ctx is used
+        :return:        attention alphas (batsize, seqlen) and summary (batsize, dim)
+        """
+        alphas, summary = self._forward(q, ctx, ctx_mask=None, values=values)
+        self.alpha_tm1, self.summ_tm1 = alphas, summary
+        return alphas, summary
+
+    def _forward(self, q, ctx, ctx_mask=None, values=None):
+        raise NotImplemented("use subclass")
+
+    def rec_reset(self):
+        self.alpha_tm1, self.summ_tm1 = None, None
+
+
+class DotAttention(Attention):
+    def _forward(self, q, ctx, ctx_mask=None, values=None):
+        scores = torch.bmm(ctx, q.unsqueeze(2)).squeeze(2)
+        scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
+        alphas = self.sm(scores)
+        values = ctx if values is None else values
+        summary = values * alphas.unsqueeze(2)
+        summary = summary.sum(1)
+        return alphas, summary
+
+
+class FwdAttention(Attention):
+    def __init__(self, ctxdim=None, qdim=None, attdim=None, nonlin=torch.nn.Tanh(), **kw):
+        super(FwdAttention, self).__init__(**kw)
+        self.linear = torch.nn.Linear(ctxdim + qdim, attdim)
+        self.nonlin = nonlin
+        self.afterlinear = torch.nn.Linear(attdim, 1)
+
+    def _forward(self, q, ctx, ctx_mask=None, values=None):
+        q = q.unsqueeze(1).repeat(1, ctx.size(1), 1)
+        x = torch.cat([ctx, q], 2)
+        y = self.linear(x)      # (batsize, seqlen, attdim)
+        scores = self.afterlinear(y).squeeze(2)
+        scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
+        alphas = self.sm(scores)
+        values = ctx if values is None else values
+        summary = values * alphas.unsqueeze(2)
+        summary = summary.sum(1)
+        return alphas, summary
+
+
+class FwdMulAttention(Attention):
+    def __init__(self, indim=None, attdim=None, nonlin=torch.nn.Tanh(), **kw):
+        super(FwdMulAttention, self).__init__(**kw)
+        self.linear = torch.nn.Linear(indim * 3, attdim)
+        self.nonlin = nonlin
+        self.afterlinear = torch.nn.Linear(attdim, 1)
+
+    def _forward(self, q, ctx, ctx_mask=None, values=None):
+        q = q.unsqueeze(1).repeat(1, ctx.size(1), 1)
+        x = torch.cat([ctx, q, ctx * q], 2)
+        y = self.linear(x)      # (batsize, seqlen, attdim)
+        scores = self.afterlinear(y).squeeze(2)
+        scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
+        alphas = self.sm(scores)
+        values = ctx if values is None else values
+        summary = values * alphas.unsqueeze(2)
+        summary = summary.sum(1)
+        return alphas, summary
+
+
+class RelationContentAttention(q.Attention):
+    """
+    Defines a composite relation-content attention.
+    - Encoded sequence must start with a special token shared across all examples (e.g. alwyas start with <START>.
+    - in every batch, before using this attention, rel_map must be set using set_rel_map()
+    """
+
+    def __init__(self, relemb=None, **kw):
+        super(RelationContentAttention, self).__init__(**kw)
+        self.rel_map = None  # rel maps for current batch (batsize, seqlen, seqlen) integer ids of relations
+        self.relemb = relemb
+        self._rel_map_emb = None  # cached augmented ctx -- assumed that ctx is not changed between time step
+
+    def rec_reset(self):
+        super(RelationContentAttention, self).rec_reset()
+        self.rel_map = None
+        self._rel_map_emb = None
+
+    def set_rel_map(self, relmap):  # sets relation map and embeds
+        """
+        :param relmap:  (batsize, seqlen, seqlen) integers with rel ids
+        :return:
+        """
+        self.rel_map = relmap
+        rel_map_emb = self.relemb(relmap)  # (batsize, seqlen, seqlen, relembdim)
+        if isinstance(rel_map_emb, tuple) and len(rel_map_emb) == 2:
+            rel_map_emb, _ = rel_map_emb
+        self._rel_map_emb = rel_map_emb
+
+    def get_rel_ctx(self, ctx):
+        if self.alpha_tm1 is None:  # in first time step, alpha_tm1 is assumed to have been on first element of encoding
+            alphas_tm1 = torch.zeros_like(self._rel_map_emb[:, :, 0, 0])
+            alphas_tm1[:, 0] = 1.
+        else:
+            alphas_tm1 = self.alphas_tm1  # (batsize, seqlen)
+
+        alphas_tm1 = alphas_tm1.unsqueeze(2).unsqueeze(2)  # (batsize, seqlen, 1, 1)
+        rel_summ = alphas_tm1 * self._rel_map_emb
+        rel_summ = rel_summ.sum(2)  # (batsize, seqlen, relembdim)
+
+        return rel_summ
+
+    def forward(self, q, ctx, ctx_mask=None, values=None):
+        rel_ctx = self.get_rel_ctx(ctx)
+        aug_ctx = torch.cat([ctx, rel_ctx], 2)
+        return super(RelationContentAttention, self).forward(q, aug_ctx, ctx_mask=ctx_mask, values=values)
+
+
+class RelationContextAttentionSeparated(RelationContentAttention):
+    """
+    Similar as RelationContentAttention,
+    but with explicit prediction of probability of doing content-based vs relation-based attention.
+    Choices:
+    - shared decoder / separated decoder
+    """
+    def __init__(self, query_proc=None, **kw):
+        """
+        :param query_proc:  module that given query vector, produces tuple (content_query, relation_query, cont_vs_rel_prob)
+        :param kw:
+        """
+        super(RelationContextAttentionSeparated, self).__init__(**kw)
+        self.query_proc = query_proc
+
+
+
+class Decoder(torch.nn.Module):
+    """ asbstract decoder """
+    def __init__(self, cell, **kw):
+        """
+        :param cell:    must produce probabilities as first output
+        :param kw:
+        """
+        super(Decoder, self).__init__(**kw)
+        self.cell = cell
+
+    def forward(self, xs, **kw):
+        """
+        :param xs:      argument(s) that will be time-sliced
+        :param kw:      are passed to decoder cell (unless used in decoder itself)
+        :return:
+        """
+        raise NotImplemented("use subclass")
+
+
+class ThinDecoder(Decoder):
+    """
+    Thin decoder, cells have full control and decoder only provides time steps and merges outputs.
+    Cell must implement:
+        - forward(t, *args, **kw) -- cell must save all necessary outputs by itself, inputs are forwarded from decoder
+        - stop() to terminate decoding
+    """
+    def forward(self, *args, **kw):
+        q.rec_reset(self.cell)
+        outs = []
+        out_is_seq = False
+        for t in xrange(10e9):
+            outs_t = self.cell(t, *args, **kw)
+            if q.issequence(outs_t):
+                out_is_seq = True
+            else:
+                outs_t = (outs_t,)
+            outs.append(outs_t)
+            if self.cell.stop():
+                break
+        outs = zip(*outs)
+        outs = tuple([torch.cat([a_i.unsqueeze(1) for a_i in a], 1) for a in outs])
+        outs = outs[0] if not out_is_seq else outs
+        return outs
+
+
+class TFDecoder(Decoder):
+    def forward(self, xs, **kw):
+        q.rec_reset(self.cell)
+        x_is_seq = True
+        if not q.issequence(xs):
+            x_is_seq = False
+            xs = (xs,)
+        outs = []
+        out_is_seq = False
+        for t in range(xs[0].size(1)):
+            x_ts = tuple([x[:, t] for x in xs])
+            x_ts = x_ts[0] if not x_is_seq else x_ts
+            outs_t = self.cell(x_ts, **kw)
+            if q.issequence(outs_t):
+                out_is_seq = True
+            else:
+                outs_t = (outs_t,)
+            outs.append(outs_t)
+        outs = zip(*outs)
+        outs = tuple([torch.cat([a_i.unsqueeze(1) for a_i in a], 1) for a in outs])
+        outs = outs[0] if not out_is_seq else outs
+        return outs
+
+
+class FreeDecoder(Decoder):
+    def __init__(self, cell, maxtime=None, **kw):
+        super(FreeDecoder, self).__init__(cell, **kw)
+        self.maxtime = maxtime
+
+    def forward(self, xs, maxtime=None, **kw):
+        q.rec_reset(self.cell)
+        maxtime = maxtime if maxtime is not None else self.maxtime
+        x_is_seq = True
+        if not q.issequence(xs):
+            x_is_seq = False
+            xs = (xs,)
+        outs = []
+        out_is_seq = False
+        for t in range(maxtime):
+            if t == 0:      # first time step --> use xs
+                x_ts = xs
+                x_ts = x_ts[0] if not x_is_seq else x_ts
+            outs_t = self.cell(x_ts, **kw)
+            x_ts = self._get_xs_from_ys(outs_t)      # --> get inputs from previous outputs
+            if q.issequence(outs_t):
+                out_is_seq = True
+            else:
+                outs_t = (outs_t,)
+            outs.append(outs_t)
+        outs = zip(*outs)
+        outs = tuple([torch.cat([a_i.unsqueeze(1) for a_i in a], 1) for a in outs])
+        outs = outs[0] if not out_is_seq else outs
+        return outs
+
+    def _get_xs_from_ys(self, ys):
+        if hasattr(self.cell, "get_xs_from_ys"):
+            xs = self.cell.get_xs_from_ys(ys)
+        else:
+            xs = self.get_xs_from_ys(ys)
+        return xs
+
+    def get_xs_from_ys(self, ys):       # default argmax implementation with out output
+        assert(not q.issequence(ys))
+        assert(ys.dim() == 2)   # (batsize, outsyms)
+        _, argmax_ys = torch.max(ys, 1)
+        xs = argmax_ys
+        return xs
+
+
+class BasicDecoderCell(torch.nn.Module):
+    def __init__(self, emb, core, out):
+        super(BasicDecoderCell, self).__init__()
+        self.emb, self.core, self.out = emb, core, out
+
+    def forward(self, x_t, ctx=None, **kw):
+        """
+        :param x_t:     tensor or list of tensors for this time step
+        :param ctx:     inputs for all time steps, forwarded by decoder
+        :param kw:      kwargs for all time steps, forwarded by decoder
+        :return:
+        """
+        emb = self.emb(x_t)
+        acts = self.core(emb)
+        outs = self.out(acts)
+        return outs
+
+
+class DecoderCell(torch.nn.Module):
+    def __init__(self, emb, core, att, out, feed_att=False, summ_0=None):
+        """
+        :param emb:
+        :param core:
+        :param att:
+        :param out:
+        :param feed_att:
+        :param summ_0:
+        """
+        super(DecoderCell, self).__init__()
+        self.emb, self.core, self.att, self.out = emb, core, att, out
+        self.feed_att = feed_att
+        self.summ_tm1 = summ_0
+        assert(not feed_att or summ_0 is not None,
+               "att_0 must be specified if feeding attention summary to next time step")
+        self.use_cell_out = True
+        self.use_att_sum = True
+        self.use_x_t_emb = False
+
+    def forward(self, x_t, ctx=None, ctx_mask=None, **kw):
+        assert(ctx is not None)
+        embs = self.emb(x_t)
+        if q.issequence(embs) and len(embs) == 2:
+            embs, mask = embs
+
+        core_inp = embs
+        if self.feed_att:
+            core_inp = torch.cat([core_inp, self.summ_tm1], 1)
+        acts = self.core(core_inp)
+
+        alphas, summaries = self.att(acts, ctx, ctx_mask=ctx_mask, values=ctx)
+        self.summ_tm1 = summaries
+
+        to_out = []
+        if self.use_cell_out:
+            to_out.append(acts)
+        if self.use_att_sum:
+            to_out.append(summaries)
+        if self.use_x_t_emb:
+            to_out.append(embs)
+        to_out = torch.cat(to_out, 1)
+
+        outscores = self.out(to_out)
+        return outscores
 
 
 
 
 
 
+
+
+# region Encoders
 class FastLSTMEncoderLayer(torch.nn.Module):
     """ Fast LSTM encoder layer using torch's built-in fast LSTM.
         Provides a more convenient interface.
@@ -612,3 +935,5 @@ class FastestLSTMEncoder(FastLSTMEncoder):
             return out, states_to_ret
         else:
             return out
+
+# endregion

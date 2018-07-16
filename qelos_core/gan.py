@@ -337,7 +337,7 @@ class InceptionForEval(torch.nn.Module):
         """ input is RGB, channel first, range=(-1, 1)"""
         if self.resize_input:
             x = torch.nn.functional.upsample(x, size=(299, 299), mode='bilinear')
-        x = (x + 1.) * 127.5
+        # x = (x + 1.) * 127.5
         y, acts = self.inception(x, with_activations=True)
         return y.detach(), acts.detach()
 

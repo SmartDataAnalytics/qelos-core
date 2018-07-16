@@ -391,3 +391,115 @@ class TestFastestLSTMBidirMaskedWithDropout(TestCase):
         self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r2.detach().numpy()))
 
 # endregion
+
+# region attention
+class TestAttention(TestCase):
+    def test_dot_attention(self):
+        x = torch.randn(5, 10, 7)
+        y = torch.randn(5, 7)
+
+        a = q.DotAttention()
+
+        alphas, summaries = a(y, x)
+        print(alphas.size())
+        # test shapes
+        self.assertEqual(alphas.size(), (5, 10))
+        self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
+        self.assertEqual(summaries.size(), (5, 7))
+
+    def test_fwd_attention(self):
+        x = torch.randn(5, 10, 7)
+        y = torch.randn(5, 7)
+
+        a = q.FwdAttention(7, 7, 7)
+
+        alphas, summaries = a(y, x)
+        print(alphas.size())
+        # test shapes
+        self.assertEqual(alphas.size(), (5, 10))
+        self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
+        self.assertEqual(summaries.size(), (5, 7))
+
+    def test_fwdmul_attention(self):
+        x = torch.randn(5, 10, 7)
+        y = torch.randn(5, 7)
+
+        a = q.FwdAttention(7, 7, 7)
+
+        alphas, summaries = a(y, x)
+        print(alphas.size())
+        # test shapes
+        self.assertEqual(alphas.size(), (5, 10))
+        self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
+        self.assertEqual(summaries.size(), (5, 7))
+# endregion
+
+# region decoders
+class TestDecoders(TestCase):
+    def test_tf_decoder(self):
+        decodercell = torch.nn.Linear(7, 12)
+        x = torch.randn(5, 10, 7)
+        decoder = q.TFDecoder(decodercell)
+        y = decoder(x)
+        self.assertEqual(y.size(), (5, 10, 12))
+
+    def test_free_decoder(self):
+        decodercell = torch.nn.Sequential(torch.nn.Embedding(12, 7),
+                                          torch.nn.Linear(7, 12))
+        x = torch.randint(0, 7, (5,), dtype=torch.int64)
+        decoder = q.FreeDecoder(decodercell, maxtime=10)
+        y = decoder(x)
+        self.assertEqual(y.size(), (5, 10, 12))
+
+
+class TestDecoderCell(TestCase):
+    def test_it(self):
+        x = np.random.randint(0, 100, (1000, 7))
+        y_inp = x[:, :-1]
+        y_out = x[:, 1:]
+        wD = dict((chr(xi), xi) for xi in range(100))
+
+        ctx = torch.randn(1000, 8, 30)
+
+        decoder_emb = q.WordEmb(20, worddic=wD)
+        decoder_lstm = q.LSTMCell(20, 30)
+        decoder_att = q.DotAttention()
+        decoder_out = q.WordLinout(60, worddic=wD)
+
+        decoder_cell = q.DecoderCell(decoder_emb, decoder_lstm, decoder_att, decoder_out)
+        decoder_tf = q.TFDecoder(decoder_cell)
+
+        y = decoder_tf(torch.tensor(x), ctx=ctx)
+
+        self.assertTrue(y.size(), (1000, 7, 100))
+
+def tst_decoder_cell(lr=0.001):
+    x = np.random.randint(0, 100, (1000, 7))
+    y_inp = x[:, :-1]
+    y_out = x[:, 1:]
+    wD = dict((chr(xi), xi) for xi in range(100))
+
+    encoder_emb = q.WordEmb(20, worddic=wD)
+    encoder_lstm = q.FastestLSTMEncoder(20, 30)
+
+    class Encoder(torch.nn.Module):
+        def __init__(self, emb, core):
+            super(Encoder, self).__init__()
+            self.emb, self.core = emb, core
+
+        def forward(self, x):
+            x, _ = self.emb(x)
+            x = self.core(x)
+            return x
+
+    encoder = encoder(encoder_emb, encoder_lstm)
+
+    decoder_emb = encoder_emb
+    decoder_lstm = q.LSTMCell(20, 30)
+    decoder_att = q.DotAttention()
+    decoder_out = q.WordLinout(30, worddic=wD)
+    decoder_cell = q.DecoderCell()
+
+
+
+# endregion
