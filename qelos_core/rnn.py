@@ -241,18 +241,26 @@ class FwdMulAttention(Attention):
         return alphas, summary
 
 
-class RelationContentAttention(q.Attention):
+class RelationContentAttention(Attention):
     """
     Defines a composite relation-content attention.
-    - Encoded sequence must start with a special token shared across all examples (e.g. alwyas start with <START>.
+    - Encoded sequence must start with a special token shared across all examples (e.g. always start with <START>.
     - in every batch, before using this attention, rel_map must be set using set_rel_map()
     """
 
-    def __init__(self, relemb=None, **kw):
+    def __init__(self, relemb=None, query_proc=None, **kw):
+        """
+        :param relemb:      embedder for relation ids
+        :param query_proc:  (optional) module that returns query to use against content
+                            and query to use against relation.
+                            Default: take original query against concat of content and relation ctx
+        :param kw:
+        """
         super(RelationContentAttention, self).__init__(**kw)
         self.rel_map = None  # rel maps for current batch (batsize, seqlen, seqlen) integer ids of relations
         self.relemb = relemb
         self._rel_map_emb = None  # cached augmented ctx -- assumed that ctx is not changed between time step
+        self.query_proc = query_proc
 
     def rec_reset(self):
         super(RelationContentAttention, self).rec_reset()
@@ -286,6 +294,9 @@ class RelationContentAttention(q.Attention):
     def forward(self, q, ctx, ctx_mask=None, values=None):
         rel_ctx = self.get_rel_ctx(ctx)
         aug_ctx = torch.cat([ctx, rel_ctx], 2)
+        if self.query_proc is not None:
+            cont_q, rel_q = self.query_proc(q)
+            q = torch.cat([cont_q, rel_q], 1)
         return super(RelationContentAttention, self).forward(q, aug_ctx, ctx_mask=ctx_mask, values=values)
 
 
@@ -295,15 +306,24 @@ class RelationContextAttentionSeparated(RelationContentAttention):
     but with explicit prediction of probability of doing content-based vs relation-based attention.
     Choices:
     - shared decoder / separated decoder
+    - query_proc:  module that given query vector, produces tuple (content_query, relation_query, cont_vs_rel_prob)
     """
-    def __init__(self, query_proc=None, **kw):
-        """
-        :param query_proc:  module that given query vector, produces tuple (content_query, relation_query, cont_vs_rel_prob)
-        :param kw:
-        """
-        super(RelationContextAttentionSeparated, self).__init__(**kw)
-        self.query_proc = query_proc
+    def __init__(self, rel_att=None, relemb=None, query_proc=None, **kw):
+        super(RelationContextAttentionSeparated, self).__init__(relemb=relemb, query_proc=query_proc, **kw)
+        self.rel_att = rel_att
 
+    def forward(self, q, ctx, ctx_mask=None, values=None):
+        cont_q, rel_q, vs_prob = self.query_proc(q)
+        rel_ctx = self.get_rel_ctx(ctx)
+        rel_alphas, rel_summaries = self.rel_att(rel_q, rel_ctx, ctx_mask=ctx_mask)
+        cont_alphas, cont_summaries = super(RelationContextAttentionSeparated, self)\
+            .forward(cont_q, ctx, ctx_mask=ctx_mask, values=values)
+        vs_prob = vs_prob.unsqueeze(1)
+        alphas = rel_alphas * vs_prob + cont_alphas * (1 - vs_prob)
+        values = ctx if values is None else values
+        summary = values * alphas.unsqueeze(2)
+        summary = summary.sum(1)
+        return alphas, summary
 
 
 class Decoder(torch.nn.Module):

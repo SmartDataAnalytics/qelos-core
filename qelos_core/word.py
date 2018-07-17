@@ -454,7 +454,16 @@ class PretrainedWordEmb(WordEmb, PretrainedWordVec):
 
 
 class PartiallyPretrainedWordEmb(WordEmb, PretrainedWordVec):
-    def __init__(self, dim=50, worddic=None, path=None, gradfracs=(1., 1.), **kw):
+    def __init__(self, dim=50, worddic=None, keepvanilla=None, path=None, gradfracs=(1., 1.), **kw):
+        """
+        :param dim:         embedding dimension
+        :param worddic:     which words to create embeddings for, must map from strings to ids
+        :param keepvanilla: set of words which will be kept in the vanilla set of vectors
+                            even if they occur in pretrained embeddings
+        :param path:        where to load pretrained word from
+        :param gradfracs:   tuple (vanilla_frac, pretrained_frac)
+        :param kw:
+        """
         super(PartiallyPretrainedWordEmb, self).__init__(dim=dim, worddic=worddic, **kw)
         path = self._get_path(dim, path=path)
         value, wdic = self.loadvalue(path, dim, indim=None,
@@ -464,7 +473,7 @@ class PartiallyPretrainedWordEmb(WordEmb, PretrainedWordVec):
         self.mixmask = q.val(np.zeros((len(self.D),), dtype="float32")).v
 
         for k, v in self.D.items():
-            if k in wdic:
+            if k in wdic and (keepvanilla is None or k not in keepvanilla):
                 self.embedding.weight[v, :] = value[wdic[k], :]
                 self.mixmask[v] = 1
 

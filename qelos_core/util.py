@@ -44,6 +44,7 @@ class StringMatrix():
         self._rarewords = set()
         self.tokenize = tokenize
         self._cache_p = None
+        self.unseen_mode = False
 
     def clone(self):
         n = StringMatrix()
@@ -141,7 +142,7 @@ class StringMatrix():
         tokenidxs = []
         for token in tokens:
             if token not in self._dictionary:
-                if not self._dictionary_external:
+                if not self._dictionary_external and not self.unseen_mode:
                     self._dictionary[token] = self._next_available_id
                     self._next_available_id += 1
                     self._wordcounts_original[token] = 0
