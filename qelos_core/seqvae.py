@@ -193,6 +193,9 @@ def run_seq(lr=0.001,
     ys = vae(x)
 
     print("done \n\n")
+    # TODO: add IAF
+    # TODO: add normal VAE for seqs
+    # TODO: experiments
 
 
 if __name__ == "__main__":
