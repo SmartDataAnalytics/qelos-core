@@ -7,7 +7,7 @@ from collections import OrderedDict
 
 
 def run(p1="../../../datasets/convai2/valid_dialogues.json",
-        p2="../../../datasets/convai2/valid_dialogues.json",
+        p2="../../../datasets/convai2/valid_dialogues.json",        # change the file paths
         maxwords=800, rarefreq=0):
     sm = q.StringMatrix(topnwords=maxwords, freqcutoff=rarefreq)
     sm.tokenize = lambda x: x.split()
@@ -15,6 +15,7 @@ def run(p1="../../../datasets/convai2/valid_dialogues.json",
     sm.unseen_mode = True
     out_struct2, sm, us2 = load_datafile(p2, sm, uniquestrings=us)
     sm.finalize()
+    ## !!! dictionary is in sm.D, numpy array is in sm.matrix
     assert(us == us2)
     print("done: {} unique strings \n\n".format(len(us)))
     return out_struct1, out_struct2, sm
