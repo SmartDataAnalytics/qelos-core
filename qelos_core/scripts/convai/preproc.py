@@ -11,18 +11,18 @@ def run(p1="../../../datasets/convai2/valid_dialogues.json",
         maxwords=800, rarefreq=0):
     sm = q.StringMatrix(topnwords=maxwords, freqcutoff=rarefreq)
     sm.tokenize = lambda x: x.split()
-    out_struct1, sm = load_datafile(p1, sm)
+    out_struct1, sm, us = load_datafile(p1, sm)
     sm.unseen_mode = True
-    out_struct2, sm = load_datafile(p2, sm)
+    out_struct2, sm, us = load_datafile(p2, sm, uniquestrings=us)
     sm.finalize()
     print("done\n\n")
     return out_struct1, out_struct2, sm
 
 
-def load_datafile(p="../../../datasets/convai2/valid_dialogues.json", sm=None):
+def load_datafile(p="../../../datasets/convai2/valid_dialogues.json", sm=None, uniquestrings=None):
     d = json.load(open(p))
 
-    uniquestrings = OrderedDict()
+    uniquestrings = OrderedDict() if uniquestrings is None else uniquestrings
 
     def add_string(l):
         if l not in uniquestrings:
@@ -62,7 +62,7 @@ def load_datafile(p="../../../datasets/convai2/valid_dialogues.json", sm=None):
         return ret
 
     out_struct = reccer(d, get_map)
-    return out_struct, sm
+    return out_struct, sm, uniquestrings
 
 
 if __name__ == "__main__":
