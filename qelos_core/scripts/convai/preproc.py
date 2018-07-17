@@ -13,9 +13,10 @@ def run(p1="../../../datasets/convai2/valid_dialogues.json",
     sm.tokenize = lambda x: x.split()
     out_struct1, sm, us = load_datafile(p1, sm)
     sm.unseen_mode = True
-    out_struct2, sm, us = load_datafile(p2, sm, uniquestrings=us)
+    out_struct2, sm, us2 = load_datafile(p2, sm, uniquestrings=us)
     sm.finalize()
-    print("done\n\n")
+    assert(us == us2)
+    print("done: {} unique strings \n\n".format(len(us)))
     return out_struct1, out_struct2, sm
 
 
