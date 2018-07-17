@@ -12,6 +12,18 @@ def log_prob_standard_gauss(x):
     return ret
 
 
+def log_prob_seq_standard_gauss(x, mask=None):
+    """
+    Computes log prob of given points under standard gauss N(0, I)
+    :param x:   (batsize, seqlen, gauss_dim) batch of samples
+    """
+    ret = - 0.5 * ((x**2).sum(2) + x.size(2) * np.log(2*np.pi))
+    if mask is not None:
+        ret = ret * mask.float()
+    ret = ret.sum(1)
+    return ret
+
+
 def log_prob_gauss(x, mu, sigma):
     """
     Computes log prob of given points given diagonal gaussians N(mu, sigma)
@@ -44,9 +56,9 @@ def log_prob_seq_gauss(x, mu, sigma, x_mask=None):
     return ret
 
 
-class Encoder(torch.nn.Module):
+class Posterior(torch.nn.Module):
     def __init__(self, core, outdim, z_dim):
-        super(Encoder, self).__init__()
+        super(Posterior, self).__init__()
         self.core = core
         self.mu_net = torch.nn.Sequential(torch.nn.Linear(outdim, z_dim))
         self.sigma_net = torch.nn.Sequential(torch.nn.Linear(outdim, z_dim),
@@ -59,10 +71,10 @@ class Encoder(torch.nn.Module):
         eps = torch.randn_like(sigma)
         z = mu + eps * sigma
         log_posterior = log_prob_gauss(z, mu, sigma)
-        return out, log_posterior
+        return z, log_posterior
 
 
-class SeqPosterior(Encoder):
+class SeqPosterior(Posterior):
     def forward(self, x, x_mask=None):
         out = self.core(x)   # (batsize, seqlen, encdim)
         mu = self.mu_net(out)   # (batsize, seqlen, zdim)
@@ -70,7 +82,7 @@ class SeqPosterior(Encoder):
         eps = torch.randn_like(sigma)
         z = mu + eps * sigma
         log_posterior = log_prob_seq_gauss(z, mu, sigma, x_mask)
-        return out, log_posterior
+        return z, log_posterior
 
 
 class Likelihood(torch.nn.Module):
@@ -110,11 +122,15 @@ class SeqVAE(torch.nn.Module):
 
     def forward(self, x, x_mask=None):
         z, log_posterior = self.encoder(x, x_mask=x_mask)
-        log_prior = log_prob_standard_gauss(z)
-        x_hat = self.decoder(x, z)
+        if z.dim() == 2:
+            log_prior = log_prob_standard_gauss(z)
+        elif z.dim() == 3:
+            log_prior = log_prob_seq_standard_gauss(z, mask=x_mask)
+        x_hat = self.decoder([x, z])
         log_likelihood = self.likelihood(x_hat, x, x_mask=x_mask)
-        elbo = log_likelihood - log_posterior + log_prior
-        return -elbo, log_posterior - log_prior
+        kl_div = log_posterior - log_prior
+        elbo = log_likelihood - kl_div
+        return -elbo, kl_div
 
 
 def run_seq(lr=0.001,
@@ -158,7 +174,8 @@ def run_seq(lr=0.001,
             super(DecoderCell, self).__init__()
             self.emb, self.core, self.out = emb, core, out
 
-        def forward(self, x, z):
+        def forward(self, xs):
+            x, z = xs
             embs, mask = self.emb(x)
             core_inp = torch.cat([embs, z], 1)
             core_out = self.core(core_inp)
@@ -174,6 +191,8 @@ def run_seq(lr=0.001,
     vae = SeqVAE(encoder, decoder, likelihood)
 
     ys = vae(x)
+
+    print("done \n\n")
 
 
 if __name__ == "__main__":
