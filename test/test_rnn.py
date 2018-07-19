@@ -236,6 +236,27 @@ class TestFastestLSTM(TestCase):
         self.assertTrue(np.allclose(y_T.detach().numpy(), self.y[:, -1].detach().numpy()))
 
 
+class TestFastestLSTMwithMask(TestCase):
+    def test_it(self):
+        batsize = 3
+        seqlen = 4
+        lstm = q.FastestLSTMEncoder(8, 9, 10)
+
+        x = torch.nn.Parameter(torch.randn(batsize, seqlen, 8))
+        x_mask = torch.tensor([[1,1,1,0],[1,0,0,0],[1,1,0,0]], dtype=torch.int64)
+
+        y, states = lstm(x, mask=x_mask, ret_states=True)
+
+        l = states[0][0][1].sum()
+        l.backward()
+
+        self.assertTrue(x.grad[0].norm() == 0)
+        self.assertTrue(x.grad[1].norm() > 0)
+        self.assertTrue(x.grad[2].norm() == 0)
+
+        print("done")
+
+
 class TestFastestLSTMInitStates(TestCase):
     def test_init_states(self):
         batsize = 5
@@ -389,8 +410,8 @@ class TestFastestLSTMBidirMaskedWithDropout(TestCase):
         self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r1.detach().numpy()))
         self.assertTrue(not np.allclose(y_t0_r1.detach().numpy(), y_t0_r2.detach().numpy()))
         self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r2.detach().numpy()))
-
 # endregion
+
 
 # region attention
 class TestAttention(TestCase):
@@ -434,6 +455,7 @@ class TestAttention(TestCase):
         self.assertEqual(summaries.size(), (5, 7))
 # endregion
 
+
 # region decoders
 class TestDecoders(TestCase):
     def test_tf_decoder(self):
@@ -472,6 +494,7 @@ class TestDecoderCell(TestCase):
         y = decoder_tf(torch.tensor(x), ctx=ctx)
 
         self.assertTrue(y.size(), (1000, 7, 100))
+
 
 def tst_decoder_cell(lr=0.001):
     x = np.random.randint(0, 100, (1000, 7))

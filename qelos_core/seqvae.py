@@ -56,6 +56,88 @@ def log_prob_seq_gauss(x, mu, sigma, x_mask=None):
     return ret
 
 
+class SimpleIAT(torch.nn.Module):
+    """ Lower-triangular matrix for computing mus and sigmas"""
+    def __init__(self, dim, **kw):
+        super(SimpleIAT, self).__init__(**kw)
+        self.W_mu = torch.nn.Parameter(torch.empty(dim, dim))
+        self.W_sigma = torch.nn.Parameter(torch.empty(dim, dim))
+        self.b_sigma = torch.nn.Parameter(torch.ones(1, dim))
+        self.mu_0 = torch.nn.Parameter(torch.randn(1)*0.1)
+        self.sigma_0 = torch.nn.Parameter(torch.randn(1)*0.1)
+        self.W_mask = torch.triu(torch.ones(dim, dim), 1)
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_normal_(self.W_mu)
+        torch.nn.init.xavier_normal_(self.W_sigma)
+
+    def forward(self, x, x_dens=None, x_mask=None):
+        """
+        :param x:           (batsize, dim) or (batsize, seqlen, dim)
+        :param x_dens:      (batsize,)
+        :param x_mask:      (batsize, seqlen), if x was (batsize, seqlen, dim)
+        :return:
+        """
+        assert(x_mask is None or x.dim() == 3)
+        mus = torch.matmul(x, self.W_mu * self.W_mask)
+        b_sigma = self.b_sigma if x.dim() == 2 else self.b_sigma.unsqueeze(1)
+        sigmas = torch.matmul(x, self.W_sigma * self.W_mask) + b_sigma
+        sigmas = torch.nn.functional.sigmoid(sigmas)
+        y = x * sigmas + mus * (1 - sigmas)
+        d_dens = - torch.log(sigmas).sum(-1)       # (batsize,) or (batsize, seqlen)
+        if x_mask is not None:
+            d_dens = d_dens * x_mask.float()
+        if x.dim() == 3:
+            d_dens = d_dens.sum(1)      # (batsize,)
+        y_dens = x_dens + d_dens
+        return y, y_dens
+
+
+class SimpleSeqIAT(torch.nn.Module):
+    """ RNN-based IAT for sequences """
+    def __init__(self, core, coredim, outdim, **kw):
+        """
+        :param core:        RNN
+        :param dim:
+        :param kw:
+        """
+        super(SimpleSeqIAT, self).__init__(**kw)
+        self.W_mu = torch.nn.Parameter(torch.empty(coredim, outdim))
+        self.W_sigma = torch.nn.Parameter(torch.empty(coredim, outdim))
+        self.b_sigma = torch.nn.Parameter(torch.ones(1, 1, outdim))
+        self.mu_0 = torch.nn.Parameter(torch.randn(1, 1, outdim) * 0.1)
+        self.sigma_0 = torch.nn.Parameter(torch.randn(1, 1, outdim) * 0.1)
+        self.core = core
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_normal_(self.W_mu)
+        torch.nn.init.xavier_normal_(self.W_sigma)
+
+    def forward(self, x, x_dens=None, x_mask=None):
+        """
+        :param x:           (batsize, seqlen, indim)
+        :param x_dens:      (batsize,)
+        :param x_mask:      (batsize, seqlen)
+        :return:
+        """
+        y = self.core(x)        # (batsize, seqlen, indim), y_t only depends on x_{0:t-1}
+        mus = torch.matmul(y, self.W_mu)            # (batsize, seqlen, outdim)
+        sigmas = torch.matmul(y, self.W_sigma) + self.b_sigma
+        sigmas = torch.nn.functional.sigmoid(sigmas)
+        z = x[:, 1:] * sigmas[:, :-1] + mus[:, :-1] * (1 - sigmas[:, :-1])
+        sigma_0 = torch.nn.functional.sigmoid(self.sigma_0)
+        x_0 = x[:, 0:1] * sigma_0 + self.mu_0
+        z = torch.cat([x_0, z], 1)
+        d_dens = - (torch.log(sigmas[:, :-1]).sum(-1) + torch.log(sigma_0).sum(-1))   # (batsize, seqlen)
+        if x_mask is not None:
+            d_dens = d_dens * x_mask.float()
+        d_dens = d_dens.sum(1)      # (batsize,)
+        y_dens = x_dens + d_dens
+        return z, y_dens
+
+
 class Posterior(torch.nn.Module):
     def __init__(self, core, outdim, z_dim):
         super(Posterior, self).__init__()
@@ -80,6 +162,8 @@ class SeqPosterior(Posterior):
         mu = self.mu_net(out)   # (batsize, seqlen, zdim)
         sigma = self.sigma_net(out) # (batsize, seqlen, zdim)
         eps = torch.randn_like(sigma)
+        mu, sigma, eps = mu[:, 1:], sigma[:, 1:], eps[:, 1:]
+        x_mask = x_mask[:, 1:] if x_mask is not None else None
         z = mu + eps * sigma
         log_posterior = log_prob_seq_gauss(z, mu, sigma, x_mask)
         return z, log_posterior
@@ -119,31 +203,44 @@ class SeqVAE(torch.nn.Module):
         self.encoder = encoder
         self.decoder = decoder
         self.likelihood = likelihood
+        self._debug = True
 
     def forward(self, x, x_mask=None):
         z, log_posterior = self.encoder(x, x_mask=x_mask)
+        _x_mask = x_mask[:, 1:] if x_mask is not None else None
         if z.dim() == 2:
             log_prior = log_prob_standard_gauss(z)
+            x_hat = self.decoder(x[:, :-1], z=z)
         elif z.dim() == 3:
-            log_prior = log_prob_seq_standard_gauss(z, mask=x_mask)
-        x_hat = self.decoder([x, z])
-        log_likelihood = self.likelihood(x_hat, x, x_mask=x_mask)
+            log_prior = log_prob_seq_standard_gauss(z, mask=_x_mask)
+            x_hat = self.decoder([x[:, :-1], z])
+        else:
+            raise q.SumTingWongException("z must be 2D or 3D, got {}D".format(z.dim()))
+        log_likelihood = self.likelihood(x_hat, x[:, 1:], x_mask=_x_mask)
         kl_div = log_posterior - log_prior
         elbo = log_likelihood - kl_div
-        return -elbo, kl_div
+        rets = -elbo, kl_div, -log_likelihood
+        if self._debug:
+            z_grad = torch.autograd.grad(log_likelihood.sum(), z, retain_graph=True)
+            z_grad = z_grad[0]**2
+            if z.dim() == 3:
+                z_grad = z_grad.sum(2)
+            z_grad = z_grad.sum(1) ** 0.5
+            rets = rets + (z_grad,)
+        return rets
 
 
-def run_seq(lr=0.001,
-            embdim=100,
-            encdim=100,
-            zdim=50,
-            ):
+def run_seqvae_toy(lr=0.001,
+                   embdim=64,
+                   encdim=100,
+                   zdim=64,
+                   batsize=50,
+                   epochs=100,
+                   ):
 
     # test
-    batsize = 10
     vocsize = 100
-    seqlen = 6
-    x = torch.randint(0, vocsize, (batsize, seqlen), dtype=torch.int64)
+    seqlen = 12
     wD = dict((chr(xi), xi) for xi in range(vocsize))
 
     # region encoder
@@ -157,7 +254,8 @@ def run_seq(lr=0.001,
 
         def forward(self, x):
             embs, mask = self.emb(x)
-            out = self.core(embs, mask)
+            out, states = self.core(embs, mask, ret_states=True)
+            top_state = states[-1][0][:, 0]
             return out      # (batsize, seqlen, encdim)
 
     encoder_net = EncoderNet(encoder_emb, encoder_lstm)
@@ -190,13 +288,95 @@ def run_seq(lr=0.001,
 
     vae = SeqVAE(encoder, decoder, likelihood)
 
+    x = torch.randint(0, vocsize, (batsize, seqlen), dtype=torch.int64)
     ys = vae(x)
 
+    optim = torch.optim.Adam(q.params_of(vae), lr=lr)
+
+    x = torch.randint(0, vocsize, (batsize * 100, seqlen), dtype=torch.int64)
+    dataloader = q.dataload(x, batch_size=batsize, shuffle=True)
+
+    trainer = q.trainer(vae).on(dataloader).optimizer(optim).loss(4).epochs(epochs)
+    trainer.run()
+
     print("done \n\n")
-    # TODO: add IAF
+    # DONE: add IAF
     # TODO: add normal VAE for seqs
     # TODO: experiments
 
 
+def run_normal_seqvae_toy(lr=0.001,
+                   embdim=64,
+                   encdim=100,
+                   zdim=64,
+                   batsize=50,
+                   epochs=100,
+                   ):
+
+    # test
+    vocsize = 100
+    seqlen = 12
+    wD = dict((chr(xi), xi) for xi in range(vocsize))
+
+    # region encoder
+    encoder_emb = q.WordEmb(embdim, worddic=wD)
+    encoder_lstm = q.FastestLSTMEncoder(embdim, encdim)
+
+    class EncoderNet(torch.nn.Module):
+        def __init__(self, emb, core):
+            super(EncoderNet, self).__init__()
+            self.emb, self.core = emb, core
+
+        def forward(self, x):
+            embs, mask = self.emb(x)
+            out, states = self.core(embs, mask, ret_states=True)
+            top_state = states[-1][0][:, 0]
+            # top_state = top_state.unsqueeze(1).repeat(1, out.size(1), 1)
+            return top_state      # (batsize, encdim)
+
+    encoder_net = EncoderNet(encoder_emb, encoder_lstm)
+    encoder = Posterior(encoder_net, encdim, zdim)
+    # endregion
+
+    # region decoder
+    decoder_emb = q.WordEmb(embdim, worddic=wD)
+    decoder_lstm = q.LSTMCell(embdim+zdim, encdim)
+    decoder_outlin = q.WordLinout(encdim, worddic=wD)
+
+    class DecoderCell(torch.nn.Module):
+        def __init__(self, emb, core, out, **kw):
+            super(DecoderCell, self).__init__()
+            self.emb, self.core, self.out = emb, core, out
+
+        def forward(self, xs, z=None):
+            embs, mask = self.emb(xs)
+            core_inp = torch.cat([embs, z], 1)
+            core_out = self.core(core_inp)
+            out = self.out(core_out)
+            return out
+
+    decoder_cell = DecoderCell(decoder_emb, decoder_lstm, decoder_outlin)
+    decoder = q.TFDecoder(decoder_cell)
+    # endregion
+
+    likelihood = Likelihood()
+
+    vae = SeqVAE(encoder, decoder, likelihood)
+
+    x = torch.randint(0, vocsize, (batsize, seqlen), dtype=torch.int64)
+    ys = vae(x)
+
+    optim = torch.optim.Adam(q.params_of(vae), lr=lr)
+
+    x = torch.randint(0, vocsize, (batsize * 100, seqlen), dtype=torch.int64)
+    dataloader = q.dataload(x, batch_size=batsize, shuffle=True)
+
+    trainer = q.trainer(vae).on(dataloader).optimizer(optim).loss(4).epochs(epochs)
+    trainer.run()
+
+    print("done \n\n")
+
+
 if __name__ == "__main__":
-    q.argprun(run_seq)
+    # q.argprun(run_seqvae_toy)
+    q.argprun(run_normal_seqvae_toy)
