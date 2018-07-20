@@ -325,9 +325,9 @@ class GenDataSaver(object):
             np.savez(os.path.join(self.logger.p, self.p), **tosave)
 
 
-class InceptionForEval(torch.nn.Module):
+class InceptionV2ForEval(torch.nn.Module):
     def __init__(self, resize_input=True, normalize_input=False):
-        super(InceptionForEval, self).__init__()
+        super(InceptionV2ForEval, self).__init__()
         assert(normalize_input == False)
         self.resize_input = resize_input
         self.inception = q.ganutil.inceptionresnetv2(num_classes=1000, pretrained="imagenet")
@@ -342,9 +342,9 @@ class InceptionForEval(torch.nn.Module):
         return y.detach(), acts.detach()
 
 
-class InceptionV3ForEval(torch.nn.Module):
+class InceptionForEval(torch.nn.Module):
     def __init__(self, normalize_input=False, resize_input=True):
-        super(InceptionV3ForEval, self).__init__()
+        super(InceptionForEval, self).__init__()
         self.inception = torchvision.models.inception_v3(pretrained=True)
         self.inception.eval()       # set to eval mode
         self.layers = torch.nn.Sequential(
