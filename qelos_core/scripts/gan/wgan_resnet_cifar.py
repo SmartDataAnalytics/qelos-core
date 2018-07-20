@@ -138,7 +138,7 @@ class Normalize(torch.nn.Module):
 class ConvMeanPool(torch.nn.Module):
     def __init__(self, indim, outdim, filter_size, biases=True, **kw):
         super(ConvMeanPool, self).__init__(**kw)
-        assert(filter_size % 2 == 0)
+        assert(filter_size % 2 == 1)
         padding = filter_size // 2
         self.conv = torch.nn.Conv2d(indim, outdim, kernel_size=filter_size, padding=padding, bias=biases)
         self.pool = torch.nn.AvgPool2d(2)
@@ -159,7 +159,7 @@ class MeanPoolConv(ConvMeanPool):
 class UpsampleConv(torch.nn.Module):
     def __init__(self, indim, outdim, filter_size, biases=True, **kw):
         super(UpsampleConv, self).__init__(**kw)
-        assert(filter_size % 2 == 0)
+        assert(filter_size % 2 == 1)
         padding = filter_size // 2
         self.conv = torch.nn.Conv2d(indim, outdim, kernel_size=filter_size, padding=padding, bias=biases)
         self.pool = torch.nn.Upsample(scale_factor=2)
@@ -173,7 +173,7 @@ class UpsampleConv(torch.nn.Module):
 class ResidualBlock(torch.nn.Module):
     def __init__(self, indim, outdim, filter_size, resample=None, use_bn=False, **kw):
         super(ResidualBlock, self).__init__(**kw)
-        assert(filter_size % 2 == 0)
+        assert(filter_size % 2 == 1)
         padding = filter_size // 2
         bn2dim = outdim
         if resample == "down":
