@@ -327,7 +327,7 @@ class RelationContextAttentionSeparated(RelationContentAttention):
 
 
 class Decoder(torch.nn.Module):
-    """ asbstract decoder """
+    """ abstract decoder """
     def __init__(self, cell, **kw):
         """
         :param cell:    must produce probabilities as first output

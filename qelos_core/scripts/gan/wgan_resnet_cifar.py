@@ -3,7 +3,7 @@ import torch
 import torchvision
 import numpy as np
 
-
+# region new model
 # region from https://github.com/pytorch/vision/blob/master/torchvision/models/resnet.py
 class ResamplingConv(torch.nn.Module):
     def __init__(self, in_planes, out_planes, kernel=3, padding=None, resample=None, bias=True):
@@ -122,6 +122,157 @@ class Discriminator(torch.nn.Module):
             x = layer(x)
         return x
 
+# endregion
+
+
+# region oldmodel
+class Normalize(torch.nn.Module):
+    def __init__(self, dim, **kw):
+        super(Normalize, self).__init__(**kw)
+        self.bn = torch.nn.BatchNorm2d(dim)
+
+    def forward(self, x):
+        return self.bn(x)
+
+
+class ConvMeanPool(torch.nn.Module):
+    def __init__(self, indim, outdim, filter_size, biases=True, **kw):
+        super(ConvMeanPool, self).__init__(**kw)
+        assert(filter_size % 2 == 0)
+        padding = filter_size // 2
+        self.conv = torch.nn.Conv2d(indim, outdim, kernel_size=filter_size, padding=padding, bias=biases)
+        self.pool = torch.nn.AvgPool2d(2)
+
+    def forward(self, x):
+        y = self.conv(x)
+        y = self.pool(y)
+        return y
+
+
+class MeanPoolConv(ConvMeanPool):
+    def forward(self, x):
+        y = self.pool(x)
+        y = self.conv(y)
+        return y
+
+
+class UpsampleConv(torch.nn.Module):
+    def __init__(self, indim, outdim, filter_size, biases=True, **kw):
+        super(UpsampleConv, self).__init__(**kw)
+        assert(filter_size % 2 == 0)
+        padding = filter_size // 2
+        self.conv = torch.nn.Conv2d(indim, outdim, kernel_size=filter_size, padding=padding, bias=biases)
+        self.pool = torch.nn.Upsample(scale_factor=2)
+
+    def forward(self, x):
+        y = self.pool(x)
+        y = self.conv(y)
+        return y
+
+
+class ResidualBlock(torch.nn.Module):
+    def __init__(self, indim, outdim, filter_size, resample=None, use_bn=False, **kw):
+        super(ResidualBlock, self).__init__(**kw)
+        assert(filter_size % 2 == 0)
+        padding = filter_size // 2
+        bn2dim = outdim
+        if resample == "down":
+            self.conv1 = torch.nn.Conv2d(indim, indim, kernel_size=filter_size, padding=padding, bias=True)
+            self.conv2 = ConvMeanPool(indim, outdim, filter_size=filter_size)
+            self.conv_shortcut = ConvMeanPool
+            bn2dim = indim
+        elif resample == "up":
+            self.conv1 = UpsampleConv(indim, outdim, filter_size=filter_size)
+            self.conv2 = torch.nn.Conv2d(outdim, outdim, kernel_size=filter_size, padding=padding, bias=True)
+            self.conv_shortcut = UpsampleConv
+        else:   # None
+            assert(resample is None)
+            self.conv1 = torch.nn.Conv2d(indim, outdim, kernel_size=filter_size, padding=padding, bias=True)
+            self.conv2 = torch.nn.Conv2d(outdim, outdim, kernel_size=filter_size, padding=padding, bias=True)
+            self.conv_shortcut = torch.nn.Conv2d
+        if use_bn:
+            self.bn1 = Normalize(indim)
+            self.bn2 = Normalize(bn2dim)
+
+        self.nonlin = torch.nn.ReLU()
+
+        if indim == outdim and resample == None:
+            self.conv_shortcut = None
+        else:
+            self.conv_shortcut = self.conv_shortcut(indim, outdim, filter_size=1)       # bias is True by default, padding is 0 by default
+
+    def forward(self, x):
+        if self.conv_shortcut is None:
+            shortcut = x
+        else:
+            shortcut = self.conv_shortcut(x)
+        y = self.bn1(x)
+        y = self.nonlin(y)
+        y = self.conv1(y)
+        y = self.bn2(y)
+        y = self.nonlin(y)
+        y = self.conv2(y)
+
+        return y + shortcut
+
+
+class OptimizedResBlockDisc1(torch.nn.Module):
+    def __init__(self, dim, **kw):
+        super(OptimizedResBlockDisc1, self).__init__()
+        self.conv1 = torch.nn.Conv2d(3, dim, kernel_size=3, padding=1, bias=True)
+        self.conv2 = ConvMeanPool(dim, dim, filter_size=3, biases=True)
+        self.conv_shortcut = MeanPoolConv(3, dim, filter_size=1, biases=True)
+        self.nonlin = torch.nn.ReLU()
+
+    def forward(self, x):
+        y = self.conv1(x)
+        y = self.nonlin(y)
+        y = self.conv2(y)
+        shortcut = self.conv_shortcut(x)
+        return y + shortcut
+
+
+class OldGenerator(torch.nn.Module):
+    def __init__(self, z_dim, dim_g, **kw):
+        super(OldGenerator, self).__init__(**kw)
+        self.layers = torch.nn.ModuleList([
+            torch.nn.Linear(z_dim, 4*4*dim_g),
+            q.Lambda(lambda x: x.view(x.size(0), dim_g, 4, 4)),
+            ResidualBlock(dim_g, dim_g, 3, resample="up"),
+            ResidualBlock(dim_g, dim_g, 3, resample="up"),
+            ResidualBlock(dim_g, dim_g, 3, resample="up"),
+            Normalize(dim_g),
+            torch.nn.ReLU(),
+            torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1)
+            torch.nn.Tanh(),
+        ])
+
+    def forward(self, a):
+        for layer in self.layers:
+            a = layer(a)
+        return a
+
+
+class OldDiscriminator(torch.nn.Module):
+    def __init__(self, dim_d, **kw):
+        super(OldDiscriminator, self).__init__(**kw)
+        self.layers = torch.nn.ModuleList([
+            OptimizedResBlockDisc1(dim_d),
+            ResidualBlock(dim_d, dim_d, 3, resample="down"),
+            ResidualBlock(dim_d, dim_d, 3, resample=None),
+            ResidualBlock(dim_d, dim_d, 3, resample=None),
+            torch.nn.ReLU(),
+            q.Lambda(lambda x: x.mean(3).mean(2)),
+            torch.nn.Linear(dim_d, 1),
+            q.Lambda(lambda x: x.squeeze(1))
+        ])
+
+    def forward(self, a):
+        for layer in self.layers:
+            a = layer(a)
+        return a
+# endregion
+
 
 class UnquantizeTransform(object):
     def __init__(self, levels=256, range=(-1, 1)):
@@ -191,8 +342,8 @@ def run(lr=0.0001,
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
 
     tt.tick("creating networks")
-    gen = Generator(z_dim, dim_g).to(device)
-    crit = Discriminator(dim_d).to(device)
+    gen = OldGenerator(z_dim, dim_g).to(device)
+    crit = OldDiscriminator(dim_d).to(device)
     tt.tock("created networks")
 
     # test
