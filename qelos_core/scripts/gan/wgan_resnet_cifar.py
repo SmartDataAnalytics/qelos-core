@@ -243,7 +243,7 @@ class OldGenerator(torch.nn.Module):
             ResidualBlock(dim_g, dim_g, 3, resample="up"),
             Normalize(dim_g),
             torch.nn.ReLU(),
-            torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1)
+            torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1),
             torch.nn.Tanh(),
         ])
 
