@@ -193,6 +193,8 @@ class ResidualBlock(torch.nn.Module):
         if use_bn:
             self.bn1 = Normalize(indim)
             self.bn2 = Normalize(bn2dim)
+        else:
+            self.bn1, self.bn2 = None, None
 
         self.nonlin = torch.nn.ReLU()
 
@@ -206,10 +208,10 @@ class ResidualBlock(torch.nn.Module):
             shortcut = x
         else:
             shortcut = self.conv_shortcut(x)
-        y = self.bn1(x)
+        y = self.bn1(x) if self.bn1 is not None else x
         y = self.nonlin(y)
         y = self.conv1(y)
-        y = self.bn2(y)
+        y = self.bn2(y) if self.bn2 is not None else y
         y = self.nonlin(y)
         y = self.conv2(y)
 
@@ -233,14 +235,14 @@ class OptimizedResBlockDisc1(torch.nn.Module):
 
 
 class OldGenerator(torch.nn.Module):
-    def __init__(self, z_dim, dim_g, **kw):
+    def __init__(self, z_dim, dim_g, use_bn=True, **kw):
         super(OldGenerator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
             torch.nn.Linear(z_dim, 4*4*dim_g),
             q.Lambda(lambda x: x.view(x.size(0), dim_g, 4, 4)),
-            ResidualBlock(dim_g, dim_g, 3, resample="up"),
-            ResidualBlock(dim_g, dim_g, 3, resample="up"),
-            ResidualBlock(dim_g, dim_g, 3, resample="up"),
+            ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
+            ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
+            ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
             Normalize(dim_g),
             torch.nn.ReLU(),
             torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1),
@@ -254,13 +256,13 @@ class OldGenerator(torch.nn.Module):
 
 
 class OldDiscriminator(torch.nn.Module):
-    def __init__(self, dim_d, **kw):
+    def __init__(self, dim_d, use_bn=False, **kw):
         super(OldDiscriminator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
             OptimizedResBlockDisc1(dim_d),
-            ResidualBlock(dim_d, dim_d, 3, resample="down"),
-            ResidualBlock(dim_d, dim_d, 3, resample=None),
-            ResidualBlock(dim_d, dim_d, 3, resample=None),
+            ResidualBlock(dim_d, dim_d, 3, resample="down", use_bn=use_bn),
+            ResidualBlock(dim_d, dim_d, 3, resample=None, use_bn=use_bn),
+            ResidualBlock(dim_d, dim_d, 3, resample=None, use_bn=use_bn),
             torch.nn.ReLU(),
             q.Lambda(lambda x: x.mean(3).mean(2)),
             torch.nn.Linear(dim_d, 1),
