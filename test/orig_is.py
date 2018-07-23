@@ -60,6 +60,7 @@ def get_inception_score(images, splits=10):
       scores.append(np.exp(kl))
     return np.mean(scores), np.std(scores)
 
+
 # This function is called automatically.
 def _init_inception():
   global softmax
@@ -101,7 +102,10 @@ def _init_inception():
     logits = tf.matmul(tf.squeeze(pool3, [1, 2]), w)
     softmax = tf.nn.softmax(logits)
 
+
 if softmax is None:
   _init_inception()
-  scores = get_inception_score(None)
-  print(scores)
+
+
+scores = get_inception_score(None)
+print(scores)
