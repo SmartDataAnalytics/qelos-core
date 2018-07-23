@@ -277,12 +277,12 @@ class OldDiscriminator(torch.nn.Module):
 
 
 class UnquantizeTransform(object):
-    def __init__(self, levels=256, range=(-1, 1)):
+    def __init__(self, levels=256, range=(-1., 1.)):
         super(UnquantizeTransform, self).__init__()
         self.rand_range = (range[1] - range[0]) * 1. / (1. * levels)
 
     def __call__(self, x):
-        rand = (torch.rand_like(x) - 0.5) * self.rand_range
+        rand = torch.rand_like(x) * self.rand_range
         x = x + rand
         return x
 

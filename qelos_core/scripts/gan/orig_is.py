@@ -1,3 +1,4 @@
+# From https://github.com/openai/improved-gan/blob/master/inception_score/model.py
 # Code derived from tensorflow/tensorflow/models/image/imagenet/classify_image.py
 from __future__ import absolute_import
 from __future__ import division
@@ -14,7 +15,6 @@ import glob
 import scipy.misc
 import math
 import sys
-import torch
 
 MODEL_DIR = '/tmp/imagenet'
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
@@ -23,32 +23,25 @@ softmax = None
 # Call this function with list of images. Each of elements should be a
 # numpy array with values ranging from 0 to 255.
 def get_inception_score(images, splits=10):
-  if images is None:
-     images = np.load("cifar.npy")
-     images = list(images)
-     #images = [np.transpose(image, (1, 2, 0)) for image in images]
-
   assert(type(images) == list)
   assert(type(images[0]) == np.ndarray)
   assert(len(images[0].shape) == 3)
   assert(np.max(images[0]) > 10)
   assert(np.min(images[0]) >= 0.0)
+  print("# samples used for inception: {}".format(len(images)))
   inps = []
   for img in images:
     img = img.astype(np.float32)
     inps.append(np.expand_dims(img, 0))
-  bs = 100
+  bs = 100              # batch size
   with tf.Session() as sess:
     preds = []
     n_batches = int(math.ceil(float(len(inps)) / float(bs)))
     for i in range(n_batches):
-        sys.stdout.write(".")
-        sys.stdout.flush()
+        # sys.stdout.write(".")
+        # sys.stdout.flush()
         inp = inps[(i * bs):min((i + 1) * bs, len(inps))]
         inp = np.concatenate(inp, 0)
-        # inp = torch.nn.functional.upsample(
-        #         torch.tensor(inp), size=(299, 299), mode="bilinear").numpy()
-        # inp = np.transpose(inp, (0, 2, 3, 1))
         pred = sess.run(softmax, {'ExpandDims:0': inp})
         preds.append(pred)
     preds = np.concatenate(preds, 0)
@@ -58,8 +51,8 @@ def get_inception_score(images, splits=10):
       kl = part * (np.log(part) - np.log(np.expand_dims(np.mean(part, 0), 0)))
       kl = np.mean(np.sum(kl, 1))
       scores.append(np.exp(kl))
+    print("# scores in IS comp for mean and std: {}".format(len(scores)))
     return np.mean(scores), np.std(scores)
-
 
 # This function is called automatically.
 def _init_inception():
@@ -97,15 +90,10 @@ def _init_inception():
                     new_shape.append(None)
                 else:
                     new_shape.append(s)
-            o.set_shape(tf.TensorShape(new_shape))
+            o._shape = tf.TensorShape(new_shape)
     w = sess.graph.get_operation_by_name("softmax/logits/MatMul").inputs[1]
-    logits = tf.matmul(tf.squeeze(pool3, [1, 2]), w)
+    logits = tf.matmul(tf.squeeze(pool3), w)
     softmax = tf.nn.softmax(logits)
-
 
 if softmax is None:
   _init_inception()
-
-
-# scores = get_inception_score(None)
-# print(scores)
