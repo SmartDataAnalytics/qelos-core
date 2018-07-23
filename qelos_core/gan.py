@@ -106,6 +106,8 @@ class WGAN(GAN):
         interp_grad_norm = interp_grad.view(interp_grad.size(0), -1).norm(p=2, dim=1)
         if self.mode == "LP":
             penalty = (interp_grad_norm - 1).clamp(0, np.infty) ** 2
+        elif self.mode == "GP":
+            penalty = (interp_grad_norm - 1) ** 2
         penalty = self.lamda * penalty
         loss = core + penalty
         return loss, core, penalty

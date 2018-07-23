@@ -453,6 +453,39 @@ class TestAttention(TestCase):
         self.assertEqual(alphas.size(), (5, 10))
         self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
         self.assertEqual(summaries.size(), (5, 7))
+
+
+class TestAttentionBases(TestCase):
+    def test_it(self):
+        class DotAttentionMem(q.Attention, q.DotAttention):
+            pass
+        a = DotAttentionMem()
+
+        x = torch.randn(5, 10, 7)
+        y = torch.randn(5, 7)
+
+        alphas, summaries = a(y, x)
+        print(alphas.size())
+        # test shapes
+        self.assertEqual(alphas.size(), (5, 10))
+        self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
+        self.assertEqual(summaries.size(), (5, 7))
+
+    def test_it_with_coverage(self):
+        class DotAttentionWithCov(q.AttentionWithCoverage, q.DotAttention):
+            pass
+
+        a = DotAttentionWithCov()
+        x = torch.randn(5, 10, 7)
+        y = torch.randn(5, 7)
+
+        alphas, summaries = a(y, x)
+        print(alphas.size())
+        # test shapes
+        self.assertEqual(alphas.size(), (5, 10))
+        self.assertTrue(np.allclose(alphas.sum(1).detach().numpy(), np.ones_like(alphas.sum(1).detach().numpy())))
+        self.assertEqual(summaries.size(), (5, 7))
+
 # endregion
 
 
@@ -488,40 +521,13 @@ class TestDecoderCell(TestCase):
         decoder_att = q.DotAttention()
         decoder_out = q.WordLinout(60, worddic=wD)
 
-        decoder_cell = q.DecoderCell(decoder_emb, decoder_lstm, decoder_att, decoder_out)
+        decoder_cell = q.DecoderCell(decoder_emb, decoder_lstm, decoder_att, None, decoder_out)
         decoder_tf = q.TFDecoder(decoder_cell)
 
         y = decoder_tf(torch.tensor(x), ctx=ctx)
 
         self.assertTrue(y.size(), (1000, 7, 100))
 
-
-def tst_decoder_cell(lr=0.001):
-    x = np.random.randint(0, 100, (1000, 7))
-    y_inp = x[:, :-1]
-    y_out = x[:, 1:]
-    wD = dict((chr(xi), xi) for xi in range(100))
-
-    encoder_emb = q.WordEmb(20, worddic=wD)
-    encoder_lstm = q.FastestLSTMEncoder(20, 30)
-
-    class Encoder(torch.nn.Module):
-        def __init__(self, emb, core):
-            super(Encoder, self).__init__()
-            self.emb, self.core = emb, core
-
-        def forward(self, x):
-            x, _ = self.emb(x)
-            x = self.core(x)
-            return x
-
-    encoder = encoder(encoder_emb, encoder_lstm)
-
-    decoder_emb = encoder_emb
-    decoder_lstm = q.LSTMCell(20, 30)
-    decoder_att = q.DotAttention()
-    decoder_out = q.WordLinout(30, worddic=wD)
-    decoder_cell = q.DecoderCell()
 
 
 

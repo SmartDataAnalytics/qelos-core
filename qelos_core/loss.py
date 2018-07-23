@@ -5,6 +5,36 @@ import numpy as np
 
 EPS = 1e-6
 
+
+class Penalty(torch.nn.Module):
+    """ reference implementation only, doesn't take into account ignoremasks or other masks """
+    def __init__(self, size_average=True, **kw):
+        super(Penalty, self).__init__(**kw)
+        self.size_average = size_average
+        self.acc = None
+
+    def forward(self, x):
+        self.add(x)
+        return self.acc
+
+    def add(self, x):
+        if self.acc is None:
+            self.acc = torch.zeros_like(x)
+        self.acc += x
+
+    def get_penalty(self):
+        ret = self.acc.sum()
+        if self.size_average:
+            ret = ret / self.acc.size(0)
+        return ret
+
+    def reset(self):
+        self.acc = None
+
+    def batch_reset(self):
+        self.reset()
+
+
 # TODO: REWRITE PROPERLY IN QELOS-CORE
 # TODO: mask has no place here, mask must be applied in prediction modules
 

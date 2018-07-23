@@ -64,19 +64,12 @@ class PointerGeneratorOut(torch.nn.Module):
         return out_probs
 
 
-class PointerGeneratorCell(q.DecoderCell):
-    def __init__(self, emb, core, att, out, feed_att=False, summ_0=None, **kw):
-        """
-        :param emb:
-        :param core:
-        :param att:
-        :param out:
-        :param feed_att:
-        :param summ_0:
-        :param kw:
-        """
+class PointerGeneratorCell(q.LuongCell):
+    def __init__(self, emb=None, core=None, att=None, merge=None, out=None, feed_att=False, **kw):
+        super(PointerGeneratorCell, self).__init__(emb=emb, core=core, att=att, merge=merge, out=None,
+                                                   feed_att=feed_att, return_alphas=True, **kw)
         assert(isinstance(out, PointerGeneratorOut))
-        super(PointerGeneratorCell, self).__init__(emb, core, att, out, feed_att=feed_att, summ_0=summ_0, **kw)
+        self.pointer_out = out
 
     def forward(self, x_t, ctx=None, ctx_mask=None, ctx_inp=None, **kw):
         """
@@ -87,30 +80,9 @@ class PointerGeneratorCell(q.DecoderCell):
         :param kw:
         :return:
         """
-        assert(ctx is not None)
         assert(ctx_inp is not None)
-        embs = self.emb(x_t)
-        if q.issequence(embs) and len(embs) == 2:
-            embs, mask = embs
-
-        core_inp = embs
-        if self.feed_att:
-            core_inp = torch.cat([core_inp, self.summ_tm1], 1)
-        core_out = self.core(core_inp)
-
-        alphas, summaries = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
-        self.summ_tm1 = summaries
-
-        to_out = []
-        if self.use_cell_out:
-            to_out.append(core_out)
-        if self.use_att_sum:
-            to_out.append(summaries)
-        if self.use_x_t_emb:
-            to_out.append(embs)
-        to_out = torch.cat(to_out, 1)
-
-        outscores = self.out(to_out, alphas, ctx_inp)
+        out_vec, alphas = super(PointerGeneratorCell, self).forward(x_t, ctx=ctx, ctx_mask=ctx_mask, **kw)
+        outscores = self.pointer_out(out_vec, alphas, ctx_inp)
         return outscores
 
 

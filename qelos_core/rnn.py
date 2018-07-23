@@ -1,6 +1,7 @@
 import torch
 import qelos_core as q
 from qelos_core.basic import Dropout
+import numpy as np
 
 
 def rec_reset(module):
@@ -164,12 +165,19 @@ class LSTMCell(RecCell):
         return y_t
 
 
-class Attention(torch.nn.Module):
-    """ Abstract class for attention """
+class AttentionBase(torch.nn.Module):
+    def __init__(self, **kw):
+        super(AttentionBase, self).__init__()
+        self.sm = torch.nn.Softmax(-1)
+
+    def forward(self, q, ctx, ctx_mask=None, values=None):
+        return self._forward(q, ctx, ctx_mask=ctx_mask, values=values)
+
+
+class Attention(AttentionBase):
     def __init__(self, **kw):
         super(Attention, self).__init__(**kw)
         self.alpha_tm1, self.summ_tm1 = None, None
-        self.sm = torch.nn.Softmax(-1)
 
     def forward(self, q, ctx, ctx_mask=None, values=None):
         """
@@ -179,18 +187,68 @@ class Attention(torch.nn.Module):
         :param values:  values to summarize, (batsize, seqlen, dim), if unspecified, ctx is used
         :return:        attention alphas (batsize, seqlen) and summary (batsize, dim)
         """
-        alphas, summary = self._forward(q, ctx, ctx_mask=None, values=values)
+        alphas, summary = super(Attention, self).forward(q, ctx, ctx_mask=None, values=values)
         self.alpha_tm1, self.summ_tm1 = alphas, summary
         return alphas, summary
-
-    def _forward(self, q, ctx, ctx_mask=None, values=None):
-        raise NotImplemented("use subclass")
 
     def rec_reset(self):
         self.alpha_tm1, self.summ_tm1 = None, None
 
 
-class DotAttention(Attention):
+class AttentionWithCoverage(Attention):
+    def __init__(self):
+        super(AttentionWithCoverage, self).__init__()
+        self.coverage = None
+        self.cov_count = 0
+        self._cached_ctx = None
+        self.penalty = AttentionCoveragePenalty()
+
+    def reset_coverage(self):
+        self.coverage = None
+        self.cov_count = 0
+        self._cached_ctx = None
+
+    def rec_reset(self):
+        super(AttentionWithCoverage, self).rec_reset()
+        self.reset_coverage()
+
+    def forward(self, q, ctx, ctx_mask=None, values=None):
+        alphas, summary = super(AttentionWithCoverage, self).forward(q, ctx, ctx_mask=ctx_mask, values=values)
+        self.update_penalties(alphas)
+        self.update_coverage(alphas, ctx)
+        return alphas, summary
+
+    def update_penalties(self, alphas):
+        overlap = torch.min(self.coverage, alphas).sum(1)
+        self.penalty(overlap)
+
+    def update_coverage(self, alphas, ctx):
+        if self.coverage is None:
+            self.coverage = torch.zeros_like(alphas)
+            self._cached_ctx = ctx
+        assert((self._cached_ctx - ctx).norm() < 1e-5)
+        self.coverage += alphas
+        self.cov_count += 1
+
+
+class AttentionWithMonotonicCoverage(AttentionWithCoverage):
+    def __init__(self):
+        super(AttentionWithMonotonicCoverage, self).__init__()
+
+    def update_coverage(self, alphas, ctx):
+        if self.coverage is None:
+            self.coverage = torch.zeros_like(alphas)
+            self._cached_ctx = ctx
+        assert ((self._cached_ctx - ctx).norm() < 1e-5)
+
+        cum_alphas = 1 - torch.cumsum(alphas, 1)
+        cum_alphas = torch.cat([cum_alphas[:, 0:1], cum_alphas[:, :-1]], 1)
+        self.coverage += cum_alphas
+        self.cov_count += 1
+
+
+
+class _DotAttention(AttentionBase):
     def _forward(self, q, ctx, ctx_mask=None, values=None):
         scores = torch.bmm(ctx, q.unsqueeze(2)).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
@@ -201,9 +259,32 @@ class DotAttention(Attention):
         return alphas, summary
 
 
-class FwdAttention(Attention):
+class DotAttention(Attention, _DotAttention):
+    pass
+
+
+class _GeneralDotAttention(AttentionBase):
+    def __init__(self, ctxdim=None, qdim=None, **kw):
+        super(_GeneralDotAttention, self).__init__(**kw)
+        self.W = torch.nn.Parameter(torch.empty(ctxdim, qdim))
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        torch.nn.init.xavier_normal_(self.W)
+
+    def _forward(self, q, ctx, ctx_mask=None, values=None):
+        projq = torch.matmul(self.W, q)     # (batsize, ctxdim)
+        alphas, summary = super(_GeneralDotAttention, self)._forward(projq, ctx, ctx_mask=ctx_mask, values=values)
+        return alphas, summary
+
+
+class GeneralDotAttention(Attention, _GeneralDotAttention):
+    pass
+
+
+class _FwdAttention(AttentionBase):
     def __init__(self, ctxdim=None, qdim=None, attdim=None, nonlin=torch.nn.Tanh(), **kw):
-        super(FwdAttention, self).__init__(**kw)
+        super(_FwdAttention, self).__init__(**kw)
         self.linear = torch.nn.Linear(ctxdim + qdim, attdim)
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
@@ -221,9 +302,13 @@ class FwdAttention(Attention):
         return alphas, summary
 
 
-class FwdMulAttention(Attention):
+class FwdAttention(Attention, _FwdAttention):
+    pass
+
+
+class _FwdMulAttention(AttentionBase):
     def __init__(self, indim=None, attdim=None, nonlin=torch.nn.Tanh(), **kw):
-        super(FwdMulAttention, self).__init__(**kw)
+        super(_FwdMulAttention, self).__init__(**kw)
         self.linear = torch.nn.Linear(indim * 3, attdim)
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
@@ -239,6 +324,10 @@ class FwdMulAttention(Attention):
         summary = values * alphas.unsqueeze(2)
         summary = summary.sum(1)
         return alphas, summary
+
+
+class FwdMulAttention(Attention, _FwdMulAttention):
+    pass
 
 
 class RelationContentAttention(Attention):
@@ -458,22 +547,87 @@ class BasicDecoderCell(torch.nn.Module):
         return outs
 
 
-class DecoderCell(torch.nn.Module):
+class LuongCell(torch.nn.Module):
+    def __init__(self, emb=None, core=None, att=None, merge=None, out=None,
+                 feed_att=False, return_alphas=False, return_other=False, **kw):
+        """
+
+        :param emb:
+        :param core:
+        :param att:
+        :param merge:
+        :param out:         if None, out_vec (after merge) is returned
+        :param feed_att:
+        :param h_hat_0:
+        :param kw:
+        """
+        super(LuongCell, self).__init__(**kw)
+        self.emb, self.core, self.att, self.merge, self.out = emb, core, att, merge, out
+        self.return_outvecs = self.out is None
+        self.feed_att = feed_att
+        self._h_hat_tm1 = None
+        self.h_hat_0 = None
+        self.return_alphas = return_alphas
+        self.return_other = return_other
+
+    def rec_reset(self):
+        self.h_hat_0 = None
+        self._h_hat_tm1 = None
+
+    def forward(self, x_t, ctx=None, ctx_mask=None, **kw):
+        assert (ctx is not None)
+        embs = self.emb(x_t)
+        if q.issequence(embs) and len(embs) == 2:
+            embs, mask = embs
+
+        core_inp = embs
+        if self.feed_att:
+            if self._h_hat_tm1 is None:
+                assert (self.h_hat_0 is not None)   #"h_hat_0 must be set when feed_att=True"
+                self._h_hat_tm1 = self.h_hat_0
+            core_inp = torch.cat([core_inp, self._h_hat_tm1], 1)
+        core_out = self.core(core_inp)
+
+        alphas, summaries = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
+
+        out_vec = torch.cat([core_out, summaries], 1)
+        out_vec = self.merge(out_vec) if self.merge is not None else out_vec
+        self._h_hat_tm1 = out_vec
+
+        ret = tuple()
+        if self.return_outvecs:
+            ret += (out_vec,)
+        else:
+            out_scores = self.out(out_vec)
+            ret += (out_scores,)
+
+        if self.return_alphas:
+            ret += (alphas,)
+        if self.return_other:
+            ret += (embs, core_out, summaries)
+        return ret[0] if len(ret) == 1 else ret
+
+
+class DecoderCell(LuongCell):
+    pass
+
+
+class OldDecoderCell(torch.nn.Module):
     def __init__(self, emb, core, att, out, feed_att=False, summ_0=None):
+        print("WARNING: do not use this, use LuongCell instead")
         """
         :param emb:
         :param core:
         :param att:
         :param out:
-        :param feed_att:
+        :param feed_att:    feed attention summary as input to next time step
         :param summ_0:
         """
-        super(DecoderCell, self).__init__()
+        super(OldDecoderCell, self).__init__()
         self.emb, self.core, self.att, self.out = emb, core, att, out
         self.feed_att = feed_att
         self.summ_tm1 = summ_0
-        assert(not feed_att or summ_0 is not None,
-               "att_0 must be specified if feeding attention summary to next time step")
+        assert(not feed_att or summ_0 is not None)  # "summ_0 must be specified if feeding attention summary to next time step"
         self.use_cell_out = True
         self.use_att_sum = True
         self.use_x_t_emb = False
@@ -503,6 +657,59 @@ class DecoderCell(torch.nn.Module):
 
         outscores = self.out(to_out)
         return outscores
+
+
+class BahdanauCell(torch.nn.Module):
+    """ Almost Bahdanau-style cell, except c_tm1 is fed as input to top decoder layer (core2),
+            instead of as part of state """
+    def __init__(self, emb=None, core1=None, core2=None, att=None, out=None,
+                 return_alphas=False, return_other=False, **kw):
+        super(BahdanauCell, self).__init__(**kw)
+        self.emb, self.core1, self.core2, self.att, self.out = emb, core1, core2, att, out
+        self.return_outvecs = self.out is None
+        self.summ_0 = None
+        self._summ_tm1 = None
+        self.return_alphas = return_alphas
+        self.return_other = return_other
+
+    def rec_reset(self):
+        self.summ_0 = None
+        self._summ_tm1 = None
+
+    def forward(self, x_t, ctx=None, ctx_mask=None, **kw):
+        assert (ctx is not None)
+        embs = self.emb(x_t)
+        if q.issequence(embs) and len(embs) == 2:
+            embs, mask = embs
+
+        core_inp = embs
+        core_out = self.core1(core_inp)
+
+        if self._summ_tm1 is None:
+            assert (self.summ_0 is not None)    # "summ_0 must be set"
+            self._summ_tm1 = self.summ_0
+
+        core_inp = torch.cat([core_out, self._summ_tm1], 1)
+        core_out = self.core2(core_inp)
+
+        alphas, summaries = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
+        self._summ_tm1 = summaries
+
+        out_vec = core_out
+
+        ret = tuple()
+        if self.return_outvecs:
+            ret += (out_vec,)
+        else:
+            out_scores = self.out(out_vec)
+            ret += (out_scores,)
+
+        if self.return_alphas:
+            ret += (alphas,)
+        if self.return_other:
+            ret += (embs, core_out, summaries)
+        return ret[0] if len(ret) == 1 else ret
+
 
 
 
