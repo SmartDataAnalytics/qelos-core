@@ -2,6 +2,7 @@ import torch
 import qelos_core as q
 from qelos_core.basic import Dropout
 import numpy as np
+import re
 
 
 def rec_reset(module):
@@ -245,7 +246,6 @@ class AttentionWithMonotonicCoverage(AttentionWithCoverage):
         cum_alphas = torch.cat([cum_alphas[:, 0:1], cum_alphas[:, :-1]], 1)
         self.coverage += cum_alphas
         self.cov_count += 1
-
 
 
 class _DotAttention(AttentionBase):
@@ -527,6 +527,155 @@ class FreeDecoder(Decoder):
         _, argmax_ys = torch.max(ys, 1)
         xs = argmax_ys
         return xs
+
+
+class DynamicOracleDecoder(Decoder):
+    def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., **kw):
+        super(DynamicOracleDecoder, self).__init__(cell, **kw)
+        self.mode = mode
+        modere = re.compile("(\w+)-(\w+)")
+        m = re.match(modere, mode)
+        if m:
+            self.gold_mode, self.next_mode = m.group(1), m.group(2)
+            self.modes_split = True
+        else:
+            self.gold_mode, self.next_mode = mode, mode
+            self.modes_split = False
+        self.eps = eps
+        self.explore = explore
+        #
+        self.tracker = tracker
+        self.seqacc = []        # history of what has been fed to next time step
+        self.goldacc = []       # use for supervision
+
+        self._argmax_in_eval = True
+
+    def rec_reset(self):
+        self.reset()
+
+    def reset(self):
+        self.seqacc = []
+        self.goldacc = []
+        self.tracker.reset()
+
+    def get_sequence(self):
+        """ get the chosen output sequence """
+        ret = torch.stack(self.seqacc, 1)
+        return ret
+
+    def get_gold_sequence(self):
+        ret = torch.stack(self.goldacc, 1)
+        return ret
+
+    def forward(self, xs, maxtime=None, **kw):
+        """
+        :param xs:          tuple of (eids, ...) - eids being ids of the examples
+                            --> eids not fed to decoder cell, everything else is, as usual
+        :param maxtime:
+        :param kw:
+        :return:
+        """
+        q.rec_reset(self.cell)
+        assert(q.issequence(xs) and len(xs) >= 2)
+        eids, xs = xs[0], xs[1:]
+        maxtime = maxtime if maxtime is not None else self.maxtime
+        x_is_seq = True
+        if not q.issequence(xs):
+            x_is_seq = False
+            xs = (xs,)
+        outs = []
+        out_is_seq = False
+        for t in range(maxtime):
+            if t == 0:      # first time step --> use xs
+                x_ts = xs
+                x_ts = x_ts[0] if not x_is_seq else x_ts
+            outs_t = self.cell(x_ts, **kw)
+            x_ts, g_ts = self._get_xs_and_gs_from_ys(outs_t, eids)
+            # --> get inputs for next time step and gold for current time step from previous outputs
+
+            # store sampled
+            self.seqacc.append(x_ts)
+            self.goldacc.append(g_ts)
+
+            if q.issequence(outs_t):
+                out_is_seq = True
+            else:
+                outs_t = (outs_t,)
+            outs.append(outs_t)
+            if self.check_terminate():
+                break
+        outs = zip(*outs)
+        outs = tuple([torch.cat([a_i.unsqueeze(1) for a_i in a], 1) for a in outs])
+        outs = outs[0] if not out_is_seq else outs
+        return outs
+
+    def _get_xs_and_gs_from_ys(self, ys, eids):
+        eids = eids.cpu().detach().numpy()
+        if q.issequence(ys):
+            assert(len(ys) == 1)
+            y_t = ys[0]
+        else:
+            y_t = ys
+
+        # compute prob mask
+        ymask = torch.zeros_like(y_t)
+        for i, eid in enumerate(eids):
+            validnext = self.tracker.get_valid_next(eid)            # set of ids
+            if isinstance(validnext, tuple) and len(validnext) == 2:
+                raise q.SumTingWongException("no anvt supported")
+            ymask[i, list(validnext)] = 1.
+
+        # get probs
+        _y_t = y_t + torch.log(ymask)
+        goldprobs = self.sm(_y_t)
+
+        assert(not self.training)
+
+        if self.mode in "zerocost nocost".split():
+            _, y_best = y_t.max(1)          # argmax from all
+            _, gold_t = goldprobs.max(1)    # argmax from VNT
+            y_random_valid = torch.distributions.Categorical(ymask).sample()        # uniformly sampled from VNT
+            y_best_is_valid = torch.gather(ymask, 1, y_best.unsqueeze(1)).long()    # y_best is in VNT
+            nextcat = torch.stack([y_random_valid, y_best], 1)
+            x_t = torch.gather(nextcat, 1, y_best_is_valid).squeeze(1)              # if best is valid, takes best, else random valid
+            if self.mode == "nocost":   # set mask as gold if best is valid --> no improvement if best is correct
+                zero_gold = torch.zeros_like(gold_t).long()
+                goldcat = torch.stack([gold_t, zero_gold], 1)
+                gold_t = torch.gather(goldcat, 1, y_best_is_valid).squeeze(1)
+
+        else:
+
+            def _sample_using_mode(_goldprobs, _ymask, _mode):
+                if _mode == "sample":
+                    _ret_t = torch.distributions.Categorical(_goldprobs).sample()
+                elif _mode == "uniform":
+                    _ret_t = torch.distributions.Categorical(_ymask).sample()
+                elif _mode == "esample":
+                    _ret_t = torch.distributions.Categorical(_goldprobs).sample()
+                    _alt_ret_t = torch.distributions.Categorical(_ymask).sample()
+                    _epsprobs = (torch.rand_like(_ret_t) < self.eps).long()
+                    _ret_t = torch.gather(torch.stack([_ret_t, _alt_ret_t], 1), 1, _epsprobs.unsqueeze(1)).squeeze(1)
+                elif _mode == "argmax":
+                    _, _ret_t = torch.max(_goldprobs, 1)
+                else:
+                    raise q.SumTingWongException("unsupported mode: {}".format(_mode))
+                return _ret_t
+
+            gold_t = _sample_using_mode(goldprobs, ymask, self.gold_mode)
+
+            if self.explore == 0:
+                if not self.modes_split:
+                    x_t = gold_t
+                else:
+                    x_t = _sample_using_mode(goldprobs, ymask, self.next_mode)
+            else:
+                raise NotImplemented("exporing not supported")
+
+        # update tracker
+        for x_t_e, eid, gold_t_e in zip(x_t.cpu().detach().numpy(), eids, gold_t.cpu().detach().numpy()):
+            self.tracker.update(eid, x_t_e, alt_x=gold_t_e)
+
+        return x_t, gold_t
 
 
 class BasicDecoderCell(torch.nn.Module):

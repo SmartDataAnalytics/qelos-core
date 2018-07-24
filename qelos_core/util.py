@@ -767,4 +767,13 @@ def seq_unpack(x, order, padding_value=0):
     return out, outmask
 
 
+def intercat(tensors, axis=-1):
+    if axis != -1 and axis != tensors[0].dim()-1:
+        tensors = [tensor.transpose(axis, -1) for tensor in tensors]
+    t = torch.stack(tensors, -1)
+    t = t.view(t.size()[:-2] + (-1,))
+    if axis != -1 and axis != tensors[0].dim()-1:
+        t = t.transpose(axis, -1)
+    return t
+
 

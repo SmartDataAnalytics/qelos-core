@@ -300,6 +300,11 @@ class BasicRunner(LoopRunner, EventEmitter):
         super(BasicRunner, self).__init__()
         self.trainer = trainer
         self.validator = validator
+        self._logger = None
+
+    def log(self, logger):
+        self._logger = logger
+        return self
 
     def run(self, epochs=None, validinter=1):
         self.trainer.pre_run()
@@ -311,6 +316,8 @@ class BasicRunner(LoopRunner, EventEmitter):
         self.trainer.post_run()
         if isinstance(self.validator, tester):
             self.validator.post_run()
+        if self._logger is not None:
+            self._logger.liner_close("train.txt")
 
     def runloop(self, validinter=1):
         tt = q.ticktock("runner")
@@ -341,6 +348,8 @@ class BasicRunner(LoopRunner, EventEmitter):
             self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
             tt.tock(ttmsg)
+            if self._logger is not None:
+                self._logger.liner_write("losses.txt", ttmsg)
         self.do_callbacks(self.END)
 
 
