@@ -296,12 +296,20 @@ class DotDistance(Distance):        # actually a similarity
 
 class FlatEncoder(torch.nn.Module):
     def __init__(self, embdim, dims, word_dic, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0.):
+        """
+        :param word_dic:        dictionary mapping words (strings) to ids as they occur in the input x to .forward()
+        :param gfrac:
+        """
         """ embdim for embedder, dims is a list of dims for RNN"""
         super(FlatEncoder, self).__init__()
         self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
         self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
 
     def forward(self, x):
+        """
+        :param x:       (batsize, seqlen) integer ids
+        :return:
+        """
         embs, mask = self.emb(x)
         _ = self.lstm(embs, mask=mask)
         final_state = self.lstm.y_n[-1]
@@ -321,8 +329,10 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         settings = locals().copy()
         logger = q.Logger(prefix="rank_lstm")
         logger.save_settings(**settings)
+
+        device = torch.device("cpu")
         if cuda:
-            torch.cuda.set_device(gpu)
+            device = torch.device("cuda", gpu)
 
         tt = q.ticktock("script")
 
@@ -341,8 +351,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         def inp_bt(_qsm_batch, _eids_batch):
             golds_batch, bads_batch = input_feeder(_eids_batch)
-            dummygold = _eids_batch
-            return _qsm_batch, golds_batch, bads_batch, dummygold
+            return _qsm_batch, golds_batch, bads_batch
 
         if test:
             # test input feeder
@@ -369,8 +378,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         # region TRAINING
         optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, weight_decay=wreg)
-        trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
-                   .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
+        trainer = q.trainer(rankmodel).on(trainloader).loss(1)\
+                   .set_batch_transformer(inp_bt).optimizer(optim).device(device)
 
         def validation_function():
             rankmetrics = rankcomp.compute(RecallAt(1, totaltrue=1),

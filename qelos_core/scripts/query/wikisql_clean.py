@@ -53,7 +53,7 @@ class TreeAccuracy(DiscreteLoss):
             if isinstance(best_tree, tuple):
                 print(best_tree)
             same[i] = gold_tree.equals(best_tree)
-        same = q.var(same).cuda(x).v
+        same = same.to(x.device)
         acc = torch.sum(same.float())
         total = float(same.size(0))
         if self.size_average:
@@ -1245,7 +1245,7 @@ class OutVecComputer(DynamicVecPreparer):
         """ inpmaps (batsize, num_uwids) contains mapping from uwids to gwids for every example = batch from gwids matrix
             colnames (batsize, numcols, colnamelen) contains colnames for every example
         """
-        x = q.var(torch.arange(0, len(self.D))).cuda(inpmaps).v.long()      # prepare for all possible input tokens (from osm.D)
+        x = torch.arange(0, len(self.D), device=inpmaps.device, dtype=torch.int64)      # prepare for all possible input tokens (from osm.D)
         batsize = inpmaps.size(0)
 
         # region syntax words
@@ -1362,6 +1362,21 @@ class BFOL(DynamicWordLinout):
             rret = rret.squeeze(1)
         # assert(((rret != 0.).float() - rmask.float()).norm().cpu().data[0] == 0)
         return rret, rmask
+
+
+class PtrGenOut(DynamicWordLinout):
+    def __init__(self, core, worddic=None):
+        """
+        Wraps PointerGeneratorOut, makes it prepareable wrt outveccomp
+        :param core:            a PointerGeneratorOut with a OutVecComputer as gen_out module
+        :param worddic:
+        """
+        super(PtrGenOut, self).__init__(computer=core.gen_out, worddic=worddic)
+        self.core = core
+
+    def forward(self, x, alphas, ctx_inp):
+        ret = self.core(x, alphas, ctx_inp)
+        return ret
 # endregion
 
 
@@ -1372,7 +1387,7 @@ def replace_rare_gwids_with_rare_vec(x, ids, rare_gwids, rare_vec):
     # get mask based on where rare_gwids occur in ids
     ids_np = ids.cpu().data.numpy()
     ids_mask_np = np.vectorize(lambda x: x not in rare_gwids)(ids_np).astype("uint8")       # ids_mask is one if NOT rare
-    ids_mask = q.var(ids_mask_np).cuda(x).v.float()
+    ids_mask = torch.tensor(ids_mask_np, device=x.device, dtype=torch.float32)
     # switch between vectors
     ret = rare_vec.unsqueeze(0).unsqueeze(1) * (1 - ids_mask.unsqueeze(2))
     ret = ret + x * ids_mask.unsqueeze(2)
@@ -1500,15 +1515,30 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
                                 rare_gwids=rare_gwids, nogloveforinp=False)
     inp_trans = comp.inp_trans  # to index
-    # TODO: use PointerGeneratorOut here
-    # 1. create generation block (create dictionaries for pointergenout first)
-    #           generator can be DynamicWordLinout with a normal softmax
-    #           then can just give ismD and osmD and generate a gen_zero set to override generator probs for input tokens
-    # 2. create gen vs ptr switcher module
-    # 2. create pointergenout
-    # TODO: how about mask on unused colids?? --> OutVecComputer returns a mask when preparing
-    # mask on unused inputs: should be handled normally by default pointergenout
-    out = BFOL(computer=comp, worddic=osmD, ismD=ismD, inp_trans=inp_trans, nocopy=nocopy)
+    # TODO: wrap OutVecComputer in DynamicWordLinout
+    out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),
+                              q.Lambda(lambda x: torch.nn.LogSoftmax(x)))
+    if not nocopy:
+        gen_zero_set = set(ismD.keys())
+        switcher = torch.nn.Sequential(
+            torch.nn.Linear(dim, dim),
+            torch.nn.Tanh(),
+            torch.nn.Linear(dim, 1),
+            torch.nn.Sigmoid(),
+            q.Lambda(lambda x: x.squeeze(1)),
+        )
+
+        ptrgenout = q.PointerGeneratorOut(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
+        out = PtrGenOut(ptrgenout, worddic=osmD)
+        # DONE: use PointerGeneratorOut here
+        # 1. create generation block (create dictionaries for pointergenout first)
+        #           generator can be DynamicWordLinout with a normal softmax
+        #           then can just give ismD and osmD and generate a gen_zero set to override generator probs for input tokens
+        # 2. create gen vs ptr switcher module
+        # 3. create pointergenout
+        # DONE: how about mask on unused colids?? --> OutVecComputer returns a mask when preparing
+        # mask on unused inputs: should be handled normally by default pointergenout
+        # out = BFOL(computer=comp, worddic=osmD, ismD=ismD, inp_trans=inp_trans, nocopy=nocopy)
     return out, inpbaseemb, colbaseemb, colenc
 
 # endregion
@@ -1630,14 +1660,14 @@ def make_oracle_df(tracker, mode=None):
     return oracle
 
 
-def get_output(model, data, origquestions, batsize=100, inp_bt=None, cuda=False,
+def get_output(model, data, origquestions, batsize=100, inp_bt=None, device=torch.device("cpu"),
                rev_osm_D=None, rev_gwids_D=None):
     """ takes a model (must be freerunning !!!) """
     gwids = data[2]
     # TODO: make sure q.eval() doesn't feed anything wrong or doesn't forget to reset things
     dataloader = q.dataload(*data, batch_size=batsize, shuffle=False)
     predictions = q.eval(model).on(dataloader) \
-        .set_batch_transformer(inp_bt).cuda(cuda).run()
+        .set_batch_transformer(inp_bt).device(device).run()
     _, predictions = predictions.max(2)
     predictions = predictions.cpu().data.numpy()
     rawlines = []
@@ -1653,7 +1683,7 @@ def get_output(model, data, origquestions, batsize=100, inp_bt=None, cuda=False,
 
 
 def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                   inp_bt=None, batsize=100, cuda=False, savedir=None, test=False):
+                   inp_bt=None, batsize=100, device=None, savedir=None, test=False):
     def compute_sql_acc(pred_sql, gold_sql):
         sql_acc = 0.
         sql_acc_norm = 1e-6
@@ -1678,7 +1708,7 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
         devsqls = load_jsonls(DATA_PATH + "train.jsonl", sqlsonly=True)[200:250]
 
     pred_devlines, pred_devsqls = get_output(m, devdata, devquestions,
-                                             batsize=batsize, inp_bt=inp_bt, cuda=cuda,
+                                             batsize=batsize, inp_bt=inp_bt, device=device,
                                              rev_osm_D=rev_osm_D, rev_gwids_D=rev_gwids_D)
     if savedir is not None:
         save_lines(pred_devlines, "dev_pred.lines")
@@ -1691,7 +1721,7 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
     testquestions = load_jsonls(DATA_PATH + "test.jsonl", questionsonly=True)
     testsqls = load_jsonls(DATA_PATH + "test.jsonl", sqlsonly=True)
     pred_testlines, pred_testsqls = get_output(m, testdata, testquestions,
-                                               batsize=batsize, inp_bt=inp_bt, cuda=cuda,
+                                               batsize=batsize, inp_bt=inp_bt, device=device,
                                                rev_osm_D=rev_osm_D, rev_gwids_D=rev_gwids_D)
     if savedir is not None:
         save_lines(pred_testlines, "test_pred.lines")
@@ -1988,24 +2018,24 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     finalvalidlosses = q.lossarray(q.SeqAccuracy(ignore_index=0),
                               TreeAccuracy(ignore_index=0, treeparser=row2tree))
 
-    valid_results = q.test(test_m).on(validloader, finalvalidlosses)\
-        .set_batch_transformer(valid_inp_bt).cuda(cuda).run()
+    valid_results = q.tester(test_m).on(validloader).loss(finalvalidlosses)\
+        .set_batch_transformer(valid_inp_bt).device(device).run()
     print("DEV RESULTS:")
     print(valid_results)
     logger.update_settings(valid_seq_acc=valid_results[0], valid_tree_acc=valid_results[1])
     if not test:
-        test_results = q.test(test_m).on(testloader, testlosses)\
-            .set_batch_transformer(valid_inp_bt).cuda(cuda).run()
+        test_results = q.tester(test_m).on(testloader).loss(testlosses)\
+            .set_batch_transformer(valid_inp_bt).device(device).run()
         print("TEST RESULTS:")
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
     def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = q.var(colnames).cuda(colnameids).v
+        colnames = torch.tensor(colnames, device=colnameids.device)
         return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, None
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                               inp_bt=test_inp_bt, batsize=batsize, cuda=cuda,
+                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
                                                savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion

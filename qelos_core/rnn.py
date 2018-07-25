@@ -490,6 +490,12 @@ class FreeDecoder(Decoder):
         self.maxtime = maxtime
 
     def forward(self, xs, maxtime=None, **kw):
+        """
+        :param xs:
+        :param maxtime:
+        :param kw:      are passed directly into cell at every time step
+        :return:
+        """
         q.rec_reset(self.cell)
         maxtime = maxtime if maxtime is not None else self.maxtime
         x_is_seq = True
@@ -572,7 +578,7 @@ class DynamicOracleDecoder(Decoder):
         :param xs:          tuple of (eids, ...) - eids being ids of the examples
                             --> eids not fed to decoder cell, everything else is, as usual
         :param maxtime:
-        :param kw:
+        :param kw:          are passed directly into cell at every time step
         :return:
         """
         q.rec_reset(self.cell)
@@ -744,11 +750,9 @@ class LuongCell(torch.nn.Module):
         self._h_hat_tm1 = out_vec
 
         ret = tuple()
-        if self.return_outvecs:
-            ret += (out_vec,)
-        else:
-            out_scores = self.out(out_vec)
-            ret += (out_scores,)
+        if not self.return_outvecs:
+            out_vec = self.out(out_vec)
+        ret += (out_vec,)
 
         if self.return_alphas:
             ret += (alphas,)

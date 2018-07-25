@@ -5,7 +5,7 @@ import numpy as np
 
 class PointerGeneratorOut(torch.nn.Module):
     """ Uses sum for overlaps ! (scatter_add_)"""
-    def __init__(self, outdic, gen_prob_comp, gen_out, inpdic=None, out_logits=True, gen_zero=None, **kw):
+    def __init__(self, outdic, gen_prob_comp, gen_out, inpdic=None, out_logits=True, gen_zero=None, gen_outD=None, **kw):
         """
         :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
         :param gen_prob_comp:   module to compute probability of generating vs pointing
@@ -16,19 +16,21 @@ class PointerGeneratorOut(torch.nn.Module):
         :param out_logits:      apply log on final probs (if True, can use NLLLoss)
         :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
                                 All tokens should occur in inpdic (or their score will always be zero)
+        :param gen_outD:        if set, gen_out must not have a ".D"
         :param kw:
         """
         super(PointerGeneratorOut, self).__init__(**kw)
         self.gen_out = gen_out
+        self.gen_outD = self.gen_out.D if gen_outD is None else gen_outD
         self.gen_prob_comp = gen_prob_comp
         self.outsize = max(outdic.values())
-        self.gen_to_out = q.val(torch.zeros(1, max(gen_out.D.values()), dtype=torch.int64)).v
+        self.gen_to_out = q.val(torch.zeros(1, max(self.gen_outD.values()), dtype=torch.int64)).v
         self.gen_zero_mask = None if gen_zero is None else q.val(torch.ones(1, self.gen_to_out.size(1))).v
         # (1, genvocsize), integer ids in outvoc, one-to-one mapping
         # if symbol in gendic is not in outdic, throws error
-        for k, v in gen_out.D.items():
+        for k, v in self.gen_outD.items():
             if k not in outdic:
-                raise q.SumTingWongException("symbols in gen_out.D must be in outdic, but \"{}\" isn't".format(k))
+                raise q.SumTingWongException("symbols in gen_outD must be in outdic, but \"{}\" isn't".format(k))
             self.gen_to_out[0, v] = outdic[k]
             if gen_zero is not None:
                 if k in gen_zero:
