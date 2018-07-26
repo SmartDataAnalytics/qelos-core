@@ -199,13 +199,14 @@ class RankingComputer(object):
         provides separate loss objects to put into lossarray
     """
 
-    def __init__(self, scoremodel, eids, ldata, rdata, eid2rid_gold, eid2rid_neg):
+    def __init__(self, scoremodel, eids, ldata, rdata, eid2rid_gold, eid2rid_neg, device=torch.device("cpu")):
         self.scoremodel = scoremodel
         self.eids = eids
         self.ldata = ldata if q.issequence(ldata) else (ldata,)     # already shuffled
         self.rdata = rdata if q.issequence(rdata) else (rdata,)     # indexed by eid space
         self.eid2rid_neg = eid2rid_neg      # indexed by eid space
         self.eid2rid_gold = eid2rid_gold    # indexed by eid space
+        self.device = device
 
     def compute(self, *metrics):        # compute given metrics for all given data
         self.scoremodel.train(False)
@@ -216,7 +217,8 @@ class RankingComputer(object):
         # TODO
         return metricnumbers
 
-    def compute_rankings(self, eids, device=torch.device("cpu")):
+    def compute_rankings(self, eids, device=None):
+        device = self.device if device is None else device
         # get all pairs to score
         current_batch = []
         # given questions are already shuffled --> just traverse
@@ -576,7 +578,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                    .set_batch_transformer(inp_bt).optimizer(optim).device(device)
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
-                                   csm.matrix, goldchainids, badchainids)
+                                   csm.matrix, goldchainids, badchainids, device=device)
 
         class Validator(object):
             def __init__(self, _rankcomp):
@@ -611,11 +613,11 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         tt.tick("computing metrics on all data")
         rankcomp_train = RankingComputer(scoremodel, traindata[1], traindata[0],
-                                         csm.matrix, goldchainids, badchainids)
+                                         csm.matrix, goldchainids, badchainids, device=device)
         rankcomp_valid = RankingComputer(scoremodel, validdata[1], validdata[0],
-                                         csm.matrix, goldchainids, badchainids)
+                                         csm.matrix, goldchainids, badchainids, device=device)
         rankcomp_test =  RankingComputer(scoremodel, testdata[1],  testdata[0],
-                                         csm.matrix, goldchainids, badchainids)
+                                         csm.matrix, goldchainids, badchainids, device=device)
 
         class WritingValidator(object):
             def __init__(self, _rankcomp, p=None):
@@ -877,7 +879,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                    .set_batch_transformer(inp_bt).optimizer(optim).device(device)
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
-                                   csm.matrix, goldchainids, badchainids)
+                                   csm.matrix, goldchainids, badchainids, device=device)
 
         class Validator(object):
             def __init__(self, _rankcomp):
@@ -912,11 +914,11 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         tt.tick("computing metrics on all data")
         rankcomp_train = RankingComputer(scoremodel, traindata[1], traindata[0],
-                                         csm.matrix, goldchainids, badchainids)
+                                         csm.matrix, goldchainids, badchainids, device=device)
         rankcomp_valid = RankingComputer(scoremodel, validdata[1], validdata[0],
-                                         csm.matrix, goldchainids, badchainids)
+                                         csm.matrix, goldchainids, badchainids, device=device)
         rankcomp_test = RankingComputer(scoremodel, testdata[1], testdata[0],
-                                        csm.matrix, goldchainids, badchainids)
+                                        csm.matrix, goldchainids, badchainids, device=device)
 
         class WritingValidator(object):
             def __init__(self, _rankcomp, p=None):
