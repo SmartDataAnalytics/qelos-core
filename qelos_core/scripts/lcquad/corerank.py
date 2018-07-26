@@ -834,6 +834,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         def inp_bt(_qsm_batch, _eids_batch):
             golds_batch, bads_batch = input_feeder(_eids_batch)
+            print(golds_batch.device)
             return _qsm_batch, golds_batch, bads_batch
 
         if test:
