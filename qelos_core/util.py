@@ -57,6 +57,17 @@ class StringMatrix():
         n._strings = self._strings
         return n
 
+    def clone(self):
+        n = StringMatrix()
+        n.tokenize = self.tokenize
+        if self._matrix is not None:
+            n._matrix = self._matrix.copy()
+            n._dictionary = self._dictionary.copy()
+            n._rd = self._rd.copy()
+
+        n._strings = self._strings
+        return n
+
     def __len__(self):
         if self._matrix is None:
             return len(self._strings)
@@ -584,12 +595,13 @@ class hyperparam(object):
 
 
 def v(x):
-    print("WARNING: don't use q.v()! ")
     if isinstance(x, hyperparam):
         return x._v
     elif isinstance(x, (var, val)):
+        print("WARNING from q.v() (util.py): var! ")
         return x.v
     elif isinstance(x, torch.autograd.Variable):
+        raise Exception("autograd.Variable should not be used anymore")
         return x.data
     elif isinstance(x, torch.Tensor):
         return x.cpu().numpy()

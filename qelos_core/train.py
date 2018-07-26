@@ -216,8 +216,8 @@ class eval(object):
         return self
 
     def initialize(self):
-        print("WARNING: not setting model's device! ")
-        pass
+        print("WARNING: setting model's device, instance might change !")
+        self.model.to(self._device)
 
     def on(self, dataloader):
         self.dataloader = dataloader
@@ -306,20 +306,20 @@ class BasicRunner(LoopRunner, EventEmitter):
         self._logger = logger
         return self
 
-    def run(self, epochs=None, validinter=1):
+    def run(self, epochs=None, validinter=1, print_on_valid_only=False):
         self.trainer.pre_run()
         if isinstance(self.validator, tester):
             self.validator.pre_run()
         if epochs is not None:
             self.trainer.epochs(epochs)
-        self.runloop(validinter=validinter)
+        self.runloop(validinter=validinter, print_on_valid_only=print_on_valid_only)
         self.trainer.post_run()
         if isinstance(self.validator, tester):
             self.validator.post_run()
         if self._logger is not None:
             self._logger.liner_close("train.txt")
 
-    def runloop(self, validinter=1):
+    def runloop(self, validinter=1, print_on_valid_only=False):
         tt = q.ticktock("runner")
         self.do_callbacks(self.START)
         validinter_count = 0
@@ -335,6 +335,7 @@ class BasicRunner(LoopRunner, EventEmitter):
                 self.trainer.losses.pp()
             )
             self.do_callbacks(self.END_TRAIN)
+            validepoch = False
             if self.validator is not None and validinter_count % validinter == 0:
                 self.do_callbacks(self.START_VALID)
                 if isinstance(self.validator, tester):
@@ -345,11 +346,13 @@ class BasicRunner(LoopRunner, EventEmitter):
                     toprint = self.validator()
                     ttmsg += " -- {}".format(toprint)
                 self.do_callbacks(self.END_VALID)
+                validepoch = True
             self.do_callbacks(self.END_EPOCH)
             validinter_count += 1
-            tt.tock(ttmsg)
-            if self._logger is not None:
-                self._logger.liner_write("losses.txt", ttmsg)
+            if not print_on_valid_only or validepoch:
+                tt.tock(ttmsg)
+                if self._logger is not None:
+                    self._logger.liner_write("losses.txt", ttmsg)
         self.do_callbacks(self.END)
 
 
@@ -415,7 +418,9 @@ class trainer(EventEmitter, AutoHooker):
         return self
 
     def initialize(self):
-        print("WARNING: not setting device of model and loss! ")
+        print("WARNING: setting device of model and loss ! (beware: instance might change)")
+        self.losses.device(self._device)
+        self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):
@@ -635,7 +640,9 @@ class tester(EventEmitter, AutoHooker):
         return self
 
     def initialize(self):
-        print("WARNING: not setting model or loss device! ")
+        print("WARNING: setting device of model and loss ! (beware: instance might change)")
+        self.losses.device(self._device)
+        self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):
@@ -780,7 +787,8 @@ class tester(EventEmitter, AutoHooker):
 
 # region AUTOHOOKERS
 class BestSaver(AutoHooker):
-    def __init__(self, criterion, model, path, higher_is_better=True, verbose=False, **kw):
+    def __init__(self, criterion, model, path, higher_is_better=True, autoload=False,
+                 verbose=False, **kw):
         super(BestSaver, self).__init__(**kw)
         self.criterion = criterion
         self.model = model
@@ -789,21 +797,31 @@ class BestSaver(AutoHooker):
         self.best_criterion = -1.
         self.verbose = verbose
         self.callbacks = {}
+        self.autoload = autoload        # automatically load on END event
 
     def get_hooks(self, ee):
-        return {ee.END_EPOCH: self.save_best_model}
+        hooks = {ee.END_EPOCH: self.save_best_model}
+        if self.autoload:
+            hooks[ee.END] = self.autoload_best
+        return hooks
 
-    def save_best_model(self, trainer, **kw):
-        assert isinstance(trainer, train)
+    def save_best_model(self, _, **kw):
+        # assert isinstance(trainer, train)
         current_criterion = self.criterion()
         decision_value = current_criterion - self.best_criterion    # positive if current is higher
         decision_value *= self.higher_better            # higher better --> positive is higher = better
-        if decision_value >= 0:
+        # remark: with this way, later can extend to specifying by how much it should improve --> TODO
+        if decision_value > 0:
             if self.verbose:
                 print("Validation criterion improved from {} to {}. Saving model..."\
                       .format(self.best_criterion, current_criterion))
             self.best_criterion = current_criterion
             torch.save(self.model.state_dict(), self.path)
+
+    def autoload_best(self, _, **kw):
+        if self.verbose:
+            print("Reloading best weights ({})".format(self.best_criterion))
+        self.model.load_state_dict(torch.load(self.path))
 
 
 class _LRSchedulerAutoHooker(AutoHooker):
