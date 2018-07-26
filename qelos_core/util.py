@@ -595,12 +595,13 @@ class hyperparam(object):
 
 
 def v(x):
-    print("WARNING: don't use q.v()! ")
     if isinstance(x, hyperparam):
         return x._v
     elif isinstance(x, (var, val)):
+        print("WARNING from q.v() (util.py): var! ")
         return x.v
     elif isinstance(x, torch.autograd.Variable):
+        raise Exception("autograd.Variable should not be used anymore")
         return x.data
     elif isinstance(x, torch.Tensor):
         return x.cpu().numpy()
