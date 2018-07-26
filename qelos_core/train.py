@@ -216,8 +216,8 @@ class eval(object):
         return self
 
     def initialize(self):
-        print("WARNING: not setting model's device! ")
-        pass
+        print("WARNING: setting model's device, instance might change !")
+        self.model.to(self._device)
 
     def on(self, dataloader):
         self.dataloader = dataloader
@@ -418,7 +418,9 @@ class trainer(EventEmitter, AutoHooker):
         return self
 
     def initialize(self):
-        print("WARNING: not setting device of model and loss! ")
+        print("WARNING: setting device of model and loss ! (beware: instance might change)")
+        self.losses.device(self._device)
+        self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):
@@ -638,7 +640,9 @@ class tester(EventEmitter, AutoHooker):
         return self
 
     def initialize(self):
-        print("WARNING: not setting model or loss device! ")
+        print("WARNING: setting device of model and loss ! (beware: instance might change)")
+        self.losses.device(self._device)
+        self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
     def on(self, dataloader):

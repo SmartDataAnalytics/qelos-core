@@ -566,8 +566,8 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         similarity = DotDistance()
 
         rankmc = RankModel if not pointwise else RankModelPointwise
-        rankmodel = rankmc(question_encoder, query_encoder, similarity)
-        scoremodel = ScoreModel(question_encoder, query_encoder, similarity)
+        rankmodel = rankmc(question_encoder, query_encoder, similarity).to(device)
+        scoremodel = ScoreModel(question_encoder, query_encoder, similarity).to(device)
         # endregion
 
         # region TRAINING
@@ -864,6 +864,9 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
             rankmodel = rankmc(scoremodel)
         else:
             raise q.SumTingWongException("unknown mode: {}".format(mode))
+
+        rankmodel = rankmodel.to(device)
+        scoremodel = scoremodel.to(device)
         # endregion
 
         # region TRAINING
