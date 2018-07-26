@@ -833,7 +833,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         input_feeder = FlatInpFeeder(csm.matrix, goldchainids, badchainids)
 
         def inp_bt(_qsm_batch, _eids_batch):
-            print(_qsm_batch.device)
+            print(_eids_batch.device)
             golds_batch, bads_batch = input_feeder(_eids_batch)
             print(golds_batch.device)
             return _qsm_batch, golds_batch, bads_batch
