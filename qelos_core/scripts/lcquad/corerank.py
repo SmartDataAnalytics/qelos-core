@@ -5,6 +5,7 @@ import json
 import pickle
 import random
 import os
+from qelos_core.train import BestSaver
 
 
 OPT_LR = 0.001
@@ -215,8 +216,7 @@ class RankingComputer(object):
         # TODO
         return metricnumbers
 
-    def compute_rankings(self, eids):
-        cuda = q.iscuda(self.scoremodel)
+    def compute_rankings(self, eids, device=torch.device("cpu")):
         # get all pairs to score
         current_batch = []
         # given questions are already shuffled --> just traverse
@@ -231,8 +231,8 @@ class RankingComputer(object):
                 right_data = tuple([rdat[rid] for rdat in self.rdata])
                 rdata.append(right_data)
             rdata = zip(*rdata)
-            ldata = [q.var(ldat, volatile=True).cuda(cuda).v for ldat in ldata]
-            rdata = [q.var(np.stack(posdata_e), volatile=True).cuda(cuda).v for posdata_e in rdata]
+            ldata = [torch.tensor(ldat, device=device) for ldat in ldata]
+            rdata = [torch.tensor(np.stack(posdata_e), device=device) for posdata_e in rdata]
             scores = self.scoremodel(ldata, rdata)
             _scores = list(scores.cpu().data.numpy())
             ranking = sorted(zip(_scores, rids, trueornot), key=lambda x: x[0], reverse=True)
@@ -334,8 +334,8 @@ class FlatInpFeeder(object):
                 badcid = random.sample(badcidses, 1)[0]
             bads[i, ...] = self.csm[badcid]
 
-        golds = q.var(golds).cuda(eids).v
-        bads = q.var(bads).cuda(eids).v
+        golds = torch.tensor(golds, device=eids.device)
+        bads = torch.tensor(bads, device=eids.device)
         return golds, bads
 
 
@@ -362,7 +362,7 @@ class RankModel(torch.nn.Module):
 
     def compute_loss(self, psim, nsim):
         diffs = psim - nsim
-        zeros = q.var(torch.zeros_like(diffs.data)).cuda(diffs).v
+        zeros = torch.zeros_like(diffs.data, device=diffs.device)
         losses = torch.max(zeros, self.margin - diffs)
         return losses
 
@@ -371,7 +371,7 @@ class RankModelPointwise(RankModel):
     def compute_loss(self, psim, nsim):
         ploss = -torch.log(torch.clamp(torch.nn.functional.sigmoid(psim), 1e-8, np.infty))
         nloss = -torch.log(torch.clamp(1 - torch.nn.functional.sigmoid(nsim), 1e-8, np.infty))
-        interp = q.var((torch.randn(ploss.size()) > 0).float()).cuda(psim).v
+        interp = (torch.randn(ploss.size(), device=psim.device) > 0).float()
         loss = ploss * interp + nloss * (1 - interp)
         return loss
 
@@ -519,8 +519,10 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         settings = locals().copy()
         logger = q.Logger(prefix="rank_lstm")
         logger.save_settings(**settings)
+
+        device = torch.device("cpu")
         if cuda:
-            torch.cuda.set_device(gpu)
+            device = torch.device("cuda", gpu)
 
         tt = q.ticktock("script")
 
@@ -547,12 +549,11 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         def inp_bt(_qsm_batch, _eids_batch):
             golds_batch, bads_batch = input_feeder(_eids_batch)
-            dummygold = _eids_batch
-            return _qsm_batch, golds_batch, bads_batch, dummygold
+            return _qsm_batch, golds_batch, bads_batch
 
         if test:
             # test input feeder
-            eids = q.var(torch.arange(0, 10).long()).v
+            eids = torch.arange(0, 10, dtype=torch.int64)
             _test_golds_batch, _test_bads_batch = input_feeder(eids)
         tt.tock("data loaded")
         # endregion
@@ -572,7 +573,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region TRAINING
         optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, betas=(0.9, beta2), weight_decay=wreg)
         trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
-                   .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
+                   .set_batch_transformer(inp_bt).optimizer(optim).device(device)
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
                                    csm.matrix, goldchainids, badchainids)
@@ -598,7 +599,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         validator = Validator(rankcomp)
 
-        bestsaver = q.BestSaver(lambda : validator.save_crit,
+        bestsaver = BestSaver(lambda : validator.save_crit,
                                 scoremodel, os.path.join(logger.p, "best.model"),
                                 autoload=True, verbose=True)
 
@@ -803,8 +804,10 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         settings = locals().copy()
         logger = q.Logger(prefix="slotptr")
         logger.save_settings(**settings)
+
+        device = torch.device("cpu")
         if cuda:
-            torch.cuda.set_device(gpu)
+            device = torch.device("cuda", gpu)
 
         tt = q.ticktock("script")
 
@@ -831,12 +834,11 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         def inp_bt(_qsm_batch, _eids_batch):
             golds_batch, bads_batch = input_feeder(_eids_batch)
-            dummygold = _eids_batch
-            return _qsm_batch, golds_batch, bads_batch, dummygold
+            return _qsm_batch, golds_batch, bads_batch
 
         if test:
             # test input feeder
-            eids = q.var(torch.arange(0, 10).long()).v
+            eids = torch.arange(0, 10, dtype=torch.int64)
             _test_golds_batch, _test_bads_batch = input_feeder(eids)
         tt.tock("data loaded")
         # endregion
@@ -867,7 +869,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
         # region TRAINING
         optim = torch.optim.Adam(q.params_of(rankmodel), lr=lr, betas=(0.9, beta2), weight_decay=wreg)
         trainer = q.trainer(rankmodel).on(trainloader).loss(q.LinearLoss())\
-                   .set_batch_transformer(inp_bt).optimizer(optim).cuda(cuda)
+                   .set_batch_transformer(inp_bt).optimizer(optim).device(device)
 
         rankcomp = RankingComputer(scoremodel, validdata[1], validdata[0],
                                    csm.matrix, goldchainids, badchainids)
@@ -893,7 +895,7 @@ def run_slotptr(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
 
         validator = Validator(rankcomp)
 
-        bestsaver = q.BestSaver(lambda: validator.save_crit,
+        bestsaver = BestSaver(lambda: validator.save_crit,
                                 scoremodel, os.path.join(logger.p, "best.model"),
                                 autoload=True, verbose=True)
 
