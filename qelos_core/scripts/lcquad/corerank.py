@@ -231,8 +231,8 @@ class RankingComputer(object):
                 right_data = tuple([rdat[rid] for rdat in self.rdata])
                 rdata.append(right_data)
             rdata = zip(*rdata)
-            ldata = [torch.tensor(ldat, device=device) for ldat in ldata]
-            rdata = [torch.tensor(np.stack(posdata_e), device=device) for posdata_e in rdata]
+            ldata = [torch.tensor(ldat).to(device) for ldat in ldata]
+            rdata = [torch.tensor(np.stack(posdata_e)).to(device) for posdata_e in rdata]
             scores = self.scoremodel(ldata, rdata)
             _scores = list(scores.cpu().data.numpy())
             ranking = sorted(zip(_scores, rids, trueornot), key=lambda x: x[0], reverse=True)
@@ -334,8 +334,8 @@ class FlatInpFeeder(object):
                 badcid = random.sample(badcidses, 1)[0]
             bads[i, ...] = self.csm[badcid]
 
-        golds = torch.tensor(golds, device=eids.device)
-        bads = torch.tensor(bads, device=eids.device)
+        golds = torch.tensor(golds).to(eids.device)
+        bads = torch.tensor(bads).to(eids.device)
         return golds, bads
 
 
