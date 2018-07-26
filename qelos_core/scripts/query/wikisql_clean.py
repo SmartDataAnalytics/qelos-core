@@ -1387,7 +1387,7 @@ def replace_rare_gwids_with_rare_vec(x, ids, rare_gwids, rare_vec):
     # get mask based on where rare_gwids occur in ids
     ids_np = ids.cpu().data.numpy()
     ids_mask_np = np.vectorize(lambda x: x not in rare_gwids)(ids_np).astype("uint8")       # ids_mask is one if NOT rare
-    ids_mask = torch.tensor(ids_mask_np, device=x.device, dtype=torch.float32)
+    ids_mask = torch.tensor(ids_mask_np, dtype=torch.float32).to(x.device)
     # switch between vectors
     ret = rare_vec.unsqueeze(0).unsqueeze(1) * (1 - ids_mask.unsqueeze(2))
     ret = ret + x * ids_mask.unsqueeze(2)
@@ -1969,12 +1969,12 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     def inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = torch.tensor(colnames, device=colnameids.device)
+        colnames = torch.tensor(colnames).to(colnameids.device)
         return ismbatch, osmbatch[:, :-1], gwidsbatch, colnames, osmbatch[:, 1:]
 
     def valid_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = torch.tensor(colnames, device=colnameids.device)
+        colnames = torch.tensor(colnames).to(colnameids.device)
         return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, osmbatch[:, 1:]
 
     # saving best model
@@ -2032,7 +2032,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = torch.tensor(colnames, device=colnameids.device)
+        colnames = torch.tensor(colnames).to(colnameids.device)
         return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, None
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                                inp_bt=test_inp_bt, batsize=batsize, device=device,
