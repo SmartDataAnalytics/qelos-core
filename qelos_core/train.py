@@ -519,6 +519,7 @@ class trainer(EventEmitter, AutoHooker):
         cost = trainlosses[0]
 
         if torch.isnan(cost).any():
+            print("A NaN occured!")
             q.embed()
 
         cost.backward()

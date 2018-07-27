@@ -20,6 +20,7 @@ class PointerGeneratorOut(torch.nn.Module):
         """
         super(PointerGeneratorOut, self).__init__(**kw)
         self.gen_out = gen_out
+        self.D = outdic
         self.gen_outD = self.gen_out.D if gen_outD is None else gen_outD
         self.gen_prob_comp = gen_prob_comp
         self.outsize = max(outdic.values()) + 1
