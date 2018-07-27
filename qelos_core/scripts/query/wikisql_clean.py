@@ -1551,7 +1551,7 @@ def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=Non
     synD, inpD, colD, syn_trans, inp_trans, col_trans, syn_scatter, inp_scatter, col_scatter\
         = build_subdics(osmD)
 
-    syn_emb = q.WordEmb(dim, worddic=synD, no_masking=False)        # TODO: enable
+    syn_emb = q.WordEmb(dim, worddic=synD, no_masking=no_maskzero)        # TODO: enable
 
     if colenc is None:
         colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"])
@@ -2065,7 +2065,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     # endregion
 
     # region training preparation
-    trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
+    trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True if not test else False)
     validloader = q.dataload(*devdata, batch_size=batsize, shuffle=False)
     testloader = q.dataload(*testdata, batch_size=batsize, shuffle=False)
 
@@ -2089,6 +2089,26 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
         colnames = torch.tensor(colnames).to(colnameids.device)
         return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, osmbatch[:, 1:]
+
+    if test:
+        if False:
+            # get model outs
+            batch_in = enumerate(trainloader).next()[1]
+            batch_in = inp_bt(*batch_in)
+            modelouts = m(*batch_in[:-1])
+            for i in range(modelouts.size(0)):
+                ios = modelouts[i]
+                print(i)
+                print(gwids.pp(batch_in[2][i].cpu().detach().numpy()))
+                print(osm.pp(batch_in[1][i].cpu().detach().numpy()))
+                ats = sorted([osm.RD[x.item()] for x in ios.sum(0).nonzero()[:, 0]])
+                print(" ".join(ats))
+                prvnonzro = ios[0].nonzero()
+                for j in range(1, ios.size(0)):
+                    assert((prvnonzro == ios[j].nonzero()).all().cpu().item() == 1)
+
+            q.embed()
+
 
     # saving best model
     best_saver = BestSaver(lambda: validlosses.get_agg_errors()[1],
