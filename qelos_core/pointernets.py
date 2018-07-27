@@ -5,7 +5,7 @@ import numpy as np
 
 class PointerGeneratorOut(torch.nn.Module):
     """ Uses sum for overlaps ! (scatter_add_)"""
-    def __init__(self, outdic, gen_prob_comp, gen_out, inpdic=None, out_logits=True, gen_zero=None, gen_outD=None, **kw):
+    def __init__(self, outdic, gen_prob_comp, gen_out, inpdic=None, gen_zero=None, gen_outD=None, **kw):
         """
         :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
         :param gen_prob_comp:   module to compute probability of generating vs pointing
@@ -13,7 +13,6 @@ class PointerGeneratorOut(torch.nn.Module):
                                     must have a dictionary accessible as ".D".
                                     must produce normalized probabilities (use softmax)
         :param inpdic:          input dictionary (for pointer)
-        :param out_logits:      apply log on final probs (if True, can use NLLLoss)
         :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
                                 All tokens should occur in inpdic (or their score will always be zero)
         :param gen_outD:        if set, gen_out must not have a ".D"
@@ -23,27 +22,29 @@ class PointerGeneratorOut(torch.nn.Module):
         self.gen_out = gen_out
         self.gen_outD = self.gen_out.D if gen_outD is None else gen_outD
         self.gen_prob_comp = gen_prob_comp
-        self.outsize = max(outdic.values())
-        self.gen_to_out = q.val(torch.zeros(1, max(self.gen_outD.values()), dtype=torch.int64)).v
-        self.gen_zero_mask = None if gen_zero is None else q.val(torch.ones(1, self.gen_to_out.size(1))).v
+        self.outsize = max(outdic.values()) + 1
+        self.gen_to_out = q.val(torch.zeros(1, max(self.gen_outD.values()) + 1, dtype=torch.int64)).v
+        self.gen_zero_mask = None if gen_zero is None else \
+            q.val(torch.ones_like(self.gen_to_out, dtype=torch.float32)).v
         # (1, genvocsize), integer ids in outvoc, one-to-one mapping
         # if symbol in gendic is not in outdic, throws error
         for k, v in self.gen_outD.items():
-            if k not in outdic:
+            if k in outdic:
+                self.gen_to_out[0, v] = outdic[k]
+                if gen_zero is not None:
+                    if k in gen_zero:
+                        self.gen_zero_mask[0, v] = 0
+            else:
                 raise q.SumTingWongException("symbols in gen_outD must be in outdic, but \"{}\" isn't".format(k))
-            self.gen_to_out[0, v] = outdic[k]
-            if gen_zero is not None:
-                if k in gen_zero:
-                    self.gen_zero_mask[0, v] = 0
-        self.inp_to_out = q.val(torch.zeros(max(inpdic.values()), dtype=torch.int64)).v
+
+        self.inp_to_out = q.val(torch.zeros(max(inpdic.values()) + 1, dtype=torch.int64)).v
         # (1, inpvocsize), integer ids in outvoc, one-to-one mapping
         # if symbol in inpdic is not in outdic, throws error
         for k, v in inpdic.items():
-            if k not in outdic:
+            if k in outdic:
+                self.inp_to_out[v] = outdic[k]
+            else:
                 raise q.SumTingWongException("symbols in inpdic must be in outdic, but \"{}\" isn't".format(k))
-            self.inp_to_out[v] = outdic[k]
-
-        self.out_logits = out_logits
 
     def forward(self, x, alphas, ctx_inp):
         """
@@ -58,19 +59,18 @@ class PointerGeneratorOut(torch.nn.Module):
         interp = self.gen_prob_comp(x)
 
         gen_probs = self.gen_out(x)        # (batsize, outvocsize)
+        # TODO: why is <MASK> prob always zero?
+        if self.gen_zero_mask is not None:
+            gen_probs = gen_probs * self.gen_zero_mask
         out_probs_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(gen_probs.size(0), 1), gen_probs)
-        if self.gen_zero_mask is not None:
-            out_probs_gen = out_probs_gen * self.gen_zero_mask
 
         ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
         out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
-        out_probs_ptr.scatter_add_(1, ctx_out, alphas)
+        out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
 
         out_probs = interp * out_probs_gen + (1 - interp) * out_probs_ptr
 
-        if self.out_logits:
-            out_probs = torch.log(out_probs)
         return out_probs
 
 

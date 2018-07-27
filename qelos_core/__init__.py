@@ -3,7 +3,7 @@ from qelos_core.exceptions import *
 from qelos_core.word import *
 from qelos_core.train import trainer, train, tester, eval, AutoHooker, lossarray, TensorDataset, LoopRunner, EventEmitter, no_losses, batch_reset, ClipGradNorm
 from qelos_core.log import *
-from qelos_core.loss import Accuracy, LinearLoss, SelectedLinearLoss, Penalty, SeqAccuracy, SeqNLLLoss
+from qelos_core.loss import Accuracy, LinearLoss, SelectedLinearLoss, Penalty, SeqAccuracy, SeqNLLLoss, SeqCELoss
 from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
     Attention, DotAttention, FwdAttention, FwdMulAttention, GeneralDotAttention, AttentionWithCoverage, \
     Decoder, ThinDecoder, FreeDecoder, TFDecoder, DynamicOracleDecoder, \

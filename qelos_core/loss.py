@@ -203,7 +203,7 @@ class NLLLoss(DiscreteLoss):
         if mask is not None:
             x = x + torch.log(mask.float())
 
-        logprobs = -torch.gather(x, 1, gold.unsqueeze(1)).squeeze()
+        logprobs = -torch.gather(x, 1, gold.unsqueeze(1)).squeeze(1)
 
         if self.weight is not None:
             weights = self.weight[gold]
@@ -224,6 +224,44 @@ class NLLLoss(DiscreteLoss):
             # logprobs = logprobs * ignoremask.float()
         # q.embed()
         return logprobs, ignoremask
+
+
+class SeqCELoss(DiscreteLoss):
+    """ Straight implementation of cross-entropy loss for sequence prediction.
+        To be used after torch.nn.Softmax() """
+    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None, **kw):
+        super(SeqCELoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
+        assert(time_agg in "sum avg".split())
+        self.time_agg = time_agg
+
+    def _forward(self, probs, gold, mask=None):
+        if probs.size(1) > gold.size():
+            probs = probs[:, :gold.size(1)]
+        batsize, seqlen, vocsize = probs.size()
+
+        ignoremask = self._get_ignore_mask(gold)
+        outignoremask = None
+
+        if mask is not None:
+            probs = probs * mask
+
+        gold_probs = probs.gather(2, gold.unsqueeze(2))
+        assert(gold_probs.size(2) == 1)
+        gold_probs = gold_probs.squeeze(2)
+        gold_log_probs = - torch.log(gold_probs)
+
+        seqlens = torch.tensor(seqlen).float()
+
+        if ignoremask is not None:
+            gold_log_probs = gold_log_probs * ignoremask.float()        # should work because normal softmax was used --> no infs
+            seqlens = ignoremask.float().sum(1)
+            outignoremask = ignoremask.long().sum(1) > 0
+
+        gold_log_probs = gold_log_probs.sum(1)
+        if self.time_agg == "avg":
+            gold_log_probs = gold_log_probs / seqlens.clamp(min=EPS)
+
+        return gold_log_probs, outignoremask
 
 
 class SeqNLLLoss(SeqLoss, NLLLoss):

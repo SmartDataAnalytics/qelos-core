@@ -426,6 +426,10 @@ def load_matrices(p=DATA_PATH):
         dics = pkl.load(f)
         ismD, osmD, csmD, pedicsD, splits = dics["ism"], dics["osm"], dics["csm"], dics["pedics"], dics["sizes"]
     tt.tock("dics loaded")
+    # ensure that osmD contains all items from ismD
+    for k, v in ismD.items():
+        if k not in osmD:
+            osmD[k] = max(osmD.values()) + 1
     print(len(ismD))
     ism = q.StringMatrix()
     ism.set_dictionary(ismD)
@@ -1210,7 +1214,7 @@ class ColnameEncoder(torch.nn.Module):
 class OutVecComputer(DynamicVecPreparer):
     """ This is a DynamicVecPreparer used for both output embeddings and output layer.
         To be created, needs:
-         * syn_emb:         normal syntax embedder
+         * syn_emb:         normal syntax embedder_syn_embs.shape
          * syn_trans:       normal syntax trans - if sliced with osm.D ids, return ids to use with syn_emb in .prepare()
          * inpbaseemb:      embedder for input words
          * inp_trans:       input words trans - if sliced with osm.D ids, return ids to use with inpbaseemb and inpmaps in .prepare()
@@ -1252,6 +1256,7 @@ class OutVecComputer(DynamicVecPreparer):
         _syn_ids = self.syn_trans[x]            # maps input ids to syn ids
         # computes vectors and mask for syn ids from input
         _syn_embs, _syn_mask = self.syn_emb(_syn_ids.unsqueeze(0).repeat(batsize, 1))
+        _syn_mask[:, 0] = 1     # <MASK> is always a choice
         # repeat(batsize, 1) because syn embs are same across examples
         #   --> produces (batsize, vocsize) indexes that are then embedded to (batsize, vocsize, embdim)
         # endregion
@@ -1292,7 +1297,7 @@ class OutVecComputer(DynamicVecPreparer):
         # region combine
         _totalmask = _syn_mask.float() + _inp_mask.float() + _col_mask.float()
 
-        assert (np.all(_totalmask.cpu().data.numpy() < 2))
+        assert (np.all(_totalmask.cpu().detach().numpy() < 2))
 
         # _col_mask = (x > 0).float() - _inp_mask.float() - _syn_mask.float()
 
@@ -1371,8 +1376,11 @@ class PtrGenOut(DynamicWordLinout):
         :param core:            a PointerGeneratorOut with a OutVecComputer as gen_out module
         :param worddic:
         """
-        super(PtrGenOut, self).__init__(computer=core.gen_out, worddic=worddic)
+        super(PtrGenOut, self).__init__(computer=core.gen_out[0].computer, worddic=worddic)
         self.core = core
+
+    def prepare(self, *xdata):
+        self.core.gen_out[0].prepare(*xdata)
 
     def forward(self, x, alphas, ctx_inp):
         ret = self.core(x, alphas, ctx_inp)
@@ -1517,15 +1525,14 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
     inp_trans = comp.inp_trans  # to index
     # TODO: wrap OutVecComputer in DynamicWordLinout
     out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),
-                              q.Lambda(lambda x: torch.nn.LogSoftmax(x)))
+                              torch.nn.Softmax(-1),)
     if not nocopy:
-        gen_zero_set = set(ismD.keys())
+        gen_zero_set = set(ismD.keys()) - set(["<MASK>"])
         switcher = torch.nn.Sequential(
             torch.nn.Linear(dim, dim),
             torch.nn.Tanh(),
             torch.nn.Linear(dim, 1),
             torch.nn.Sigmoid(),
-            q.Lambda(lambda x: x.squeeze(1)),
         )
 
         ptrgenout = q.PointerGeneratorOut(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
@@ -1919,7 +1926,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
             # decoding
             self.outemb.prepare(inpseqmaps, colnames)
-            self.outlin.prepare(inpseq, inpenc, inpseqmaps, colnames)
+            self.outlin.prepare(inpseqmaps, colnames)
 
             decoding = self.decoder(outseq, ctx=ctx, ctxmask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
             # TODO: why -1 in maxtime?
@@ -1956,7 +1963,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     validloader = q.dataload(*devdata, batch_size=batsize, shuffle=False)
     testloader = q.dataload(*testdata, batch_size=batsize, shuffle=False)
 
-    losses = q.lossarray(q.SeqNLLLoss(ignore_index=0),
+    losses = q.lossarray(q.SeqCELoss(ignore_index=0),
                          q.SeqAccuracy(ignore_index=0))
 
     row2tree = lambda x: SqlNode.parse_sql(osm.pp(x))
