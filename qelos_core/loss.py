@@ -63,8 +63,6 @@ class Loss(nn.Module):
         #     q.embed()
         if self.size_average:
             loss /= total
-
-        if loss
         return loss
 
 
