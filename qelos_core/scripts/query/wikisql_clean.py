@@ -434,7 +434,7 @@ def load_matrices(p=DATA_PATH):
     # add UWID0 to osmD
     osmD["UWID0"] = max(osmD.values()) + 1
     addeduwids.add("UWID0")
-    print("added {} uwids".format(len(addeduwids)))
+    print("added {} uwids: {}".format(len(addeduwids), " ".join(list(addeduwids))))
 
     # add all remaining COL-ids to osmD
     allcolids = set([int(re.match("COL(\d+)", x).group(1)) for x in osmD.keys() if re.match("COL\d+", x)])
@@ -444,7 +444,7 @@ def load_matrices(p=DATA_PATH):
             osmD["COL{}".format(i)] = max(osmD.values()) + 1
             addedcolids.add("COL{}".format(i))
 
-    print("added {} colids".format(len(addedcolids)))
+    print("added {} colids: {}".format(len(addedcolids), " ".join(list(addedcolids))))
 
     print(len(ismD))
     ism = q.StringMatrix()
