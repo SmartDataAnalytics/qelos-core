@@ -1544,17 +1544,18 @@ def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=Non
     synD, inpD, colD, syn_trans, inp_trans, col_trans, syn_scatter, inp_scatter, col_scatter\
         = build_subdics(osmD)
 
-    syn_emb = q.WordEmb(dim, worddic=synD, no_masking=no_maskzero)
+    syn_emb = q.WordEmb(dim, worddic=synD, no_masking=False)        # TODO: enable
 
     if colenc is None:
         colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"])
 
-    computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
-                              syn_scatter, inp_scatter, col_scatter,
-                              rare_gwids=rare_gwids)
-
-    # computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
-    #                           rare_gwids=rare_gwids, scatters=[syn_scatter, inp_scatter, col_scatter])
+    # TODO: fix: backward breaks
+    # computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
+    #                           syn_scatter, inp_scatter, col_scatter,
+    #                           rare_gwids=rare_gwids)
+    #
+    computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
+                              rare_gwids=rare_gwids, scatters=[syn_scatter, inp_scatter, col_scatter])
     return computer, inpbaseemb, colbaseemb, colenc
 # endregion
 
