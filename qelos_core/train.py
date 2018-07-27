@@ -518,6 +518,9 @@ class trainer(EventEmitter, AutoHooker):
 
         cost = trainlosses[0]
 
+        if torch.isnan(cost).any():
+            q.embed()
+
         cost.backward()
 
         self.do_callbacks(self.BEFORE_OPTIM_STEP)
