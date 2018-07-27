@@ -42,8 +42,7 @@ class TreeAccuracy(DiscreteLoss):
 
         ignoremask = self._get_ignore_mask(gold)
         maxes, best = torch.max(x, 2)
-        same = torch.empty(best.size(0), dtype=torch.uint8)
-        same.fill_(False)
+        same = torch.zeros(best.size(0), dtype=torch.float32, device=x.device)
         for i in range(best.size(0)):
             try:
                 best_tree = self.treeparser(best[i].cpu().data.numpy())
@@ -52,9 +51,8 @@ class TreeAccuracy(DiscreteLoss):
             gold_tree = self.treeparser(gold[i].cpu().data.numpy())
             if isinstance(best_tree, tuple):
                 print(best_tree)
-            same[i] = gold_tree.equals(best_tree)
-        same = same.to(x.device)
-        acc = torch.sum(same.float())
+            same[i] = 1 if gold_tree.equals(best_tree) else 0
+        acc = torch.sum(same)
         total = float(same.size(0))
         if self.size_average:
             acc = acc / total
