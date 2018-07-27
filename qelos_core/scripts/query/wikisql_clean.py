@@ -2146,7 +2146,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
         colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, None
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                                inp_bt=test_inp_bt, batsize=batsize, device=device,
                                                savedir=logger.p, test=test)
