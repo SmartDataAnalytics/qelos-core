@@ -1621,7 +1621,6 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
                                 rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True)
-    inp_trans = comp.inp_trans  # to index
     # TODO: wrap OutVecComputer in DynamicWordLinout
     out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),
                               torch.nn.Softmax(-1),)
