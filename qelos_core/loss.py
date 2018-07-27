@@ -248,7 +248,7 @@ class SeqCELoss(DiscreteLoss):
         gold_probs = probs.gather(2, gold.unsqueeze(2))
         assert(gold_probs.size(2) == 1)
         gold_probs = gold_probs.squeeze(2)
-        gold_log_probs = - torch.log(gold_probs)
+        gold_log_probs = - torch.log(gold_probs.clamp(min=1e-9))
 
         seqlens = torch.tensor(seqlen).float()
 
