@@ -425,19 +425,26 @@ def load_matrices(p=DATA_PATH):
         ismD, osmD, csmD, pedicsD, splits = dics["ism"], dics["osm"], dics["csm"], dics["pedics"], dics["sizes"]
     tt.tock("dics loaded")
     # ensure that osmD contains all items from ismD
+    addeduwids = set()
     for k, v in ismD.items():
         if k not in osmD:
             osmD[k] = max(osmD.values()) + 1
+            addeduwids.add(k)
 
-    # # add UWID0 to osmD
-    # osmD["UWID0"] = max(osmD.values()) + 1
-    #
-    # # add all remaining COL-ids to osmD
-    # allcolids = set([int(re.match("COL(\d+)", x).group(1)) for x in osmD.keys() if re.match("COL\d+", x)])
-    # for i in range(max(allcolids) + 1):
-    #     if i not in allcolids:
-    #         osmD["COL{}".format(i)] = max(osmD.values()) + 1
+    # add UWID0 to osmD
+    osmD["UWID0"] = max(osmD.values()) + 1
+    addeduwids.add("UWID0")
+    print("added {} uwids".format(len(addeduwids)))
 
+    # add all remaining COL-ids to osmD
+    allcolids = set([int(re.match("COL(\d+)", x).group(1)) for x in osmD.keys() if re.match("COL\d+", x)])
+    addedcolids = set()
+    for i in range(e2cn.shape[1]):
+        if i not in allcolids:
+            osmD["COL{}".format(i)] = max(osmD.values()) + 1
+            addedcolids.add("COL{}".format(i))
+
+    print("added {} colids".format(len(addedcolids)))
 
     print(len(ismD))
     ism = q.StringMatrix()
@@ -1550,12 +1557,12 @@ def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=Non
         colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"])
 
     # TODO: fix: backward breaks
-    # computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
-    #                           syn_scatter, inp_scatter, col_scatter,
-    #                           rare_gwids=rare_gwids)
-    #
-    computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
-                              rare_gwids=rare_gwids, scatters=[syn_scatter, inp_scatter, col_scatter])
+    computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
+                              syn_scatter, inp_scatter, col_scatter,
+                              rare_gwids=rare_gwids)
+
+    # computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
+    #                           rare_gwids=rare_gwids, scatters=[syn_scatter, inp_scatter, col_scatter])
     return computer, inpbaseemb, colbaseemb, colenc
 # endregion
 
