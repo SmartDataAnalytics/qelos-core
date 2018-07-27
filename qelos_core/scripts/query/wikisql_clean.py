@@ -1816,7 +1816,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                     # reorder: "no", "reverse", "arbitrary"
     # region init
     settings = locals().copy()
-    logger = q.Logger(prefix="wikisql_s2s_clean")
+    logger = q.Logger(prefix="wikisql_s2s_new")
     logger.save_settings(**settings)
     logger.update_settings(completed=False)
     print("LOGGER PATH: {}".format(logger.p))
