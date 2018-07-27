@@ -421,7 +421,7 @@ class TestAttention(TestCase):
 
         a = q.DotAttention()
 
-        alphas, summaries = a(y, x)
+        alphas, summaries, scores = a(y, x)
         print(alphas.size())
         # test shapes
         self.assertEqual(alphas.size(), (5, 10))
@@ -432,9 +432,9 @@ class TestAttention(TestCase):
         x = torch.randn(5, 10, 7)
         y = torch.randn(5, 7)
 
-        a = q.FwdAttention(7, 7, 7)
+        a = q.FwdAttention(ctxdim=7, qdim=7, attdim=7)
 
-        alphas, summaries = a(y, x)
+        alphas, summaries, scores = a(y, x)
         print(alphas.size())
         # test shapes
         self.assertEqual(alphas.size(), (5, 10))
@@ -445,9 +445,9 @@ class TestAttention(TestCase):
         x = torch.randn(5, 10, 7)
         y = torch.randn(5, 7)
 
-        a = q.FwdAttention(7, 7, 7)
+        a = q.FwdAttention(ctxdim=7, qdim=7, attdim=7)
 
-        alphas, summaries = a(y, x)
+        alphas, summaries, scores = a(y, x)
         print(alphas.size())
         # test shapes
         self.assertEqual(alphas.size(), (5, 10))
@@ -457,14 +457,12 @@ class TestAttention(TestCase):
 
 class TestAttentionBases(TestCase):
     def test_it(self):
-        class DotAttentionMem(q.Attention, q.DotAttention):
-            pass
-        a = DotAttentionMem()
+        a = q.DotAttention()
 
         x = torch.randn(5, 10, 7)
         y = torch.randn(5, 7)
 
-        alphas, summaries = a(y, x)
+        alphas, summaries, scores = a(y, x)
         print(alphas.size())
         # test shapes
         self.assertEqual(alphas.size(), (5, 10))
@@ -479,7 +477,7 @@ class TestAttentionBases(TestCase):
         x = torch.randn(5, 10, 7)
         y = torch.randn(5, 7)
 
-        alphas, summaries = a(y, x)
+        alphas, summaries, scores = a(y, x)
         print(alphas.size())
         # test shapes
         self.assertEqual(alphas.size(), (5, 10))

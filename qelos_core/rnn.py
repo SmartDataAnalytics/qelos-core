@@ -188,9 +188,9 @@ class Attention(AttentionBase):
         :param values:  values to summarize, (batsize, seqlen, dim), if unspecified, ctx is used
         :return:        attention alphas (batsize, seqlen) and summary (batsize, dim)
         """
-        alphas, summary = super(Attention, self).forward(q, ctx, ctx_mask=None, values=values)
+        alphas, summary, scores = super(Attention, self).forward(q, ctx, ctx_mask=None, values=values)
         self.alpha_tm1, self.summ_tm1 = alphas, summary
-        return alphas, summary
+        return alphas, summary, scores
 
     def rec_reset(self):
         self.alpha_tm1, self.summ_tm1 = None, None
@@ -202,7 +202,7 @@ class AttentionWithCoverage(Attention):
         self.coverage = None
         self.cov_count = 0
         self._cached_ctx = None
-        self.penalty = AttentionCoveragePenalty()
+        self.penalty = None #AttentionCoveragePenalty()
 
     def reset_coverage(self):
         self.coverage = None
@@ -214,14 +214,15 @@ class AttentionWithCoverage(Attention):
         self.reset_coverage()
 
     def forward(self, q, ctx, ctx_mask=None, values=None):
-        alphas, summary = super(AttentionWithCoverage, self).forward(q, ctx, ctx_mask=ctx_mask, values=values)
+        alphas, summary, scores = super(AttentionWithCoverage, self).forward(q, ctx, ctx_mask=ctx_mask, values=values)
         self.update_penalties(alphas)
         self.update_coverage(alphas, ctx)
-        return alphas, summary
+        return alphas, summary, scores
 
     def update_penalties(self, alphas):
-        overlap = torch.min(self.coverage, alphas).sum(1)
-        self.penalty(overlap)
+        if self.coverage is not None:
+            overlap = torch.min(self.coverage, alphas).sum(1)
+            self.penalty(overlap)
 
     def update_coverage(self, alphas, ctx):
         if self.coverage is None:
@@ -256,7 +257,7 @@ class _DotAttention(AttentionBase):
         values = ctx if values is None else values
         summary = values * alphas.unsqueeze(2)
         summary = summary.sum(1)
-        return alphas, summary
+        return alphas, summary, scores
 
 
 class DotAttention(Attention, _DotAttention):
@@ -274,8 +275,8 @@ class _GeneralDotAttention(AttentionBase):
 
     def _forward(self, q, ctx, ctx_mask=None, values=None):
         projq = torch.matmul(self.W, q)     # (batsize, ctxdim)
-        alphas, summary = super(_GeneralDotAttention, self)._forward(projq, ctx, ctx_mask=ctx_mask, values=values)
-        return alphas, summary
+        alphas, summary, scores = super(_GeneralDotAttention, self)._forward(projq, ctx, ctx_mask=ctx_mask, values=values)
+        return alphas, summary, scores
 
 
 class GeneralDotAttention(Attention, _GeneralDotAttention):
@@ -299,7 +300,7 @@ class _FwdAttention(AttentionBase):
         values = ctx if values is None else values
         summary = values * alphas.unsqueeze(2)
         summary = summary.sum(1)
-        return alphas, summary
+        return alphas, summary, scores
 
 
 class FwdAttention(Attention, _FwdAttention):
@@ -323,7 +324,7 @@ class _FwdMulAttention(AttentionBase):
         values = ctx if values is None else values
         summary = values * alphas.unsqueeze(2)
         summary = summary.sum(1)
-        return alphas, summary
+        return alphas, summary, scores
 
 
 class FwdMulAttention(Attention, _FwdMulAttention):
@@ -404,8 +405,9 @@ class RelationContextAttentionSeparated(RelationContentAttention):
     def forward(self, q, ctx, ctx_mask=None, values=None):
         cont_q, rel_q, vs_prob = self.query_proc(q)
         rel_ctx = self.get_rel_ctx(ctx)
-        rel_alphas, rel_summaries = self.rel_att(rel_q, rel_ctx, ctx_mask=ctx_mask)
-        cont_alphas, cont_summaries = super(RelationContextAttentionSeparated, self)\
+        rel_alphas, rel_summaries, rel_scores = self.rel_att(rel_q, rel_ctx, ctx_mask=ctx_mask)
+        cont_alphas, cont_summaries, cont_scores = \
+            super(RelationContextAttentionSeparated, self)\
             .forward(cont_q, ctx, ctx_mask=ctx_mask, values=values)
         vs_prob = vs_prob.unsqueeze(1)
         alphas = rel_alphas * vs_prob + cont_alphas * (1 - vs_prob)
@@ -704,7 +706,7 @@ class BasicDecoderCell(torch.nn.Module):
 
 class LuongCell(torch.nn.Module):
     def __init__(self, emb=None, core=None, att=None, merge=None, out=None,
-                 feed_att=False, return_alphas=False, return_other=False, **kw):
+                 feed_att=False, return_alphas=False, return_scores=False, return_other=False, **kw):
         """
 
         :param emb:
@@ -723,6 +725,7 @@ class LuongCell(torch.nn.Module):
         self._h_hat_tm1 = None
         self.h_hat_0 = None
         self.return_alphas = return_alphas
+        self.return_scores = return_scores
         self.return_other = return_other
 
     def rec_reset(self):
@@ -743,7 +746,7 @@ class LuongCell(torch.nn.Module):
             core_inp = torch.cat([core_inp, self._h_hat_tm1], 1)
         core_out = self.core(core_inp)
 
-        alphas, summaries = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
+        alphas, summaries, scores = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
 
         out_vec = torch.cat([core_out, summaries], 1)
         out_vec = self.merge(out_vec) if self.merge is not None else out_vec
@@ -756,6 +759,8 @@ class LuongCell(torch.nn.Module):
 
         if self.return_alphas:
             ret += (alphas,)
+        if self.return_scores:
+            ret += (scores,)
         if self.return_other:
             ret += (embs, core_out, summaries)
         return ret[0] if len(ret) == 1 else ret
@@ -816,7 +821,7 @@ class BahdanauCell(torch.nn.Module):
     """ Almost Bahdanau-style cell, except c_tm1 is fed as input to top decoder layer (core2),
             instead of as part of state """
     def __init__(self, emb=None, core1=None, core2=None, att=None, out=None,
-                 return_alphas=False, return_other=False, **kw):
+                 return_alphas=False, return_scores=False, return_other=False, **kw):
         super(BahdanauCell, self).__init__(**kw)
         self.emb, self.core1, self.core2, self.att, self.out = emb, core1, core2, att, out
         self.return_outvecs = self.out is None
@@ -824,6 +829,7 @@ class BahdanauCell(torch.nn.Module):
         self._summ_tm1 = None
         self.return_alphas = return_alphas
         self.return_other = return_other
+        self.return_scores = return_scores
 
     def rec_reset(self):
         self.summ_0 = None
@@ -845,7 +851,7 @@ class BahdanauCell(torch.nn.Module):
         core_inp = torch.cat([core_out, self._summ_tm1], 1)
         core_out = self.core2(core_inp)
 
-        alphas, summaries = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
+        alphas, summaries, scores = self.att(core_out, ctx, ctx_mask=ctx_mask, values=ctx)
         self._summ_tm1 = summaries
 
         out_vec = core_out
@@ -859,6 +865,8 @@ class BahdanauCell(torch.nn.Module):
 
         if self.return_alphas:
             ret += (alphas,)
+        if self.return_scores:
+            ret += (scores,)
         if self.return_other:
             ret += (embs, core_out, summaries)
         return ret[0] if len(ret) == 1 else ret

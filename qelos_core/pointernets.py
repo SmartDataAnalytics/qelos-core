@@ -9,9 +9,9 @@ class PointerGeneratorOut(torch.nn.Module):
         """
         :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
         :param gen_prob_comp:   module to compute probability of generating vs pointing
-        :param gen_out:         module to compute generation probabilities.
+        :param gen_out:         module to compute generation scores.
                                     must have a dictionary accessible as ".D".
-                                    must produce normalized probabilities (use softmax)
+                                    must produce unnormalized scores (no softmax)
         :param inpdic:          input dictionary (for pointer)
         :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
                                 All tokens should occur in inpdic (or their score will always be zero)
@@ -46,12 +46,13 @@ class PointerGeneratorOut(torch.nn.Module):
                 self.inp_to_out[v] = outdic[k]
             else:
                 raise q.SumTingWongException("symbols in inpdic must be in outdic, but \"{}\" isn't".format(k))
+        self.sm = torch.nn.Softmax(-1)
 
-    def forward(self, x, alphas, ctx_inp):
+    def forward(self, x, scores, ctx_inp):
         """
         :param x:       input for this time step
                             (batsize, outdim) floats
-        :param alphas:  normalized probabilities over ctx
+        :param scores:  unnormalized scores over ctx
                             (batsize, seqlen) floats
         :param ctx_inp: input used to compute context and alphas
                             (batsize, seqlen) integer ids in inpvoc
@@ -59,13 +60,16 @@ class PointerGeneratorOut(torch.nn.Module):
         """
         interp = self.gen_prob_comp(x)
 
-        gen_probs = self.gen_out(x)        # (batsize, outvocsize)
-        # TODO: why is <MASK> prob always zero?
+        gen_scores = self.gen_out(x)        # (batsize, outvocsize)
+        # TODO: add additional mask here
+        gen_probs = self.sm(gen_scores)
         if self.gen_zero_mask is not None:
             gen_probs = gen_probs * self.gen_zero_mask
         out_probs_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(gen_probs.size(0), 1), gen_probs)
 
+        # TODO: add additional mask here
+        alphas = self.sm(scores)
         ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
         out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
@@ -78,7 +82,7 @@ class PointerGeneratorOut(torch.nn.Module):
 class PointerGeneratorCell(q.LuongCell):
     def __init__(self, emb=None, core=None, att=None, merge=None, out=None, feed_att=False, **kw):
         super(PointerGeneratorCell, self).__init__(emb=emb, core=core, att=att, merge=merge, out=None,
-                                                   feed_att=feed_att, return_alphas=True, **kw)
+                                                   feed_att=feed_att, return_scores=True, **kw)
         # assert(isinstance(out, PointerGeneratorOut))
         self.pointer_out = out
 
@@ -92,8 +96,8 @@ class PointerGeneratorCell(q.LuongCell):
         :return:
         """
         assert(ctx_inp is not None)
-        out_vec, alphas = super(PointerGeneratorCell, self).forward(x_t, ctx=ctx, ctx_mask=ctx_mask, **kw)
-        outscores = self.pointer_out(out_vec, alphas, ctx_inp)
+        out_vec, scores = super(PointerGeneratorCell, self).forward(x_t, ctx=ctx, ctx_mask=ctx_mask, **kw)
+        outscores = self.pointer_out(out_vec, scores, ctx_inp)
         return outscores
 
 
