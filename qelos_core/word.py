@@ -130,7 +130,7 @@ class WordEmb(WordEmbBase):
     """ is a VectorEmbed with a dictionary to map words to ids """
     def __init__(self, dim=50, value=None, worddic=None,
                  max_norm=None, norm_type=2, scale_grad_by_freq=False,
-                 sparse=False, fixed=False, no_maskzero=False,
+                 sparse=False, fixed=False, no_masking=False,
                  **kw):
         """
         Normal word embedder. Wraps nn.Embedding.
@@ -143,6 +143,8 @@ class WordEmb(WordEmbBase):
         :param scale_grad_by_freq: see nn.Embedding
         :param sparse: see nn.Embedding
         :param fixed: fixed embeddings
+        :param no_masking: ignore usual mask id (default "<MASK>") in this instance of WordEmb 
+            --> no masking (will return no mask), useful for using WordEmb in output vectors
         :param kw:
         """
         assert(worddic is not None)     # always needs a dictionary
@@ -153,9 +155,10 @@ class WordEmb(WordEmbBase):
         # extract maskid and rareid from worddic
         maskid = worddic[self.masktoken] if self.masktoken in worddic else None
         rareid = worddic[self.raretoken] if self.raretoken in worddic else None
-        self.maskid = maskid
 
-        maskid = maskid if not no_maskzero else None
+        maskid = maskid if not no_masking else None
+
+        self.maskid = maskid
 
         indim = max(worddic.values())+1        # to init from worddic
         self.embedding = nn.Embedding(indim, dim, padding_idx=maskid,

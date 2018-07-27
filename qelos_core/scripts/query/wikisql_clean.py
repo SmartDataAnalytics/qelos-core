@@ -428,6 +428,17 @@ def load_matrices(p=DATA_PATH):
     for k, v in ismD.items():
         if k not in osmD:
             osmD[k] = max(osmD.values()) + 1
+
+    # # add UWID0 to osmD
+    # osmD["UWID0"] = max(osmD.values()) + 1
+    #
+    # # add all remaining COL-ids to osmD
+    # allcolids = set([int(re.match("COL(\d+)", x).group(1)) for x in osmD.keys() if re.match("COL\d+", x)])
+    # for i in range(max(allcolids) + 1):
+    #     if i not in allcolids:
+    #         osmD["COL{}".format(i)] = max(osmD.values()) + 1
+
+
     print(len(ismD))
     ism = q.StringMatrix()
     ism.set_dictionary(ismD)
@@ -1209,6 +1220,66 @@ class ColnameEncoder(torch.nn.Module):
         return ret, rmask
 
 
+class OutvecComputer(DynamicVecPreparer):
+    def __init__(self, syn_emb, inpbaseemb, colencoder, worddic,
+                 syn_scatter, inp_scatter, col_scatter,
+                 rare_gwids=None):
+        super(OutvecComputer, self).__init__()
+        self.syn_emb = syn_emb
+        self.inp_emb = inpbaseemb
+        self.col_enc = colencoder
+        self.syn_scatter = q.val(syn_scatter).v
+        self.inp_scatter = q.val(inp_scatter).v
+        self.col_scatter = q.val(col_scatter).v
+        self.D = worddic
+
+        # initialize rare vec to rare vector from syn_emb
+        self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].data)
+        self.rare_gwids = rare_gwids
+
+        if self.inp_emb.vecdim != self.syn_emb.vecdim:
+            print("USING LIN ADAPTER in OUT")
+            self.inpemb_trans = torch.nn.Linear(self.inp_emb.vecdim, self.syn_emb.vecdim, bias=False)
+        else:
+            self.inpemb_trans = None
+
+    def prepare(self, inpmaps, colnames):
+        batsize = inpmaps.size(0)
+        syn_ids = torch.arange(0, self.syn_scatter.size(0), device=inpmaps.device, dtype=torch.int64)
+        inp_ids = torch.arange(0, self.inp_scatter.size(0), device=inpmaps.device, dtype=torch.int64)
+        col_ids = torch.arange(0, self.col_scatter.size(0), device=inpmaps.device, dtype=torch.int64)
+
+        syn_embs, syn_mask = self.syn_emb(syn_ids.unsqueeze(0).repeat(batsize, 1))
+        if syn_mask is None:
+            syn_mask = torch.ones_like(syn_embs[:, :, 0])
+        embdim = syn_embs.size(2)
+
+        inp_ids_gwid = torch.gather(inpmaps, 1, inp_ids.unsqueeze(0).repeat(batsize, 1))
+        inp_embs, inp_mask = self.inp_emb(inp_ids_gwid)
+        if self.inpemb_trans is not None:
+            inp_embs = self.inpemb_trans(inp_embs)
+        inp_embs = replace_rare_gwids_with_rare_vec(inp_embs, inp_ids_gwid, self.rare_gwids, self.rare_vec)
+
+        col_encs, col_mask = self.col_enc(colnames)
+        col_encs = col_encs * col_mask.float().unsqueeze(2)
+
+        out_embs = torch.zeros(batsize, max(self.D.values()) + 1, embdim, device=inpmaps.device)
+        out_mask = torch.zeros_like(out_embs[:, :, 0])
+
+        out_embs.scatter_(1, self.inp_scatter.unsqueeze(0).unsqueeze(2).repeat(batsize, 1, embdim),
+                          inp_embs)
+        out_embs.scatter_(1, self.col_scatter.unsqueeze(0).unsqueeze(2).repeat(batsize, 1, embdim),
+                          col_encs)
+        out_embs.scatter_(1, self.syn_scatter.unsqueeze(0).unsqueeze(2).repeat(batsize, 1, embdim),
+                          syn_embs)
+
+        out_mask.scatter_(1, self.inp_scatter.unsqueeze(0).repeat(batsize, 1), inp_mask.float())
+        out_mask.scatter_(1, self.col_scatter.unsqueeze(0).repeat(batsize, 1), col_mask.float())
+        out_mask.scatter_(1, self.syn_scatter.unsqueeze(0).repeat(batsize, 1), syn_mask.float())
+
+        return out_embs, out_mask
+
+
 class OutVecComputer(DynamicVecPreparer):
     """ This is a DynamicVecPreparer used for both output embeddings and output layer.
         To be created, needs:
@@ -1222,7 +1293,7 @@ class OutVecComputer(DynamicVecPreparer):
     """
     def __init__(self, syn_emb, syn_trans, inpbaseemb, inp_trans,
                  colencoder, col_trans, worddic, colzero_to_inf=False,
-                 rare_gwids=None):
+                 rare_gwids=None, scatters=None):
         super(OutVecComputer, self).__init__()
         self.syn_emb = syn_emb
         self.syn_trans = syn_trans
@@ -1243,10 +1314,18 @@ class OutVecComputer(DynamicVecPreparer):
         else:
             self.inpemb_trans = None
 
+        # DEBUG
+        kwkw = {"rare_gwids": rare_gwids}
+        self.alt = OutvecComputer(syn_emb, inpbaseemb, colencoder, worddic, *scatters, **kwkw)
+        self.alt.inpemb_trans = self.inpemb_trans
+        self.alt.rare_vec = self.rare_vec
+
     def prepare(self, inpmaps, colnames):
         """ inpmaps (batsize, num_uwids) contains mapping from uwids to gwids for every example = batch from gwids matrix
             colnames (batsize, numcols, colnamelen) contains colnames for every example
         """
+        alt_ret, alt_mask = self.alt.prepare(inpmaps, colnames)     # DEBUG
+
         x = torch.arange(0, len(self.D), device=inpmaps.device, dtype=torch.int64)      # prepare for all possible input tokens (from osm.D)
         batsize = inpmaps.size(0)
 
@@ -1254,7 +1333,7 @@ class OutVecComputer(DynamicVecPreparer):
         _syn_ids = self.syn_trans[x]            # maps input ids to syn ids
         # computes vectors and mask for syn ids from input
         _syn_embs, _syn_mask = self.syn_emb(_syn_ids.unsqueeze(0).repeat(batsize, 1))
-        _syn_mask[:, 0] = 1     # <MASK> is always a choice
+        # _syn_mask[:, 0] = 1     # <MASK> is always a choice
         # repeat(batsize, 1) because syn embs are same across examples
         #   --> produces (batsize, vocsize) indexes that are then embedded to (batsize, vocsize, embdim)
         # endregion
@@ -1281,8 +1360,8 @@ class OutVecComputer(DynamicVecPreparer):
         _col_ids = self.col_trans[x]                        # map input ids to col ids
         _col_ids = _col_ids.unsqueeze(0).repeat(batsize, 1) # mapped col ids are shared across all examples
         # ???
-        _col_trans_mask = (_col_ids > -1).long()
-        _col_ids += (1 - _col_trans_mask)
+        _col_trans_mask = (_col_ids > -1).long()            # where is col_id not mask
+        _col_ids += (1 - _col_trans_mask)                   # inc colids where col_id is mask
         _col_mask = torch.gather(_col_mask, 1, _col_ids)
         _col_ids = _col_ids.unsqueeze(2).repeat(1, 1, _colencs.size(2))     # because colens are (batsize, numcols, embdim)
 
@@ -1405,7 +1484,8 @@ def build_subdics(osmD):
     # split dictionary for SQL syntax, col names and input tokens
     synD = {"<MASK>": 0}
     colD = {}
-    inpD = {"<MASK>": 0}
+    inpD = {}
+    # the _trans's below indicate what a osmD position is in terms of each of the three subdics
     syn_trans = q.val(np.zeros((len(osmD),), dtype="int64")).v
     inp_trans = q.val(np.zeros((len(osmD),), dtype="int64")).v
     col_trans = q.val(np.zeros((len(osmD),), dtype="int64")).v
@@ -1426,12 +1506,28 @@ def build_subdics(osmD):
             if k not in synD:
                 synD[k] = len(synD)
                 syn_trans.data[v] = synD[k]
-    return synD, inpD, colD, syn_trans, inp_trans, col_trans
+
+    # scatters specify where in outdic to put the indexed local position
+    syn_scatter = torch.ones(max(synD.values())+1, dtype=torch.int64) * 0
+    inp_scatter = torch.ones(max(inpD.values())+1, dtype=torch.int64) * 0
+    col_scatter = torch.ones(max(colD.values())+1, dtype=torch.int64) * 0
+
+    for k, v in synD.items():
+        syn_scatter[v] = osmD[k]
+    for k, v in inpD.items():
+        inp_scatter[v] = osmD[k]
+    for k, v in colD.items():
+        col_scatter[v] = osmD[k]
+
+    # assert((inp_scatter > 0).all().item() == 1)
+    # assert((col_scatter > 0).all().item() == 1)
+
+    return synD, inpD, colD, syn_trans, inp_trans, col_trans, syn_scatter, inp_scatter, col_scatter
 
 
 def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None, colenc=None,
                           useglove=True, gdim=None, gfrac=0.1,
-                          rare_gwids=None, nogloveforinp=False):
+                          rare_gwids=None, nogloveforinp=False, no_maskzero=False):
     # base embedder for input tokens
     embdim = gdim if gdim is not None else dim
     if inpbaseemb is None:
@@ -1445,15 +1541,20 @@ def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=Non
         if useglove:
             colbaseemb = q.PartiallyPretrainedWordEmb(dim=embdim, worddic=csmD, gradfracs=(1., gfrac))
 
-    synD, inpD, colD, syn_trans, inp_trans, col_trans = build_subdics(osmD)
+    synD, inpD, colD, syn_trans, inp_trans, col_trans, syn_scatter, inp_scatter, col_scatter\
+        = build_subdics(osmD)
 
-    syn_emb = q.WordEmb(dim, worddic=synD)
+    syn_emb = q.WordEmb(dim, worddic=synD, no_masking=no_maskzero)
 
     if colenc is None:
         colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"])
 
-    computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
+    computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
+                              syn_scatter, inp_scatter, col_scatter,
                               rare_gwids=rare_gwids)
+
+    # computer = OutVecComputer(syn_emb, syn_trans, inpbaseemb, inp_trans, colenc, col_trans, osmD,
+    #                           rare_gwids=rare_gwids, scatters=[syn_scatter, inp_scatter, col_scatter])
     return computer, inpbaseemb, colbaseemb, colenc
 # endregion
 
@@ -1519,7 +1620,7 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
-                                rare_gwids=rare_gwids, nogloveforinp=False)
+                                rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True)
     inp_trans = comp.inp_trans  # to index
     # TODO: wrap OutVecComputer in DynamicWordLinout
     out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),
