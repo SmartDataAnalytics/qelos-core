@@ -25,6 +25,7 @@ class PointerGeneratorOut(torch.nn.Module):
         self.gen_prob_comp = gen_prob_comp
         self.outsize = max(outdic.values()) + 1
         self.gen_to_out = q.val(torch.zeros(1, max(self.gen_outD.values()) + 1, dtype=torch.int64)).v
+        # --> where in out to scatter every element of the gen
         self.gen_zero_mask = None if gen_zero is None else \
             q.val(torch.ones_like(self.gen_to_out, dtype=torch.float32)).v
         # (1, genvocsize), integer ids in outvoc, one-to-one mapping
@@ -39,6 +40,7 @@ class PointerGeneratorOut(torch.nn.Module):
                 raise q.SumTingWongException("symbols in gen_outD must be in outdic, but \"{}\" isn't".format(k))
 
         self.inp_to_out = q.val(torch.zeros(max(inpdic.values()) + 1, dtype=torch.int64)).v
+        # --> where in out to scatter every element of the inp
         # (1, inpvocsize), integer ids in outvoc, one-to-one mapping
         # if symbol in inpdic is not in outdic, throws error
         for k, v in inpdic.items():
@@ -48,7 +50,7 @@ class PointerGeneratorOut(torch.nn.Module):
                 raise q.SumTingWongException("symbols in inpdic must be in outdic, but \"{}\" isn't".format(k))
         self.sm = torch.nn.Softmax(-1)
 
-    def forward(self, x, scores, ctx_inp):
+    def forward(self, x, scores, ctx_inp, mask=None):
         """
         :param x:       input for this time step
                             (batsize, outdim) floats
@@ -56,19 +58,27 @@ class PointerGeneratorOut(torch.nn.Module):
                             (batsize, seqlen) floats
         :param ctx_inp: input used to compute context and alphas
                             (batsize, seqlen) integer ids in inpvoc
+        :param mask:    mask on the output tokens
+                            (batsize, outvocsize) one or zero
         :return:
         """
         interp = self.gen_prob_comp(x)
+        batsize = x.size(0)
 
         gen_scores = self.gen_out(x)        # (batsize, outvocsize)
-        # TODO: add additional mask here
+        if mask is not None:
+            gen_mask = torch.gather(mask, 1, self.gen_to_out.repeat(batsize, 1))
+            gen_scores = gen_scores + torch.log(gen_mask.float())
+
         gen_probs = self.sm(gen_scores)
         if self.gen_zero_mask is not None:
             gen_probs = gen_probs * self.gen_zero_mask
         out_probs_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
-        out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(gen_probs.size(0), 1), gen_probs)
+        out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_probs)
 
-        # TODO: add additional mask here
+        if mask is not None:
+            inp_mask = torch.gather(mask, 1, self.inp_to_out)
+            scores = scores + torch.log(inp_mask.float())
         alphas = self.sm(scores)
         ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
         out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)

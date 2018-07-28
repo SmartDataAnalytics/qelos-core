@@ -1340,3 +1340,32 @@ class FastestLSTMEncoder(FastLSTMEncoder):
             return out
 
 # endregion
+
+
+class AutoMaskedOut(torch.nn.Module):
+    def __init__(self, baseout, automasker, **kw):
+        super(AutoMaskedOut, self).__init__(**kw)
+        self.automasker = automasker
+        self.baseout = baseout
+
+    def forward(self, *args, **kw):
+        assert ("mask" not in kw)
+        mask = self.automasker.get_out_mask()
+        kw["mask"] = mask
+        ret = self.baseout(*args, **kw)
+        return ret
+
+
+class AutoMasker(object):
+    def __init__(self, rules, inpD, outD, **kw):
+        super(AutoMasker, self).__init__(**kw)
+        self.rules = rules
+        self.inpD, self.outD = inpD, outD
+
+    def update(self, x):
+        """ updates automasker with next element in the sequence """
+        pass    # TODO
+
+    def get_out_mask(self):
+        """ returns a mask over outD """
+        pass    # TODO
