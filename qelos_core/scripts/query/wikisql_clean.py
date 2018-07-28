@@ -1524,7 +1524,12 @@ class MyAutoMasker(q.AutoMasker):
         elif prev == "<VAL>":
             ret = get_rets("UWID")
         elif re.match("UWID\d+", prev):
-            ret = get_rets("UWID") + ["<ENDVAL>"]
+            uwidid = int(re.match("UWID(\d+)", prev).group(1))
+            retuwid = "UWID{}".format(uwidid+1)
+            ret = []
+            if retuwid in self.outD:
+                ret += [retuwid]
+            ret += ["<ENDVAL>"]
         elif prev == "<ENDVAL>":
             ret = ["<COND>", "<END>"]
         elif prev in "<END> <MASK>".split():
