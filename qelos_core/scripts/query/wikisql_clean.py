@@ -1147,8 +1147,8 @@ class DynamicWordLinout(WordLinoutBase):        # removed the logsoftmax in here
         As with DynamicWordEmb, the vectors used in this layer are different for every example.
         .prepare() must be called with the per-example data batch at the beginning of the batch.
     """
-    def __init__(self, computer=None, worddic=None):
-        super(DynamicWordLinout, self).__init__(worddic)
+    def __init__(self, computer=None, worddic=None, **kw):
+        super(DynamicWordLinout, self).__init__(worddic, **kw)
         self.computer = computer
         maskid = worddic[self.masktoken] if self.masktoken in worddic else None
         self.maskid = maskid
@@ -1453,21 +1453,84 @@ class BFOL(DynamicWordLinout):
         return rret, rmask
 
 
-class PtrGenOut(DynamicWordLinout):
-    def __init__(self, core, worddic=None):
+class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
+    def __init__(self, core, worddic=None, automasker=None):
         """
         Wraps PointerGeneratorOut, makes it prepareable wrt outveccomp
         :param core:            a PointerGeneratorOut with a OutVecComputer as gen_out module
         :param worddic:
         """
-        super(PtrGenOut, self).__init__(computer=core.gen_out[0].computer, worddic=worddic)
+        super(PtrGenOut, self).__init__(computer=core.gen_out[0].computer, worddic=worddic, automasker=automasker)
         self.core = core
 
     def prepare(self, *xdata):
         self.core.gen_out[0].prepare(*xdata)
 
     def forward(self, x, alphas, ctx_inp):
-        ret = self.core(x, alphas, ctx_inp)
+        mask = None
+        if self.automasker is not None:
+            mask = self.automasker.get_out_mask()
+        ret = self.core(x, alphas, ctx_inp, mask=mask)
+        return ret
+
+
+class MyAutoMasker(q.AutoMasker):
+
+    def reset(self):
+        super(MyAutoMasker, self).reset()
+        self.flags = None
+
+    def get_out_tokens_for_history(self, i, hist):
+        if not hasattr(self, "flags") or self.flags is None:
+            self.flags = {}
+
+        if i not in self.flags:
+            self.flags[i] = {"ancestors": [], "siblings": []}
+
+        ancestors = self.flags[i]["ancestors"]
+        siblings = self.flags[i]["siblings"]
+
+        prev = hist[-1]
+
+        def get_rets(k):
+            return list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
+
+        if prev == "<START>":
+            ret = ["<QUERY>"]
+        elif prev == "<QUERY>":
+            ancestors.append(prev)
+            ret = ["<SELECT>"]
+        elif prev == "<SELECT>":
+            ancestors.append(prev)
+            ret = get_rets("AGG")
+        elif prev == "<WHERE>":
+            ancestors.append(prev)
+            ret = ["<COND>"]
+        elif prev == "<COND>":
+            ret = get_rets("COL")
+        elif re.match("COL\d+", prev):
+            if "<SELECT>" in ancestors:
+                assert("<SELECT>" == ancestors[-1])
+                del ancestors[-1]
+                ret = ["<WHERE>", "<END>"]
+            elif "<WHERE>" in ancestors:
+                ret = get_rets("OP")
+            else:
+                raise q.SumTingWongException()
+        elif re.match("AGG\d+", prev):
+            ret = get_rets("COL")
+        elif re.match("OP\d+", prev):
+            ret = ["<VAL>"]
+        elif prev == "<VAL>":
+            ret = get_rets("UWID")
+        elif re.match("UWID\d+", prev):
+            ret = get_rets("UWID") + ["<ENDVAL>"]
+        elif prev == "<ENDVAL>":
+            ret = ["<COND>", "<END>"]
+        elif prev in "<END> <MASK>".split():
+            ret = ["<MASK>"]
+        else:
+            raise q.SumTingWongException("token {} in example {} not covered".format(prev, i))
         return ret
 # endregion
 
@@ -1623,7 +1686,7 @@ def make_out_emb(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
 def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None, nocopy=False,
-                 rare_gwids=None):
+                 rare_gwids=None, userules=False):
     print("MAKING OUT LIN")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
@@ -1642,7 +1705,10 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
         )
 
         ptrgenout = q.PointerGeneratorOut(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
-        out = PtrGenOut(ptrgenout, worddic=osmD)
+        automasker = None
+        if userules:
+            automasker = MyAutoMasker(osmD, osmD)
+        out = PtrGenOut(ptrgenout, worddic=osmD, automasker=automasker)
         # DONE: use PointerGeneratorOut here
         # 1. create generation block (create dictionaries for pointergenout first)
         #           generator can be DynamicWordLinout with a normal softmax
@@ -1918,7 +1984,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0., irdropout=0.,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
-                   tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False):
+                   tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
+                   userules=False):
                     # reorder: "no", "reverse", "arbitrary"
     # region init
     settings = locals().copy()
@@ -2006,7 +2073,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
-                                                              colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove)
+                                                              colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
+                                                               userules=userules)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
         return _inpemb, _outemb, _outlin, _encoder
@@ -2034,7 +2102,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
             self.outemb.prepare(inpseqmaps, colnames)
             self.outlin.prepare(inpseqmaps, colnames)
 
-            decoding = self.decoder(outseq, ctx=ctx, ctxmask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
+            decoding = self.decoder(outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
             # TODO: why -1 in maxtime?
             # --? maybe because that's max we need to do, given that gold seqs are -1 in len
 

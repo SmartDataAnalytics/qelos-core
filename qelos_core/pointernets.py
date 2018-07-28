@@ -94,7 +94,7 @@ class PointerGeneratorOut(torch.nn.Module):
         if mask is not None:
             # mask is on outdic --> transform to inpdic --> transform to inp seq (!=inpdic)
             inp_mask = torch.gather(mask, 1, self.inp_to_out.repeat(batsize, 1))
-            inp_mask = torch.gather(inp_mask, 1, ctx_inp)
+            inp_mask = torch.gather(inp_mask, 1, ctx_inp[:, :scores.size(1)])
             scores = scores + torch.log(inp_mask.float())
 
         inp_infty_mask = (scores != -float("inf")).float().sum(1).unsqueeze(1) == 0
@@ -135,6 +135,10 @@ class PointerGeneratorCell(q.LuongCell):
         :return:
         """
         assert(ctx_inp is not None)
+
+        if isinstance(self.pointer_out, q.AutoMaskedOut):
+            self.pointer_out.update(x_t)
+
         out_vec, scores = super(PointerGeneratorCell, self).forward(x_t, ctx=ctx, ctx_mask=ctx_mask, **kw)
         outscores = self.pointer_out(out_vec, scores, ctx_inp)
         return outscores

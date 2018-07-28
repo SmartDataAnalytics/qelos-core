@@ -107,7 +107,7 @@ class TestAutoMasker(TestCase):
                  "g": ["g", "a"]}
 
         class MyAutoMasker(q.AutoMasker):
-            def get_out_tokens_for_history(self, hist):
+            def get_out_tokens_for_history(self, i, hist):
                 prev = hist[-1]
                 ret = rules[prev]
                 return ret
