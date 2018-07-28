@@ -188,7 +188,8 @@ class Attention(AttentionBase):
         :param values:  values to summarize, (batsize, seqlen, dim), if unspecified, ctx is used
         :return:        attention alphas (batsize, seqlen) and summary (batsize, dim)
         """
-        alphas, summary, scores = super(Attention, self).forward(q, ctx, ctx_mask=ctx_mask, values=values)
+        alphas, summary, scores = super(Attention, self)\
+            .forward(q, ctx, ctx_mask=ctx_mask, values=values)
         self.alpha_tm1, self.summ_tm1 = alphas, summary
         return alphas, summary, scores
 
@@ -214,7 +215,8 @@ class AttentionWithCoverage(Attention):
         self.reset_coverage()
 
     def forward(self, q, ctx, ctx_mask=None, values=None):
-        alphas, summary, scores = super(AttentionWithCoverage, self).forward(q, ctx, ctx_mask=ctx_mask, values=values)
+        alphas, summary, scores = super(AttentionWithCoverage, self)\
+            .forward(q, ctx, ctx_mask=ctx_mask, values=values)
         self.update_penalties(alphas)
         self.update_coverage(alphas, ctx)
         return alphas, summary, scores
@@ -1420,7 +1422,7 @@ class AutoMasker(object):
         for i, tokens in enumerate(tokenses):
             for token in tokens:
                 mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
-        return mask
+        return mask.to(self.device)
 
     def get_out_tokens(self):
         """ get valid tokens for output
