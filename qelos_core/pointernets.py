@@ -5,10 +5,12 @@ import numpy as np
 
 class PointerGeneratorOut(torch.nn.Module):
     """ Uses sum for overlaps ! (scatter_add_)"""
-    def __init__(self, outdic, gen_prob_comp, gen_out, inpdic=None, gen_zero=None, gen_outD=None, **kw):
+    def __init__(self, outdic, gen_prob_comp, gen_out,
+                 inpdic=None, gen_zero=None, gen_outD=None, **kw):
         """
         :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
         :param gen_prob_comp:   module to compute probability of generating vs pointing
+                                must produce (batsize, 1) shapes
         :param gen_out:         module to compute generation scores.
                                     must have a dictionary accessible as ".D".
                                     must produce unnormalized scores (no softmax)
@@ -62,29 +64,56 @@ class PointerGeneratorOut(torch.nn.Module):
                             (batsize, outvocsize) one or zero
         :return:
         """
+        mask = mask.float() if mask is not None else None
         interp = self.gen_prob_comp(x)
+        assert((interp.clamp(min=0, max=1) == interp).all().cpu().item() == 1)
         batsize = x.size(0)
 
         gen_scores = self.gen_out(x)        # (batsize, outvocsize)
+
+        #region masks
+        if self.gen_zero_mask is not None:
+            gen_scores = gen_scores + torch.log(self.gen_zero_mask)
         if mask is not None:
             gen_mask = torch.gather(mask, 1, self.gen_to_out.repeat(batsize, 1))
             gen_scores = gen_scores + torch.log(gen_mask.float())
 
+        gen_infty_mask = (gen_scores != -float("inf")).float().sum(1).unsqueeze(1) == 0
+        if gen_infty_mask.any().cpu().item() == 1:  # if any gen scores became all-neg-infinite
+            interp = interp * (1 - gen_infty_mask.float()) + gen_infty_mask.float() * torch.zeros_like(interp)
+            gen_scores = torch.gather(torch.cat([gen_scores.unsqueeze(2), torch.ones_like(gen_scores).unsqueeze(2)], 2),
+                                  2, gen_infty_mask.long().unsqueeze(2).repeat(1, gen_scores.size(1), 1))\
+                                    .squeeze(2)
+        # endregion
+
         gen_probs = self.sm(gen_scores)
-        if self.gen_zero_mask is not None:
-            gen_probs = gen_probs * self.gen_zero_mask
         out_probs_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_probs)
 
+        # region masks
         if mask is not None:
-            inp_mask = torch.gather(mask, 1, self.inp_to_out)
+            # mask is on outdic --> transform to inpdic --> transform to inp seq (!=inpdic)
+            inp_mask = torch.gather(mask, 1, self.inp_to_out.repeat(batsize, 1))
+            inp_mask = torch.gather(inp_mask, 1, ctx_inp)
             scores = scores + torch.log(inp_mask.float())
+
+        inp_infty_mask = (scores != -float("inf")).float().sum(1).unsqueeze(1) == 0
+        if inp_infty_mask.any().cpu().item() == 1:  # if any gen scores became all-neg-infinite
+            assert(((gen_infty_mask.float() + inp_infty_mask.float()) < 2).all().cpu().item() == 1)
+            interp = interp * (1 - inp_infty_mask.float()) + inp_infty_mask.float() * torch.ones_like(interp)
+            scores = torch.gather(
+                torch.cat([scores.unsqueeze(2), torch.ones_like(scores).unsqueeze(2)], 2),
+                2, inp_infty_mask.long().unsqueeze(2).repeat(1, scores.size(1), 1)) \
+                .squeeze(2)
+        # endregion
+
         alphas = self.sm(scores)
         ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
         out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
 
         out_probs = interp * out_probs_gen + (1 - interp) * out_probs_ptr
+        assert(out_probs.size() == (batsize, len(self.D)))
 
         return out_probs
 

@@ -734,6 +734,10 @@ class LuongCell(torch.nn.Module):
 
     def forward(self, x_t, ctx=None, ctx_mask=None, **kw):
         assert (ctx is not None)
+
+        if isinstance(self.out, AutoMaskedOut):
+            self.out.update(x_t)
+
         embs = self.emb(x_t)
         if q.issequence(embs) and len(embs) == 2:
             embs, mask = embs
@@ -837,6 +841,10 @@ class BahdanauCell(torch.nn.Module):
 
     def forward(self, x_t, ctx=None, ctx_mask=None, **kw):
         assert (ctx is not None)
+
+        if isinstance(self.out, AutoMaskedOut):
+            self.out.update(x_t)
+
         embs = self.emb(x_t)
         if q.issequence(embs) and len(embs) == 2:
             embs, mask = embs
@@ -870,13 +878,6 @@ class BahdanauCell(torch.nn.Module):
         if self.return_other:
             ret += (embs, core_out, summaries)
         return ret[0] if len(ret) == 1 else ret
-
-
-
-
-
-
-
 
 
 # region Encoders
@@ -1343,10 +1344,19 @@ class FastestLSTMEncoder(FastLSTMEncoder):
 
 
 class AutoMaskedOut(torch.nn.Module):
-    def __init__(self, baseout, automasker, **kw):
+    def __init__(self, baseout=None, automasker=None, **kw):
+        """
+        :param baseout:     must support kwarg "mask" in .forward()
+        :param automasker:  an AutoMasker
+        :param kw:
+        """
         super(AutoMaskedOut, self).__init__(**kw)
         self.automasker = automasker
         self.baseout = baseout
+        self.D = self.baseout.D
+
+    def update(self, x):
+        self.automasker.update(x)
 
     def forward(self, *args, **kw):
         assert ("mask" not in kw)
@@ -1357,15 +1367,69 @@ class AutoMaskedOut(torch.nn.Module):
 
 
 class AutoMasker(object):
-    def __init__(self, rules, inpD, outD, **kw):
+    """ Subclass this with your own rules
+        How to use:
+            - write a subclass implementing at least .get_out_tokens_example()
+            - create an AutoMaskedOut with this AutoMasker and a mask-supporting output layer
+            - plug the AutoMaskedOut into a supporting DecoderCell (must feed its input to AutoMaskedOut)
+    """
+    def __init__(self, inpD, outD, mode="allow", device=torch.device("cpu"), **kw):
         super(AutoMasker, self).__init__(**kw)
-        self.rules = rules
         self.inpD, self.outD = inpD, outD
+        self.RinpD = {v: k for k, v in self.inpD.items()}
+        self.mode = mode     # "allow" or "refuse"
+        self.device = device
+        self.history = None     # will hold all tokens fed for every example in a batch
+
+    def reset(self):
+        self.history = None
+
+    def rec_reset(self):
+        self.reset()
 
     def update(self, x):
-        """ updates automasker with next element in the sequence """
-        pass    # TODO
+        """ updates automasker with next element in the sequence
+        :param x:   (batsize,) integer ids in inpD """
+        assert(x.dim() == 1)
+        intokens = []
+        for i in range(len(x)):
+            intokens.append(self.RinpD[x[i].detach().cpu().item()])
+        self.update_tokens(intokens)
+
+    def update_tokens(self, intokens):
+        """ update given input tokens for batch
+            :param intokens:    list of batsize of strings """
+        if self.history is None:
+            self.history = [[x] for x in intokens]
+        else:
+            assert(len(intokens) == len(self.history))
+            for intoken, example_history in zip(intokens, self.history):
+                example_history.append(intoken)
 
     def get_out_mask(self):
         """ returns a mask over outD """
-        pass    # TODO
+        tokenses = self.get_out_tokens()    # list of lists
+        vocsize = max(self.outD.values()) + 1
+        startcreator = torch.zeros if self.mode == "allow" else torch.ones
+        mask = startcreator(len(tokenses), vocsize).to(self.device)
+        for i, tokens in enumerate(tokenses):
+            for token in tokens:
+                mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
+        return mask
+
+    def get_out_tokens(self):
+        """ get valid tokens for output
+            must return a list of list-like of strings """
+        if self.history is None:
+            raise q.SumTingWongException("can't produce out tokens without history --> TODO")
+        ret = [self.get_out_tokens_for_history(example_history)
+               for example_history in self.history]
+        return ret
+
+    def get_out_tokens_for_history(self, hist):
+        """
+        Must return a list of tokens given the given history.
+        :param hist: list-like of strings (tokens)
+        :return:
+        """
+        raise NotImplemented("use subclass")

@@ -7,7 +7,8 @@ from qelos_core.loss import Accuracy, LinearLoss, SelectedLinearLoss, Penalty, S
 from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
     Attention, DotAttention, FwdAttention, FwdMulAttention, GeneralDotAttention, AttentionWithCoverage, \
     Decoder, ThinDecoder, FreeDecoder, TFDecoder, DynamicOracleDecoder, \
-    BasicDecoderCell, DecoderCell, LuongCell
+    BasicDecoderCell, DecoderCell, LuongCell, \
+    AutoMaskedOut, AutoMasker
 from qelos_core.pointernets import PointerGeneratorCell, PointerGeneratorOut
 from qelos_core import gan
 from qelos_core import ganutil
