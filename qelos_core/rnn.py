@@ -1371,7 +1371,7 @@ class AutoMaskedOut(torch.nn.Module):
         # return ret
 
 
-class AutoMasker(object):
+class AutoMasker(torch.nn.Module):
     """ Subclass this with your own rules
         How to use:
             - write a subclass implementing at least .get_out_tokens_example()
