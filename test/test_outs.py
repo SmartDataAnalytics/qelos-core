@@ -25,7 +25,7 @@ class TestPointerGeneratorOut(TestCase):
             torch.nn.Linear(dim, len(gendic)),
             torch.nn.Sigmoid())
 
-        pgo = q.PointerGeneratorOut(outdic, gen_prob_comp, gen_out, inpdic=inpdic, gen_outD=gendic)
+        pgo = q.PointerGeneratorOutSeparate(outdic, gen_prob_comp, gen_out, inpdic=inpdic, gen_outD=gendic)
 
         x = torch.randn(batsize, dim)
         scores = torch.randn(batsize, seqlen)
@@ -65,7 +65,7 @@ class TestPointerGeneratorOut(TestCase):
 
         gen_out = torch.nn.Linear(dim, len(gendic))
 
-        pgo = q.PointerGeneratorOut(outdic, gen_prob_comp, gen_out, inpdic=inpdic, gen_outD=gendic)
+        pgo = q.PointerGeneratorOutSeparate(outdic, gen_prob_comp, gen_out, inpdic=inpdic, gen_outD=gendic)
 
         x = torch.randn(batsize, dim)
         scores = torch.randn(batsize, seqlen)

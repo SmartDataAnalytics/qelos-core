@@ -1453,7 +1453,7 @@ class BFOL(DynamicWordLinout):
         # compute scores over input positions
         # x will be twice the size of inpenc -> which part of x to take???
         compx = x[:, :, :x.size(2) // 2]  # slice out first half, which is y_t (not ctx_t)
-        scores = torch.bmm(compx, self.inpenc.transpose(2, 1))
+        scores = torch.bmm(compx, self.inpenc.transpose(2, 1))      # re-apply attention
 
         # translate scores over input positions to scores over uwids
         inppos2uwid = self.inppos2uwid[:, :scores.size(-1), :]  # in case input matrix shrank because of seq packing
@@ -1466,7 +1466,7 @@ class BFOL(DynamicWordLinout):
         uwid_scores, _ = torch.max(uwid_scores, 1)
         uwid_scores_mask = (inppos2uwid.sum(1) > 0).float()  # (batsize, #uwid)
 
-        # replace old scores over uwids with the just computer pointer-based scores over uwids
+        # replace old scores over uwids with the just computed pointer-based scores over uwids
         sel_uwid_scores = uwid_scores.index_select(1, self.inp_trans)
         sel_uwid_scores_mask = uwid_scores_mask.index_select(1, self.inp_trans)
         # the zeros in seluwid mask for those uwids should already be there in rmask
@@ -1490,7 +1490,7 @@ class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
     def prepare(self, *xdata):
         self.core.gen_out[0].prepare(*xdata)
 
-    def forward(self, x, alphas, ctx_inp):
+    def forward(self, x, alphas, ctx_inp, **kw):
         mask = None
         if self.automasker is not None:
             mask = self.automasker.get_out_mask()
@@ -1713,7 +1713,7 @@ def make_out_emb(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
 def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None, nocopy=False,
-                 rare_gwids=None, userules=False, selectcolfirst=False):
+                 rare_gwids=None, automasker=None, ptrgenmode="sepsum"):
     print("MAKING OUT LIN")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
@@ -1724,17 +1724,20 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
     if not nocopy:
         gen_zero_set = set(ismD.keys()) - set(["<MASK>"])
-        switcher = torch.nn.Sequential(
-            torch.nn.Linear(dim, dim),
-            torch.nn.Tanh(),
-            torch.nn.Linear(dim, 1),
-            torch.nn.Sigmoid(),
-        )
 
-        ptrgenout = q.PointerGeneratorOut(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
-        automasker = None
-        if userules:
-            automasker = MyAutoMasker(osmD, osmD, selectcolfirst=selectcolfirst)
+        if ptrgenmode == "sepsum":
+            switcher = torch.nn.Sequential(
+                torch.nn.Linear(dim, dim),
+                torch.nn.Tanh(),
+                torch.nn.Linear(dim, 1),
+                torch.nn.Sigmoid(),
+            )
+
+            ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
+                                                      gen_outD=osmD)
+        else:
+            ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, inpdic=ismD, gen_zero=gen_zero_set,
+                                                       gen_outD=osmD)
         out = PtrGenOut(ptrgenout, worddic=osmD, automasker=automasker)
         # DONE: use PointerGeneratorOut here
         # 1. create generation block (create dictionaries for pointergenout first)
@@ -2012,8 +2015,9 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules=False):
+                   userules=False, ptrgenmode="sepsum"):
                     # reorder: "no", "reverse", "arbitrary"
+                    # ptrgenmode: "sepsum" or "sharemax"
     # region init
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_new")
@@ -2099,11 +2103,15 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         if not tieembeddings:
             inpbaseemb, colbaseemb = None, None
 
+        automasker = None
+        if userules:
+            automasker = MyAutoMasker(osm.D, osm.D, selectcolfirst=selectcolfirst)
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                                               colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
-                                                               userules=userules, selectcolfirst=selectcolfirst)
+                                                               automasker=automasker,
+                                                               ptrgenmode=ptrgenmode)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
         return _inpemb, _outemb, _outlin, _encoder

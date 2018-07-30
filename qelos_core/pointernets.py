@@ -4,27 +4,24 @@ import numpy as np
 
 
 class PointerGeneratorOut(torch.nn.Module):
-    """ Uses sum for overlaps ! (scatter_add_)"""
-    def __init__(self, outdic, gen_prob_comp, gen_out,
-                 inpdic=None, gen_zero=None, gen_outD=None, **kw):
+    def __init__(self, outdic, gen_out, inpdic=None, gen_zero=None, gen_outD=None, **kw):
         """
-        :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
-        :param gen_prob_comp:   module to compute probability of generating vs pointing
-                                must produce (batsize, 1) shapes
-        :param gen_out:         module to compute generation scores.
-                                    must have a dictionary accessible as ".D".
-                                    must produce unnormalized scores (no softmax)
-        :param inpdic:          input dictionary (for pointer)
-        :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
-                                All tokens should occur in inpdic (or their score will always be zero)
-        :param gen_outD:        if set, gen_out must not have a ".D"
-        :param kw:
-        """
+                :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
+                :param gen_prob_comp:   module to compute probability of generating vs pointing
+                                        must produce (batsize, 1) shapes
+                :param gen_out:         module to compute generation scores.
+                                            must have a dictionary accessible as ".D".
+                                            must produce unnormalized scores (no softmax)
+                :param inpdic:          input dictionary (for pointer)
+                :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
+                                        All tokens should occur in inpdic (or their score will always be zero)
+                :param gen_outD:        if set, gen_out must not have a ".D"
+                :param kw:
+                """
         super(PointerGeneratorOut, self).__init__(**kw)
         self.gen_out = gen_out
         self.D = outdic
         self.gen_outD = self.gen_out.D if gen_outD is None else gen_outD
-        self.gen_prob_comp = gen_prob_comp
         self.outsize = max(outdic.values()) + 1
         self.gen_to_out = q.val(torch.zeros(1, max(self.gen_outD.values()) + 1, dtype=torch.int64)).v
         # --> where in out to scatter every element of the gen
@@ -51,8 +48,38 @@ class PointerGeneratorOut(torch.nn.Module):
             else:
                 raise q.SumTingWongException("symbols in inpdic must be in outdic, but \"{}\" isn't".format(k))
         self.sm = torch.nn.Softmax(-1)
+        self._reset()
+        self.check()
 
-    def forward(self, x, scores, ctx_inp, mask=None):
+    def check(self):
+        pass
+
+    def _reset(self):
+        pass
+
+
+class PointerGeneratorOutSeparate(PointerGeneratorOut):
+    """ Uses sum for overlaps ! (scatter_add_)"""
+    def __init__(self, outdic, gen_prob_comp, gen_out,
+                 inpdic=None, gen_zero=None, gen_outD=None, **kw):
+        """
+        :param outdic:          output dictionary, must contain all tokens in inpdic and gen_out.D
+        :param gen_prob_comp:   module to compute probability of generating vs pointing
+                                must produce (batsize, 1) shapes
+        :param gen_out:         module to compute generation scores.
+                                    must have a dictionary accessible as ".D".
+                                    must produce unnormalized scores (no softmax)
+        :param inpdic:          input dictionary (for pointer)
+        :param gen_zero:        None or set of tokens for which the gen_out's prob will be set to zero.
+                                All tokens should occur in inpdic (or their score will always be zero)
+        :param gen_outD:        if set, gen_out must not have a ".D"
+        :param kw:
+        """
+        super(PointerGeneratorOutSeparate, self).__init__(outdic, gen_out,
+                  inpdic=inpdic, gen_zero=gen_zero, gen_outD=gen_outD, **kw)
+        self.gen_prob_comp = gen_prob_comp
+
+    def forward(self, x, scores, ctx_inp, mask=None, **kw):
         """
         :param x:       input for this time step
                             (batsize, outdim) floats
@@ -113,6 +140,115 @@ class PointerGeneratorOut(torch.nn.Module):
         out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
 
         out_probs = interp * out_probs_gen + (1 - interp) * out_probs_ptr
+        assert(out_probs.size() == (batsize, len(self.D)))
+
+        return out_probs
+
+
+class PointerGeneratorOutShared(PointerGeneratorOut):
+    """ Uses sum for overlaps ! (scatter_add_)"""
+
+    def forward(self, x, scores, ctx_inp, mask=None, **kw):
+        """
+        :param x:       input for this time step
+                            (batsize, outdim) floats
+        :param scores:  unnormalized scores over ctx
+                            (batsize, seqlen) floats
+        :param ctx_inp: input used to compute context and alphas
+                            (batsize, seqlen) integer ids in inpvoc
+        :param mask:    mask on the output tokens
+                            (batsize, outvocsize) one or zero
+        :return:
+        """
+        mask = mask.float() if mask is not None else None
+        batsize = x.size(0)
+
+        gen_scores = self.gen_out(x)        # (batsize, outvocsize)
+
+        if self.gen_zero_mask is not None:
+            gen_scores = gen_scores + torch.log(self.gen_zero_mask)
+
+        out_scores_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
+        out_scores_gen_mask = torch.zeros_like(out_scores_gen)
+        out_scores_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_scores)
+        out_scores_gen_mask.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), torch.ones_like(gen_scores))
+
+        ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
+        out_scores_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
+        out_scores_ptr_mask = torch.zeros_like(out_scores_ptr)
+        out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], scores)
+        out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], torch.ones_like(scores))
+
+        out_probs = out_scores_gen + out_scores_ptr
+        out_probs_mask = (out_scores_ptr_mask + out_scores_gen_mask).clamp(min=0, max=1)
+        out_probs = out_probs + torch.log(out_probs_mask)       # mask for not covered symbols in outD
+        if mask is not None:
+            out_probs = out_probs + torch.log(mask)
+        out_probs = self.sm(out_probs)
+        assert(out_probs.size() == (batsize, len(self.D)))
+
+        return out_probs
+
+
+class PointerGeneratorOutSharedMax(PointerGeneratorOut):
+    def _reset(self):
+        self.cached_inp_to_out = None
+        self.cached_inp_to_out_mask = None
+
+    def rec_reset(self):
+        self._reset()
+
+    def get_sparse_trans(self, trans, numout):
+        """
+        :param trans:   a scatter tensor mapping from indexes to some output indexes
+                        (batsize, numinp)
+        :return:
+        """
+        sparse_mapper = torch.zeros(trans.size(0), trans.size(1), numout)
+        sparse_mapper.scatter_(2, trans.unsqueeze(2), 1)
+        sparse_mapper[:, :, 0] = 0      # <MASK> zeroed
+        #  TODO: might be not general enough
+        return sparse_mapper
+
+    def forward(self, x, scores, ctx_inp, mask=None, **kw):
+        """
+        :param x:       input for this time step
+                            (batsize, outdim) floats
+        :param scores:  unnormalized scores over ctx
+                            (batsize, seqlen) floats
+        :param ctx_inp: input used to compute context and alphas
+                            (batsize, seqlen) integer ids in inpvoc
+        :param mask:    mask on the output tokens
+                            (batsize, outvocsize) one or zero
+        :return:
+        """
+        mask = mask.float() if mask is not None else None
+        batsize = x.size(0)
+
+        gen_scores = self.gen_out(x)        # (batsize, outvocsize)
+
+        if self.gen_zero_mask is not None:
+            gen_scores = gen_scores + torch.log(self.gen_zero_mask)
+
+        out_scores_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
+        out_scores_gen_mask = torch.zeros_like(out_scores_gen)
+        out_scores_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_scores)
+        out_scores_gen_mask.scatter_(1, self.gen_to_out.repeat(batsize, 1), torch.ones_like(gen_scores))
+        out_scores_gen = out_scores_gen + torch.log(out_scores_gen_mask)
+
+        ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
+        # scatter max
+        mapped_scores = torch.zeros(scores.size(0), scores.size(1), self.outsize, dtype=x.dtype, device=x.device)
+        mapped_scores_mask = torch.zeros_like(mapped_scores)
+        mapped_scores.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), scores.unsqueeze(2))
+        mapped_scores_mask.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), 1)
+        mapped_scores = mapped_scores + torch.log(mapped_scores_mask)
+        out_scores_ptr, _ = mapped_scores.max(1)
+
+        out_probs = torch.max(out_scores_gen, out_scores_ptr)
+        if mask is not None:
+            out_probs = out_probs + torch.log(mask)
+        out_probs = self.sm(out_probs)
         assert(out_probs.size() == (batsize, len(self.D)))
 
         return out_probs
