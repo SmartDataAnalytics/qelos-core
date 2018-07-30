@@ -120,6 +120,13 @@ def jsonls_to_lines(p=DATA_PATH):
     tt.tock("jsons loaded")
     # endregion
 
+    # coltypes, tD, (types_devstart, types_teststart) = get_column_types(traindata, devdata, testdata, alltables)     # "real" = 1, "text" = 2
+    # coltypes = list(coltypes)
+    # _coltypes = []
+    coltypes = []
+    types_maxlen = 0
+    tD = {"text": 2, "real": 1}
+
     # region generating examples
     tt.tick("generating examples")
     tt.msg("train examples")
@@ -127,6 +134,9 @@ def jsonls_to_lines(p=DATA_PATH):
     for line in traindata:
         try:
             trainexamples.append(jsonl_to_line(line, alltables))
+            column_types = alltables[line["table_id"]]["types"]
+            types_maxlen = max(types_maxlen, len(column_types))
+            coltypes.append(column_types)
         except Exception as e:
             print("FAILED: {}".format(line))
 
@@ -136,6 +146,9 @@ def jsonls_to_lines(p=DATA_PATH):
     for line in devdata:
         try:
             devexamples.append(jsonl_to_line(line, alltables))
+            column_types = alltables[line["table_id"]]["types"]
+            types_maxlen = max(types_maxlen, len(column_types))
+            coltypes.append(column_types)
         except Exception as e:
             print("FAILED: {}".format(line))
 
@@ -144,11 +157,20 @@ def jsonls_to_lines(p=DATA_PATH):
     for line in testdata:
         try:
             testexamples.append(jsonl_to_line(line, alltables))
+            column_types = alltables[line["table_id"]]["types"]
+            types_maxlen = max(types_maxlen, len(column_types))
+            coltypes.append(column_types)
         except Exception as e:
             print("FAILED: {}".format(line))
 
     tt.tock("examples generated")
     # endregion
+
+    typesmat = np.zeros((len(coltypes), types_maxlen), dtype="int32")
+    for i, types in enumerate(coltypes):
+        for j, t in enumerate(types):
+            typesmat[i, j] = tD[t]
+    np.save(p + "coltypes.mat", typesmat)
 
     # region save lines
     tt.msg("saving lines")
@@ -256,72 +278,6 @@ def jsonl_to_line(line, alltables):
     ret = u"{}\t{}\t{}".format(question, sql, u"\t".join(column_names))
     # endregion
     return ret
-
-
-def get_column_types(p=DATA_PATH):
-    """ loads all jsons, converts them to .lines, saves and returns """
-    # region load all jsons
-    tt = q.ticktock("data preparer")
-    tt.tick("loading jsons")
-
-    # load examples
-    traindata = read_jsonl(p + "train.jsonl")
-    print("{} training questions".format(len(traindata)))
-    traindb = read_jsonl(p + "train.tables.jsonl")
-    print("{} training tables".format(len(traindb)))
-    devdata = read_jsonl(p + "dev.jsonl")
-    print("{} dev questions".format(len(devdata)))
-    devdb = read_jsonl(p + "dev.tables.jsonl")
-    print("{} dev tables".format(len(devdb)))
-    testdata = read_jsonl(p + "test.jsonl")
-    print("{} test questions".format(len(testdata)))
-    testdb = read_jsonl(p + "test.tables.jsonl")
-    print("{} test tables".format(len(testdb)))
-
-    # join all tables in one
-    alltables = {}
-    for table in traindb + devdb + testdb:
-        alltables[table["id"]] = table
-
-    print("total number of tables: {} ".format(len(alltables)))
-    tt.tock("jsons loaded")
-    # endregion
-
-    coltypes = []       # per example
-    devstart, teststart = None, None
-    tD = {"text": 2, "real": 1}
-    alltypes = set()
-    maxlen = 0
-
-    for line in traindata:
-        column_types = alltables[line["table_id"]]["types"]
-        maxlen = max(maxlen, len(column_types))
-        coltypes.append(column_types)
-        alltypes |= set(column_types)
-
-    devstart = len(coltypes)
-    for line in devdata:
-        column_types = alltables[line["table_id"]]["types"]
-        maxlen = max(maxlen, len(column_types))
-        coltypes.append(column_types)
-        alltypes |= set(column_types)
-
-    teststart = len(coltypes)
-
-    for line in testdata:
-        column_types = alltables[line["table_id"]]["types"]
-        maxlen = max(maxlen, len(column_types))
-        coltypes.append(column_types)
-        alltypes |= set(column_types)
-
-    mat = np.zeros((len(coltypes), maxlen), dtype="int32")
-    assert(alltypes == set(tD.keys()))
-    for i, types in enumerate(coltypes):
-        for j, t in enumerate(types):
-            mat[i, j] = tD[t]
-
-    np.save(p+"coltypes.mat", mat)
-    return mat, tD, (devstart, teststart)
 
 
 def load_coltypes(p=DATA_PATH):
@@ -1594,14 +1550,7 @@ class MyAutoMasker(q.AutoMasker):
         elif prev == "<VAL>":
             ret = get_rets("UWID")
         elif re.match("UWID\d+", prev):
-            if self.training:
-                ret = get_rets("UWID")
-            else:
-                uwidid = int(re.match("UWID(\d+)", prev).group(1))
-                retuwid = "UWID{}".format(uwidid+1)
-                ret = []
-                if retuwid in self.outD:
-                    ret += [retuwid]
+            ret = get_rets("UWID")
             ret += ["<ENDVAL>"]
         elif prev == "<ENDVAL>":
             ret = ["<COND>", "<END>"]
@@ -2105,6 +2054,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     # region data
     ism, osm, cnsm, gwids, splits, e2cn = load_matrices()
     coltypes = load_coltypes()      # 2 = "text", 1 = "real"
+    assert(np.allclose((coltypes > 0), (e2cn > 0)))
     # ism: input in terms of UWIDs --> use gwids for actual words
                     #(UWID-X --> get X'ths word in gwids for that example;
                     # UWID-X: X starts from 1, so first column of gwids is 0 (mask))
@@ -2639,6 +2589,7 @@ def compare_trees(xpath="", goldpath=DATA_PATH+"dev.gold.outlines"):
 
 
 if __name__ == "__main__":
+    # jsonls_to_lines()
     # get_column_types()
     # test_matrices(writeout=True)
     # test_querylin2json()
