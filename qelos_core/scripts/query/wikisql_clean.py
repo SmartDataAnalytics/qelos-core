@@ -103,8 +103,6 @@ def jsonls_to_lines(p=DATA_PATH):
     traindb = read_jsonl(p+"train.tables.jsonl")
     print("{} training tables".format(len(traindb)))
     devdata = read_jsonl(p + "dev.jsonl")
-
-    # load tables
     print("{} dev questions".format(len(devdata)))
     devdb = read_jsonl(p+"dev.tables.jsonl")
     print("{} dev tables".format(len(devdb)))
@@ -256,8 +254,78 @@ def jsonl_to_line(line, alltables):
     else:
         sql = u"<QUERY> <SELECT> {}".format(sql_select)
     ret = u"{}\t{}\t{}".format(question, sql, u"\t".join(column_names))
-
+    # endregion
     return ret
+
+
+def get_column_types(p=DATA_PATH):
+    """ loads all jsons, converts them to .lines, saves and returns """
+    # region load all jsons
+    tt = q.ticktock("data preparer")
+    tt.tick("loading jsons")
+
+    # load examples
+    traindata = read_jsonl(p + "train.jsonl")
+    print("{} training questions".format(len(traindata)))
+    traindb = read_jsonl(p + "train.tables.jsonl")
+    print("{} training tables".format(len(traindb)))
+    devdata = read_jsonl(p + "dev.jsonl")
+    print("{} dev questions".format(len(devdata)))
+    devdb = read_jsonl(p + "dev.tables.jsonl")
+    print("{} dev tables".format(len(devdb)))
+    testdata = read_jsonl(p + "test.jsonl")
+    print("{} test questions".format(len(testdata)))
+    testdb = read_jsonl(p + "test.tables.jsonl")
+    print("{} test tables".format(len(testdb)))
+
+    # join all tables in one
+    alltables = {}
+    for table in traindb + devdb + testdb:
+        alltables[table["id"]] = table
+
+    print("total number of tables: {} ".format(len(alltables)))
+    tt.tock("jsons loaded")
+    # endregion
+
+    coltypes = []       # per example
+    devstart, teststart = None, None
+    tD = {"text": 2, "real": 1}
+    alltypes = set()
+    maxlen = 0
+
+    for line in traindata:
+        column_types = alltables[line["table_id"]]["types"]
+        maxlen = max(maxlen, len(column_types))
+        coltypes.append(column_types)
+        alltypes |= set(column_types)
+
+    devstart = len(coltypes)
+    for line in devdata:
+        column_types = alltables[line["table_id"]]["types"]
+        maxlen = max(maxlen, len(column_types))
+        coltypes.append(column_types)
+        alltypes |= set(column_types)
+
+    teststart = len(coltypes)
+
+    for line in testdata:
+        column_types = alltables[line["table_id"]]["types"]
+        maxlen = max(maxlen, len(column_types))
+        coltypes.append(column_types)
+        alltypes |= set(column_types)
+
+    mat = np.zeros((len(coltypes), maxlen), dtype="int32")
+    assert(alltypes == set(tD.keys()))
+    for i, types in enumerate(coltypes):
+        for j, t in enumerate(types):
+            mat[i, j] = tD[t]
+
+    np.save(p+"coltypes.mat", mat)
+    return mat, tD, (devstart, teststart)
+
+
+def load_coltypes(p=DATA_PATH):
+    return np.load(p+"coltypes.mat.npy")
 # endregion
 
 
@@ -1475,6 +1543,10 @@ class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
 
 
 class MyAutoMasker(q.AutoMasker):
+    def __init__(self, inpD, outD, selectcolfirst=False, **kw):
+        super(MyAutoMasker, self).__init__(inpD, outD, **kw)
+        self.selectcolfirst = selectcolfirst
+        self.flags = None
 
     def reset(self):
         super(MyAutoMasker, self).reset()
@@ -1485,10 +1557,7 @@ class MyAutoMasker(q.AutoMasker):
             self.flags = {}
 
         if i not in self.flags:
-            self.flags[i] = {"ancestors": [], "siblings": []}
-
-        ancestors = self.flags[i]["ancestors"]
-        siblings = self.flags[i]["siblings"]
+            self.flags[i] = {"inselect": False}
 
         prev = hist[-1]
 
@@ -1498,37 +1567,41 @@ class MyAutoMasker(q.AutoMasker):
         if prev == "<START>":
             ret = ["<QUERY>"]
         elif prev == "<QUERY>":
-            ancestors.append(prev)
             ret = ["<SELECT>"]
         elif prev == "<SELECT>":
-            ancestors.append(prev)
+            self.flags[i]["inselect"] = True
             ret = get_rets("AGG")
         elif prev == "<WHERE>":
-            ancestors.append(prev)
+            self.flags[i]["inselect"] = False
             ret = ["<COND>"]
         elif prev == "<COND>":
             ret = get_rets("COL")
         elif re.match("COL\d+", prev):
-            if "<SELECT>" in ancestors:
-                assert("<SELECT>" == ancestors[-1])
-                del ancestors[-1]
-                ret = ["<WHERE>", "<END>"]
-            elif "<WHERE>" in ancestors:
-                ret = get_rets("OP")
+            if self.flags[i]["inselect"] == True:
+                if self.selectcolfirst:
+                    ret = get_rets("AGG")
+                else:
+                    ret = ["<WHERE>", "<END>"]
             else:
-                raise q.SumTingWongException()
+                ret = get_rets("OP")
         elif re.match("AGG\d+", prev):
-            ret = get_rets("COL")
+            if self.selectcolfirst:
+                ret = ["<WHERE>", "<END>"]
+            else:
+                ret = get_rets("COL")
         elif re.match("OP\d+", prev):
             ret = ["<VAL>"]
         elif prev == "<VAL>":
             ret = get_rets("UWID")
         elif re.match("UWID\d+", prev):
-            uwidid = int(re.match("UWID(\d+)", prev).group(1))
-            retuwid = "UWID{}".format(uwidid+1)
-            ret = []
-            if retuwid in self.outD:
-                ret += [retuwid]
+            if self.training:
+                ret = get_rets("UWID")
+            else:
+                uwidid = int(re.match("UWID(\d+)", prev).group(1))
+                retuwid = "UWID{}".format(uwidid+1)
+                ret = []
+                if retuwid in self.outD:
+                    ret += [retuwid]
             ret += ["<ENDVAL>"]
         elif prev == "<ENDVAL>":
             ret = ["<COND>", "<END>"]
@@ -1691,7 +1764,7 @@ def make_out_emb(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
 def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None, nocopy=False,
-                 rare_gwids=None, userules=False):
+                 rare_gwids=None, userules=False, selectcolfirst=False):
     print("MAKING OUT LIN")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
@@ -1712,7 +1785,7 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
         ptrgenout = q.PointerGeneratorOut(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
         automasker = None
         if userules:
-            automasker = MyAutoMasker(osmD, osmD)
+            automasker = MyAutoMasker(osmD, osmD, selectcolfirst=selectcolfirst)
         out = PtrGenOut(ptrgenout, worddic=osmD, automasker=automasker)
         # DONE: use PointerGeneratorOut here
         # 1. create generation block (create dictionaries for pointergenout first)
@@ -2031,6 +2104,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     # region data
     ism, osm, cnsm, gwids, splits, e2cn = load_matrices()
+    coltypes = load_coltypes()      # 2 = "text", 1 = "real"
     # ism: input in terms of UWIDs --> use gwids for actual words
                     #(UWID-X --> get X'ths word in gwids for that example;
                     # UWID-X: X starts from 1, so first column of gwids is 0 (mask))
@@ -2079,7 +2153,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                                               colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
-                                                               userules=userules)
+                                                               userules=userules, selectcolfirst=selectcolfirst)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
         return _inpemb, _outemb, _outlin, _encoder
@@ -2560,11 +2634,12 @@ def compare_trees(xpath="", goldpath=DATA_PATH+"dev.gold.outlines"):
         print("\t{} ({}/{}) select col wrong".format(select_col_c / (select_c_norm), select_col_c, select_c_norm))
         print("\t{} ({}/{}) select both agg and col are wrong".format(select_colagg_c / (select_c_norm), select_colagg_c, select_c_norm))
         print("{} ({}/{}) where acc".format(1.+where_acc/i, -where_acc, i))
-        print("{} both select and where are wrong".format(both_wrong_c/i))
+        print("{} ({}/{}) both select and where are wrong".format(both_wrong_c/i, both_wrong_c, i))
 # endregion
 
 
 if __name__ == "__main__":
+    # get_column_types()
     # test_matrices(writeout=True)
     # test_querylin2json()
     # test_sqlnode_and_sqls()
