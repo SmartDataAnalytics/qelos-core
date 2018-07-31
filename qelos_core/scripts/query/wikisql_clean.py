@@ -1735,9 +1735,11 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
             ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
                                                       gen_outD=osmD)
-        else:
+        elif ptrgenmode == "sharemax":
             ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, inpdic=ismD, gen_zero=gen_zero_set,
                                                        gen_outD=osmD)
+        else:
+            raise q.SumTingWongException("unknown ptrgenmode: {}".format(ptrgenmode))
         out = PtrGenOut(ptrgenout, worddic=osmD, automasker=automasker)
         # DONE: use PointerGeneratorOut here
         # 1. create generation block (create dictionaries for pointergenout first)
@@ -2153,10 +2155,11 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                   for i in range(1, len(decdims))]
         _core = torch.nn.Sequential(*layers)
         _attention = q.DotAttention()
-        _merger = torch.nn.Sequential(
-            torch.nn.Linear(outlindim, outlindim),
-            torch.nn.Tanh(),
-        )
+        # _merger = torch.nn.Sequential(
+        #     torch.nn.Linear(outlindim, outlindim),
+        #     torch.nn.Tanh(),
+        # )
+        _merger = None
         decoder_cell = q.PointerGeneratorCell(emb=_outemb, core=_core, att=_attention, merge=_merger, out=_outlin)
         train_decoder = q.TFDecoder(decoder_cell)
         valid_decoder = q.FreeDecoder(decoder_cell)
