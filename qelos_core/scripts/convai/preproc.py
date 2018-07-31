@@ -6,9 +6,20 @@ import json
 from collections import OrderedDict
 
 
-def run(p1="../../../datasets/convai2/valid_dialogues.json",
-        p2="../../../datasets/convai2/valid_dialogues.json",        # change the file paths
-        maxwords=800, rarefreq=0):
+DATA_PATH = "../../../datasets/convai2/"
+
+
+def run(p1=DATA_PATH+"valid_dialogues.json",
+        p2=DATA_PATH+"valid_dialogues.json",        # change the file paths to use train and valid (so the ids are shared)
+        maxwords=int(1e9), rarefreq=0):
+    """
+    Saves in DATA_PATH, see code for exact paths
+    :param p1:          path to train json
+    :param p2:          path to valid json
+    :param maxwords:    maximum number of words in vocab
+    :param rarefreq:    word frequency for rare words
+    :return:
+    """
     sm = q.StringMatrix(topnwords=maxwords, freqcutoff=rarefreq)
     sm.tokenize = lambda x: x.split()
     out_struct1, sm, us = load_datafile(p1, sm)
@@ -18,6 +29,11 @@ def run(p1="../../../datasets/convai2/valid_dialogues.json",
     ## !!! dictionary is in sm.D, numpy array is in sm.matrix
     assert(us == us2)
     print("done: {} unique strings \n\n".format(len(us)))
+    json.dump(out_struct1, open(DATA_PATH + "train_dialogues.struct.json", "w"))
+    json.dump(out_struct2, open(DATA_PATH + "valid_dialogues.struct.json", "w"))
+    json.dump(sm.D, open(DATA_PATH+"dialogues.strings.dict", "w"))
+    np.save(DATA_PATH+"dialogues.strings.mat", sm.matrix)
+    print("saved")
     return out_struct1, out_struct2, sm
 
 
