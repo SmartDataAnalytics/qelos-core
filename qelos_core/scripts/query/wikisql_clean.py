@@ -1504,6 +1504,7 @@ class MyAutoMasker(q.AutoMasker):
         self.selectcolfirst = selectcolfirst
         self.flags = None
         self.inpseqs = None
+        self.coltypes = None
         self.ctxD = ctxD
         self.RctxD = {v: k for k, v in ctxD.items()}
 
@@ -1511,6 +1512,7 @@ class MyAutoMasker(q.AutoMasker):
         super(MyAutoMasker, self).reset()
         self.flags = None
         self.inpseqs = None
+        self.coltypes = None
 
     def update_inpseq(self, inpseqs):
         """ (batsize, seqlen) ^ integer ids in inp voc (uwids)"""
@@ -1518,16 +1520,21 @@ class MyAutoMasker(q.AutoMasker):
         for i in range(len(inpseqs)):
             inpseq = list(inpseqs[i].cpu().detach().numpy())
             inpseq = [self.RctxD[inpseq_e] for inpseq_e in inpseq if inpseq_e != 0]
-            followers = {k: set() for k in set(inpseq[:-1])}
+            followers = {k: set() for k in set(inpseq)}
             for f, t in zip(inpseq[:-1], inpseq[1:]):
                 followers[f].add(t)
             followers = {k: list(v) for k, v in followers.items()}
             self.inpseqs.append(followers)
 
-    def get_next_inps_for(self, i, token):
-        """ given that inpseqs is not None, returns tokens following given token for example i in this batch """
-        ret = self.inpseqs[i][token]
-        return ret
+    def update_coltypes(self, coltypeses):
+        """ (batsize, numcols) ^ integer ids of column types "real" = 1, "text" = 2 """
+        self.coltypes = []
+        td = {1: "real", 2: "text", 0: "<MASK>"}
+        for i in range(len(coltypeses)):
+            coltypes = list(coltypeses[i].cpu().detach().numpy())
+            coltypes = [td[coltype] for coltype in coltypes if coltype != 0]
+            coltypes = {"COL{}".format(k): v for k, v in zip(range(len(coltypes)), coltypes)}
+            self.coltypes.append(coltypes)
 
     def get_out_tokens_for_history(self, i, hist):
         if not hasattr(self, "flags") or self.flags is None:
@@ -1538,8 +1545,18 @@ class MyAutoMasker(q.AutoMasker):
 
         prev = hist[-1]
 
-        def get_rets(k):
-            return list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
+        def get_rets(k, coltype=None):
+            ret = list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
+            if coltype == "text":   # restrict aggs and ops
+                def text_col_filter_fun(x):
+                    if re.match("OP\d+", x):
+                        return x in ["OP0"]     # allowed ops after a "text" column
+                    elif re.match("AGG\d+", x):
+                        return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
+                    else:
+                        return True
+                ret = filter(text_col_filter_fun, ret)
+            return ret
 
         if prev == "<START>":
             ret = ["<QUERY>"]
@@ -1556,11 +1573,11 @@ class MyAutoMasker(q.AutoMasker):
         elif re.match("COL\d+", prev):
             if self.flags[i]["inselect"] == True:
                 if self.selectcolfirst:
-                    ret = get_rets("AGG")
+                    ret = get_rets("AGG", coltype=self.coltypes[i][prev])
                 else:
                     ret = ["<WHERE>", "<END>"]
             else:
-                ret = get_rets("OP")
+                ret = get_rets("OP", coltype=self.coltypes[i][prev])
         elif re.match("AGG\d+", prev):
             if self.selectcolfirst:
                 ret = ["<WHERE>", "<END>"]
@@ -1571,9 +1588,9 @@ class MyAutoMasker(q.AutoMasker):
         elif prev == "<VAL>":
             ret = get_rets("UWID")
         elif re.match("UWID\d+", prev):
-            ret = self.get_next_inps_for(i, prev)
+            ret = self.inpseqs[i][prev]
             # if not self.training:
-            #     ret = self.get_next_inps_for(i, prev)
+            #     ret = self.inpseqs[i][prev]
             # else:
             #     ret = get_rets("UWID")
             ret += ["<ENDVAL>"]
@@ -2036,6 +2053,7 @@ def tst_reconstruct_save_reload_and_eval():
 # endregion
 
 
+# python wikisql_seq2seq_tf_df.py -lr 0.001 -gdim 300 -dim 600 -numlayers 2 -dropout 0.2 -rdropout 0.1 -idropout 0.2 -irdropout 0.1 -gfrac 0.0 -cuda -gpu 0 -epochs 50 -ptrgenmode sharemax -dorare
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=1, dim=-1, gdim=-1,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0., irdropout=0.,
@@ -2084,8 +2102,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     # region data
     ism, osm, cnsm, gwids, splits, e2cn = load_matrices()
-    coltypes = load_coltypes()      # 2 = "text", 1 = "real"
-    assert(np.allclose((coltypes > 0), (e2cn > 0)))
+    column_types = load_coltypes()      # 2 = "text", 1 = "real"
+    assert(np.allclose((column_types > 0), (e2cn > 0)))
     # ism: input in terms of UWIDs --> use gwids for actual words
                     #(UWID-X --> get X'ths word in gwids for that example;
                     # UWID-X: X starts from 1, so first column of gwids is 0 (mask))
@@ -2104,7 +2122,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     # q.embed()
     # splits
     if test:    devstart, teststart, batsize = 200, 250, 50
-    datamats = [ism.matrix, osm.matrix, gwids.matrix, e2cn]
+    datamats = [ism.matrix, osm.matrix, gwids.matrix, e2cn, column_types]
     traindata = [datamat[:devstart] for datamat in datamats]
     devdata = [datamat[devstart:teststart] for datamat in datamats]
     testdata = [datamat[teststart:] for datamat in datamats]
@@ -2153,7 +2171,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                 = _inpemb, _outemb, _outlin, _encoder, dec
             self.maxtime = maxtime
 
-        def forward(self, inpseq, outseq, inpseqmaps, colnames):
+        def forward(self, inpseq, outseq, inpseqmaps, colnames, coltypes):
             # encoding
             self.inpemb.prepare(inpseqmaps)
             _inpembs, _inpmask = self.inpemb(inpseq)
@@ -2168,6 +2186,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
             if self.outlin.automasker is not None:
                 self.outlin.automasker.update_inpseq(inpseq)
+                self.outlin.automasker.update_coltypes(coltypes)
 
             decoding = self.decoder(outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
             # TODO: why -1 in maxtime?
@@ -2216,15 +2235,15 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     logger.update_settings(optimizer="adam")
     optim = torch.optim.Adam(q.paramgroups_of(m), lr=lr, weight_decay=wreg)
 
-    def inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
+    def inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
         colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, :-1], gwidsbatch, colnames, osmbatch[:, 1:]
+        return ismbatch, osmbatch[:, :-1], gwidsbatch, colnames, coltypes, osmbatch[:, 1:]
 
-    def valid_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
+    def valid_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
         colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, osmbatch[:, 1:]
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes, osmbatch[:, 1:]
 
     if test:
         if False:
@@ -2299,10 +2318,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
+    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
         colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                                inp_bt=test_inp_bt, batsize=batsize, device=device,
                                                savedir=logger.p, test=test)
