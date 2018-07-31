@@ -1499,14 +1499,35 @@ class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
 
 
 class MyAutoMasker(q.AutoMasker):
-    def __init__(self, inpD, outD, selectcolfirst=False, **kw):
+    def __init__(self, inpD, outD, ctxD=None, selectcolfirst=False, **kw):
         super(MyAutoMasker, self).__init__(inpD, outD, **kw)
         self.selectcolfirst = selectcolfirst
         self.flags = None
+        self.inpseqs = None
+        self.ctxD = ctxD
+        self.RctxD = {v: k for k, v in ctxD.items()}
 
     def reset(self):
         super(MyAutoMasker, self).reset()
         self.flags = None
+        self.inpseqs = None
+
+    def update_inpseq(self, inpseqs):
+        """ (batsize, seqlen) ^ integer ids in inp voc (uwids)"""
+        self.inpseqs = []
+        for i in range(len(inpseqs)):
+            inpseq = list(inpseqs[i].cpu().detach().numpy())
+            inpseq = [self.RctxD[inpseq_e] for inpseq_e in inpseq if inpseq_e != 0]
+            followers = {k: set() for k in set(inpseq[:-1])}
+            for f, t in zip(inpseq[:-1], inpseq[1:]):
+                followers[f].add(t)
+            followers = {k: list(v) for k, v in followers.items()}
+            self.inpseqs.append(followers)
+
+    def get_next_inps_for(self, i, token):
+        """ given that inpseqs is not None, returns tokens following given token for example i in this batch """
+        ret = self.inpseqs[i][token]
+        return ret
 
     def get_out_tokens_for_history(self, i, hist):
         if not hasattr(self, "flags") or self.flags is None:
@@ -1550,7 +1571,11 @@ class MyAutoMasker(q.AutoMasker):
         elif prev == "<VAL>":
             ret = get_rets("UWID")
         elif re.match("UWID\d+", prev):
-            ret = get_rets("UWID")
+            ret = self.get_next_inps_for(i, prev)
+            # if not self.training:
+            #     ret = self.get_next_inps_for(i, prev)
+            # else:
+            #     ret = get_rets("UWID")
             ret += ["<ENDVAL>"]
         elif prev == "<ENDVAL>":
             ret = ["<COND>", "<END>"]
@@ -2107,7 +2132,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
         automasker = None
         if userules:
-            automasker = MyAutoMasker(osm.D, osm.D, selectcolfirst=selectcolfirst)
+            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
@@ -2140,6 +2165,9 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
             # decoding
             self.outemb.prepare(inpseqmaps, colnames)
             self.outlin.prepare(inpseqmaps, colnames)
+
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update_inpseq(inpseq)
 
             decoding = self.decoder(outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
             # TODO: why -1 in maxtime?

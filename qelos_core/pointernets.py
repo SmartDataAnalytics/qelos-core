@@ -193,7 +193,6 @@ class PointerGeneratorOutShared(PointerGeneratorOut):
 class PointerGeneratorOutSharedMax(PointerGeneratorOut):
     def _reset(self):
         self.cached_inp_to_out = None
-        self.cached_inp_to_out_mask = None
 
     def rec_reset(self):
         self._reset()

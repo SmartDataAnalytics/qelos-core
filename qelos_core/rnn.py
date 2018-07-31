@@ -466,7 +466,7 @@ class ThinDecoder(Decoder):
 
 class TFDecoder(Decoder):
     def forward(self, xs, **kw):
-        q.rec_reset(self.cell)
+        # q.rec_reset(self.cell)
         x_is_seq = True
         if not q.issequence(xs):
             x_is_seq = False
@@ -500,7 +500,7 @@ class FreeDecoder(Decoder):
         :param kw:      are passed directly into cell at every time step
         :return:
         """
-        q.rec_reset(self.cell)
+        # q.rec_reset(self.cell)
         maxtime = maxtime if maxtime is not None else self.maxtime
         x_is_seq = True
         if not q.issequence(xs):
@@ -585,7 +585,7 @@ class DynamicOracleDecoder(Decoder):
         :param kw:          are passed directly into cell at every time step
         :return:
         """
-        q.rec_reset(self.cell)
+        # q.rec_reset(self.cell)
         assert(q.issequence(xs) and len(xs) >= 2)
         eids, xs = xs[0], xs[1:]
         maxtime = maxtime if maxtime is not None else self.maxtime
