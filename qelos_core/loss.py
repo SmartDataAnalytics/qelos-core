@@ -229,12 +229,59 @@ class NLLLoss(DiscreteLoss):
 class SeqCELoss(DiscreteLoss):
     """ Straight implementation of cross-entropy loss for sequence prediction.
         To be used after torch.nn.Softmax() """
-    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None, **kw):
+    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None, label_smoothing=0., **kw):
         super(SeqCELoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
         assert(time_agg in "sum avg".split())
         self.time_agg = time_agg
+        self.label_smoothing = label_smoothing
 
     def _forward(self, probs, gold, mask=None):
+        if q.v(self.label_smoothing) > 0.:
+            return self._forward_smooth(probs, gold, mask=mask)
+        else:
+            return self._forward_normal(probs, gold, mask=mask)
+
+    def _forward_smooth(self, probs, gold, mask=None):
+        if probs.size(1) > gold.size():
+            probs = probs[:, :gold.size(1)]
+        batsize, seqlen, vocsize = probs.size()
+
+        ignoremask = self._get_ignore_mask(gold)        # whether to ignore a certain time step of a certain example
+        outignoremask = None
+
+        if mask is not None:
+            probs = probs * mask
+
+        prob_mask = (probs > 0).float()    # (batsize, seqlen, vocsize)
+        if isinstance(q.v(self.label_smoothing), float):
+            lsv = q.v(self.label_smoothing)
+            assert(lsv > 0 and lsv <= 1)
+            prob_mask_weights = lsv / prob_mask.sum(2)
+            _gold = torch.ones_like(probs) * prob_mask_weights.unsqueeze(2) * prob_mask     # masked uniform
+            _gold.scatter_(2, gold.unsqueeze(2), (1 - lsv) + prob_mask_weights.unsqueeze(2))
+            assert(np.allclose(_gold.sum(2).cpu().detach().numpy(),
+                               np.ones((_gold.size(0), _gold.size(1)))))
+        else:
+            _gold = self.label_smoothing(gold, prob_mask)
+
+        log_probs = - torch.log(probs + (1 - prob_mask))
+        cross_entropies = log_probs * _gold
+        cross_entropies = cross_entropies * prob_mask
+        gold_log_probs = cross_entropies.sum(2)
+
+        seqlens = torch.tensor(seqlen).float()
+        if ignoremask is not None:
+            gold_log_probs = gold_log_probs * ignoremask.float()        # should work because normal softmax was used --> no infs
+            seqlens = ignoremask.float().sum(1)
+            outignoremask = ignoremask.long().sum(1) > 0
+
+        gold_log_probs = gold_log_probs.sum(1)
+        if self.time_agg == "avg":
+            gold_log_probs = gold_log_probs / seqlens.clamp(min=EPS)
+
+        return gold_log_probs, outignoremask
+
+    def _forward_normal(self, probs, gold, mask=None):
         if probs.size(1) > gold.size():
             probs = probs[:, :gold.size(1)]
         batsize, seqlen, vocsize = probs.size()

@@ -4,7 +4,7 @@ import json
 import pickle
 import numpy as np
 
-
+# region data
 DATA_PATH = "../../../datasets/convai2/"
 
 
@@ -64,31 +64,35 @@ class ConvAI2Dataset(torch.utils.data.Dataset):
                 selfchoices_mat[i, j, :] = self.mat[sid]
 
         return otherpersona_mat, selfpersona_mat, otherlines_mat, selflines_mat, selfchoices_mat
-
-
+# endregion
 
 
 def run(lr=0.001,
         batsize=10,
         test=False,
+        dopreproc=False,
         ):
-    tt = q.ticktock("script")
-    tt.tick("loading data")
-    train_dataset, valid_dataset = load_datasets()
-    tt.tock("loaded data")
-    print("{} unique words, {} training examples, {} valid examples".format(len(train_dataset.D), len(train_dataset), len(valid_dataset)))
-    trainloader = q.dataload(train_dataset, shuffle=True, batch_size=batsize)
-    validloader = q.dataload(valid_dataset, shuffle=True, batch_size=batsize)
-    # test
-    if test:
-        testexample = train_dataset[10]
-        trainloader_iter = iter(trainloader)
-        tt.tick("getting 1000 batches")
-        for i in range(1000):
-            batch = next(iter(trainloader))
-        tt.tock("got 1000 batches")
+    if dopreproc:
+        from qelos_core.scripts.convai.preproc import run as run_preproc
+        run_preproc()
+    else:
+        tt = q.ticktock("script")
+        tt.tick("loading data")
+        train_dataset, valid_dataset = load_datasets()
+        tt.tock("loaded data")
+        print("{} unique words, {} training examples, {} valid examples".format(len(train_dataset.D), len(train_dataset), len(valid_dataset)))
+        trainloader = q.dataload(train_dataset, shuffle=True, batch_size=batsize)
+        validloader = q.dataload(valid_dataset, shuffle=True, batch_size=batsize)
+        # test
+        if test:
+            testexample = train_dataset[10]
+            trainloader_iter = iter(trainloader)
+            tt.tick("getting 1000 batches")
+            for i in range(1000):
+                batch = next(iter(trainloader))
+            tt.tock("got 1000 batches")
 
-    print("done")
+        print("done")
 
 
 
