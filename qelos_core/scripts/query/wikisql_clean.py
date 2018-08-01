@@ -1507,8 +1507,6 @@ class MyAutoMasker(q.AutoMasker):
         self.coltypes = None
         self.ctxD = ctxD
         self.RctxD = {v: k for k, v in ctxD.items()}
-        self._rule_mode = "no"
-        self.rule_mode("no")
 
     def reset(self):
         super(MyAutoMasker, self).reset()
@@ -1518,32 +1516,34 @@ class MyAutoMasker(q.AutoMasker):
 
     def update_inpseq(self, inpseqs):
         """ (batsize, seqlen) ^ integer ids in inp voc (uwids)"""
-        self.inpseqs = []
-        for i in range(len(inpseqs)):
-            inpseq = list(inpseqs[i].cpu().detach().numpy())
-            inpseq = [self.RctxD[inpseq_e] for inpseq_e in inpseq if inpseq_e != 0]
-            followers = {k: set() for k in set(inpseq)}
-            for f, t in zip(inpseq[:-1], inpseq[1:]):
-                followers[f].add(t)
-            followers = {k: list(v) for k, v in followers.items()}
-            self.inpseqs.append(followers)
+        if self.test_only and self.training:
+            pass
+        else:
+            self.inpseqs = []
+            for i in range(len(inpseqs)):
+                inpseq = list(inpseqs[i].cpu().detach().numpy())
+                inpseq = [self.RctxD[inpseq_e] for inpseq_e in inpseq if inpseq_e != 0]
+                followers = {k: set() for k in set(inpseq)}
+                for f, t in zip(inpseq[:-1], inpseq[1:]):
+                    followers[f].add(t)
+                followers = {k: list(v) for k, v in followers.items()}
+                self.inpseqs.append(followers)
 
     def update_coltypes(self, coltypeses):
         """ (batsize, numcols) ^ integer ids of column types "real" = 1, "text" = 2 """
-        self.coltypes = []
-        td = {1: "real", 2: "text", 0: "<MASK>"}
-        for i in range(len(coltypeses)):
-            coltypes = list(coltypeses[i].cpu().detach().numpy())
-            coltypes = [td[coltype] for coltype in coltypes if coltype != 0]
-            coltypes = {"COL{}".format(k): v for k, v in zip(range(len(coltypes)), coltypes)}
-            self.coltypes.append(coltypes)
-
-    def rule_mode(self, mode):
-        self._rule_mode = mode
-        self.test_only = self._rule_mode == "test"
+        if self.test_only and self.training:
+            pass
+        else:
+            self.coltypes = []
+            td = {1: "real", 2: "text", 0: "<MASK>"}
+            for i in range(len(coltypeses)):
+                coltypes = list(coltypeses[i].cpu().detach().numpy())
+                coltypes = [td[coltype] for coltype in coltypes if coltype != 0]
+                coltypes = {"COL{}".format(k): v for k, v in zip(range(len(coltypes)), coltypes)}
+                self.coltypes.append(coltypes)
 
     def get_out_tokens_for_history(self, i, hist):
-        if self._rule_mode == "no" or self._rule_mode == "test" and self.training:
+        if self.test_only and self.training:
             return None
         else:
             if not hasattr(self, "flags") or self.flags is None:
@@ -2161,7 +2161,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         automasker = None
         if userules != "no":
             automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
-            automasker.rule_mode(userules)
+            automasker.test_only = userules == "test"
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
