@@ -1385,6 +1385,7 @@ class AutoMasker(torch.nn.Module):
         self.mode = mode     # "allow" or "refuse"
         self.history = None     # will hold all tokens fed for every example in a batch
         self.device = None
+        self.test_only = False
 
     def reset(self):
         self.history = None
@@ -1396,12 +1397,15 @@ class AutoMasker(torch.nn.Module):
     def update(self, x):
         """ updates automasker with next element in the sequence
         :param x:   (batsize,) integer ids in inpD """
-        assert(x.dim() == 1)
-        self.device = x.device
-        intokens = []
-        for i in range(len(x)):
-            intokens.append(self.RinpD[x[i].detach().cpu().item()])
-        self.update_tokens(intokens)
+        if self.training and self.test_only:
+            pass
+        else:
+            assert(x.dim() == 1)
+            self.device = x.device
+            intokens = []
+            for i in range(len(x)):
+                intokens.append(self.RinpD[x[i].detach().cpu().item()])
+            self.update_tokens(intokens)
 
     def update_tokens(self, intokens):
         """ update given input tokens for batch
@@ -1415,17 +1419,20 @@ class AutoMasker(torch.nn.Module):
 
     def get_out_mask(self):
         """ returns a mask over outD """
-        tokenses = self.get_out_tokens()    # list of lists
-        vocsize = max(self.outD.values()) + 1
-        startcreator = torch.zeros if self.mode == "allow" else torch.ones
-        mask = startcreator(len(tokenses), vocsize)
-        for i, tokens in enumerate(tokenses):
-            if tokens is None:
-                mask[i, :] = 1
-            else:
-                for token in tokens:
-                    mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
-        return mask.to(self.device)
+        if self.training and self.test_only:
+            return None
+        else:
+            tokenses = self.get_out_tokens()    # list of lists
+            vocsize = max(self.outD.values()) + 1
+            startcreator = torch.zeros if self.mode == "allow" else torch.ones
+            mask = startcreator(len(tokenses), vocsize)
+            for i, tokens in enumerate(tokenses):
+                if tokens is None:
+                    mask[i, :] = 1
+                else:
+                    for token in tokens:
+                        mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
+            return mask.to(self.device)
 
     def get_out_tokens(self):
         """ get valid tokens for output

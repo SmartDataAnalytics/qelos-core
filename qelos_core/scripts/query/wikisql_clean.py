@@ -1508,6 +1508,7 @@ class MyAutoMasker(q.AutoMasker):
         self.ctxD = ctxD
         self.RctxD = {v: k for k, v in ctxD.items()}
         self._rule_mode = "no"
+        self.rule_mode("no")
 
     def reset(self):
         super(MyAutoMasker, self).reset()
@@ -1539,6 +1540,7 @@ class MyAutoMasker(q.AutoMasker):
 
     def rule_mode(self, mode):
         self._rule_mode = mode
+        self.test_only = self._rule_mode == "test"
 
     def get_out_tokens_for_history(self, i, hist):
         if self._rule_mode == "no" or self._rule_mode == "test" and self.training:
@@ -1712,7 +1714,7 @@ def make_inp_emb(dim, ismD, psmD, useglove=True, gdim=None, gfrac=0.1,
     """
     :param dim:         dimensionality of embeddings
     :param ism:         UWIDs for every example's input
-    :param psm:         gwids -- mapping from UWIDs from ism to words
+    :param psm:         gwids -- mapping fromautomasker UWIDs from ism to words
     :param useglove:    whether to use glove --> partially pretrained wordembs
     :param gdim:        glove dim
     :param gfrac:       lr fraction for glove vectors
@@ -2157,7 +2159,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
             inpbaseemb, colbaseemb = None, None
 
         automasker = None
-        if userules:
+        if userules != "no":
             automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
             automasker.rule_mode(userules)
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
