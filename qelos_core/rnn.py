@@ -1420,8 +1420,11 @@ class AutoMasker(torch.nn.Module):
         startcreator = torch.zeros if self.mode == "allow" else torch.ones
         mask = startcreator(len(tokenses), vocsize)
         for i, tokens in enumerate(tokenses):
-            for token in tokens:
-                mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
+            if tokens is None:
+                mask[i, :] = 1
+            else:
+                for token in tokens:
+                    mask[i, self.outD[token]] = 1 if self.mode == "allow" else 0
         return mask.to(self.device)
 
     def get_out_tokens(self):

@@ -1507,6 +1507,7 @@ class MyAutoMasker(q.AutoMasker):
         self.coltypes = None
         self.ctxD = ctxD
         self.RctxD = {v: k for k, v in ctxD.items()}
+        self._rule_mode = "no"
 
     def reset(self):
         super(MyAutoMasker, self).reset()
@@ -1536,71 +1537,77 @@ class MyAutoMasker(q.AutoMasker):
             coltypes = {"COL{}".format(k): v for k, v in zip(range(len(coltypes)), coltypes)}
             self.coltypes.append(coltypes)
 
+    def rule_mode(self, mode):
+        self._rule_mode = mode
+
     def get_out_tokens_for_history(self, i, hist):
-        if not hasattr(self, "flags") or self.flags is None:
-            self.flags = {}
-
-        if i not in self.flags:
-            self.flags[i] = {"inselect": False}
-
-        prev = hist[-1]
-
-        def get_rets(k, coltype=None):
-            ret = list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
-            if coltype == "text":   # restrict aggs and ops
-                def text_col_filter_fun(x):
-                    if re.match("OP\d+", x):
-                        return x in ["OP0"]     # allowed ops after a "text" column
-                    elif re.match("AGG\d+", x):
-                        return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
-                    else:
-                        return True
-                ret = filter(text_col_filter_fun, ret)
-            return ret
-
-        if prev == "<START>":
-            ret = ["<QUERY>"]
-        elif prev == "<QUERY>":
-            ret = ["<SELECT>"]
-        elif prev == "<SELECT>":
-            self.flags[i]["inselect"] = True
-            ret = get_rets("AGG")
-        elif prev == "<WHERE>":
-            self.flags[i]["inselect"] = False
-            ret = ["<COND>"]
-        elif prev == "<COND>":
-            ret = get_rets("COL")
-        elif re.match("COL\d+", prev):
-            if self.flags[i]["inselect"] == True:
-                if self.selectcolfirst:
-                    ret = get_rets("AGG", coltype=self.coltypes[i][prev])
-                else:
-                    ret = ["<WHERE>", "<END>"]
-            else:
-                ret = get_rets("OP", coltype=self.coltypes[i][prev])
-        elif re.match("AGG\d+", prev):
-            if self.selectcolfirst:
-                ret = ["<WHERE>", "<END>"]
-            else:
-                ret = get_rets("COL")
-        elif re.match("OP\d+", prev):
-            ret = ["<VAL>"]
-        elif prev == "<VAL>":
-            ret = get_rets("UWID")
-        elif re.match("UWID\d+", prev):
-            ret = self.inpseqs[i][prev]
-            # if not self.training:
-            #     ret = self.inpseqs[i][prev]
-            # else:
-            #     ret = get_rets("UWID")
-            ret += ["<ENDVAL>"]
-        elif prev == "<ENDVAL>":
-            ret = ["<COND>", "<END>"]
-        elif prev in "<END> <MASK>".split():
-            ret = ["<MASK>"]
+        if self._rule_mode == "no" or self._rule_mode == "train" and not self.training:
+            return None
         else:
-            raise q.SumTingWongException("token {} in example {} not covered".format(prev, i))
-        return ret
+            if not hasattr(self, "flags") or self.flags is None:
+                self.flags = {}
+
+            if i not in self.flags:
+                self.flags[i] = {"inselect": False}
+
+            prev = hist[-1]
+
+            def get_rets(k, coltype=None):
+                ret = list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
+                if coltype == "text":   # restrict aggs and ops
+                    def text_col_filter_fun(x):
+                        if re.match("OP\d+", x):
+                            return x in ["OP0"]     # allowed ops after a "text" column
+                        elif re.match("AGG\d+", x):
+                            return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
+                        else:
+                            return True
+                    ret = filter(text_col_filter_fun, ret)
+                return ret
+
+            if prev == "<START>":
+                ret = ["<QUERY>"]
+            elif prev == "<QUERY>":
+                ret = ["<SELECT>"]
+            elif prev == "<SELECT>":
+                self.flags[i]["inselect"] = True
+                ret = get_rets("AGG")
+            elif prev == "<WHERE>":
+                self.flags[i]["inselect"] = False
+                ret = ["<COND>"]
+            elif prev == "<COND>":
+                ret = get_rets("COL")
+            elif re.match("COL\d+", prev):
+                if self.flags[i]["inselect"] == True:
+                    if self.selectcolfirst:
+                        ret = get_rets("AGG", coltype=self.coltypes[i][prev])
+                    else:
+                        ret = ["<WHERE>", "<END>"]
+                else:
+                    ret = get_rets("OP", coltype=self.coltypes[i][prev])
+            elif re.match("AGG\d+", prev):
+                if self.selectcolfirst:
+                    ret = ["<WHERE>", "<END>"]
+                else:
+                    ret = get_rets("COL")
+            elif re.match("OP\d+", prev):
+                ret = ["<VAL>"]
+            elif prev == "<VAL>":
+                ret = get_rets("UWID")
+            elif re.match("UWID\d+", prev):
+                ret = self.inpseqs[i][prev]
+                # if not self.training:
+                #     ret = self.inpseqs[i][prev]
+                # else:
+                #     ret = get_rets("UWID")
+                ret += ["<ENDVAL>"]
+            elif prev == "<ENDVAL>":
+                ret = ["<COND>", "<END>"]
+            elif prev in "<END> <MASK>".split():
+                ret = ["<MASK>"]
+            else:
+                raise q.SumTingWongException("token {} in example {} not covered".format(prev, i))
+            return ret
 # endregion
 
 
@@ -2060,7 +2067,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules=False, ptrgenmode="sepsum"):
+                   userules="no", ptrgenmode="sepsum"):
+                    # userules: "no", "train", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
     # region init
@@ -2151,6 +2159,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         automasker = None
         if userules:
             automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
+            automasker.rule_mode(userules)
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
