@@ -1541,7 +1541,7 @@ class MyAutoMasker(q.AutoMasker):
         self._rule_mode = mode
 
     def get_out_tokens_for_history(self, i, hist):
-        if self._rule_mode == "no" or self._rule_mode == "train" and not self.training:
+        if self._rule_mode == "no" or self._rule_mode == "test" and self.training:
             return None
         else:
             if not hasattr(self, "flags") or self.flags is None:
@@ -2068,7 +2068,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
                    userules="no", ptrgenmode="sepsum"):
-                    # userules: "no", "train", "both"
+                    # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
     # region init
