@@ -292,7 +292,7 @@ class PointerGeneratorOutSharedMax(PointerGeneratorOut):
 
         if self.ptr_offsetter is not None:
             offsets = self.ptr_offsetter(x)     # (batsize, 1)
-            scores += offsets
+            scores = scores + offsets
 
         ctx_out = self.inp_to_out[ctx_inp]  # map int ids in inp voc to out voc
         # region scatter max
