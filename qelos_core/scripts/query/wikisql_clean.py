@@ -1790,11 +1790,12 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
             ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
                                                       gen_outD=osmD)
         elif ptrgenmode == "sharemax":
-            ptroffsetter = torch.nn.Sequential(
-                torch.nn.Linear(dim, dim),
-                torch.nn.Tanh(),
-                torch.nn.Linear(dim, 1),
-            )
+            # ptroffsetter = torch.nn.Sequential(
+            #     torch.nn.Linear(dim, dim),
+            #     torch.nn.Tanh(),
+            #     torch.nn.Linear(dim, 1),
+            # )
+            ptroffsetter = None
             ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, ptr_offsetter=ptroffsetter,
                                                        inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
         else:
