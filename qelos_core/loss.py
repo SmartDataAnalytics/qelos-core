@@ -265,7 +265,7 @@ class SeqKLLoss(DiscreteLoss):
         else:
             _gold = self.label_smoothing(gold, prob_mask)
 
-        log_probs = - (torch.log(probs + (1 - prob_mask))     )#    - torch.log(_gold + (1 - prob_mask)))
+        log_probs = - (torch.log(probs + (1 - prob_mask)) - torch.log(_gold + (1 - prob_mask)))
         # REMARK: (1 - prob_mask) is added before log() to ensure that no -inf's are there
         kls = log_probs * _gold
         kls = kls * prob_mask       # prob can be removed
