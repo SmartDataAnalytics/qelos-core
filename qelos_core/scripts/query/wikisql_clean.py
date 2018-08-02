@@ -1573,7 +1573,10 @@ class MyAutoMasker(q.AutoMasker):
                 ret = ["<SELECT>"]
             elif prev == "<SELECT>":
                 self.flags[i]["inselect"] = True
-                ret = get_rets("AGG")
+                if self.selectcolfirst:
+                    ret = get_rets("COL")
+                else:
+                    ret = get_rets("AGG")
             elif prev == "<WHERE>":
                 self.flags[i]["inselect"] = False
                 ret = ["<COND>"]
