@@ -300,7 +300,7 @@ class PointerGeneratorOutSharedMax(PointerGeneratorOut):
         mapped_scores_mask = torch.zeros_like(mapped_scores)
         mapped_scores.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), scores.unsqueeze(2))
         mapped_scores_mask.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), 1)
-        mapped_scores[:, :, 0] = 0
+        # mapped_scores[:, :, 0] = 0
         mapped_scores_mask[:, :, 0] = 0
         mapped_scores = mapped_scores + torch.log(mapped_scores_mask)
         out_scores_ptr, _ = mapped_scores.max(1)
