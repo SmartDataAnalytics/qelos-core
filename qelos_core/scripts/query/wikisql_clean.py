@@ -1787,8 +1787,13 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
             ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
                                                       gen_outD=osmD)
         elif ptrgenmode == "sharemax":
-            ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, inpdic=ismD, gen_zero=gen_zero_set,
-                                                       gen_outD=osmD)
+            ptroffsetter = torch.nn.Sequential(
+                torch.nn.Linear(dim, dim),
+                torch.nn.Tanh(),
+                torch.nn.Linear(dim, 1),
+            )
+            ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, ptr_offsetter=ptroffsetter,
+                                                       inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
         else:
             raise q.SumTingWongException("unknown ptrgenmode: {}".format(ptrgenmode))
         out = PtrGenOut(ptrgenout, worddic=osmD, automasker=automasker)
@@ -2235,7 +2240,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     validloader = q.dataload(*devdata, batch_size=batsize, shuffle=False)
     testloader = q.dataload(*testdata, batch_size=batsize, shuffle=False)
 
-    losses = q.lossarray(q.SeqCELoss(ignore_index=0, label_smoothing=labelsmoothing),
+    losses = q.lossarray(q.SeqKLLoss(ignore_index=0, label_smoothing=labelsmoothing),
                          q.SeqAccuracy(ignore_index=0))
 
     row2tree = lambda x: SqlNode.parse_sql(osm.pp(x))

@@ -226,11 +226,12 @@ class NLLLoss(DiscreteLoss):
         return logprobs, ignoremask
 
 
-class SeqCELoss(DiscreteLoss):
+class SeqKLLoss(DiscreteLoss):
     """ Straight implementation of cross-entropy loss for sequence prediction.
+        Same as Sequence cross-entropy if no label smoothing.
         To be used after torch.nn.Softmax() """
     def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None, label_smoothing=0., **kw):
-        super(SeqCELoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
+        super(SeqKLLoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
         assert(time_agg in "sum avg".split())
         self.time_agg = time_agg
         self.label_smoothing = label_smoothing
@@ -264,10 +265,11 @@ class SeqCELoss(DiscreteLoss):
         else:
             _gold = self.label_smoothing(gold, prob_mask)
 
-        log_probs = - torch.log(probs + (1 - prob_mask))
-        cross_entropies = log_probs * _gold
-        cross_entropies = cross_entropies * prob_mask
-        gold_log_probs = cross_entropies.sum(2)
+        log_probs = - (torch.log(probs + (1 - prob_mask)) - torch.log(_gold + (1 - prob_mask)))
+        # REMARK: (1 - prob_mask) is added before log() to ensure that no -inf's are there
+        kls = log_probs * _gold
+        kls = kls * prob_mask       # prob can be removed
+        gold_log_probs = kls.sum(2)
 
         seqlens = torch.tensor(seqlen).float()
         if ignoremask is not None:
