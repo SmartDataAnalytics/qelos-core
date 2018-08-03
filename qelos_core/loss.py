@@ -246,7 +246,7 @@ class SeqKLLoss(DiscreteLoss):
         assert(time_agg in "sum avg".split())
         self.time_agg = time_agg
         self.label_smoothing = label_smoothing
-        self.smooth_mix= smooth_mix
+        self.smooth_mix = smooth_mix
 
     def _forward(self, probs, gold, mask=None):
         if q.v(self.label_smoothing) > 0. or q.v(self.smooth_mix) > 0.:
@@ -268,7 +268,7 @@ class SeqKLLoss(DiscreteLoss):
         prob_mask = (probs > 0).float()    # (batsize, seqlen, vocsize)
         if isinstance(q.v(self.label_smoothing), float):
             lsv = q.v(self.label_smoothing)
-            assert(lsv > 0 and lsv <= 1)
+            assert(lsv >= 0 and lsv <= 1)
             prob_mask_weights = lsv / prob_mask.sum(2)
             _gold = torch.ones_like(probs) * prob_mask_weights.unsqueeze(2) * prob_mask     # masked uniform
             _gold.scatter_(2, gold.unsqueeze(2), (1 - lsv) + prob_mask_weights.unsqueeze(2))
