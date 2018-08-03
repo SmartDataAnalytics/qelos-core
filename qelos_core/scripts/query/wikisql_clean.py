@@ -1767,7 +1767,7 @@ def make_out_emb(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
 
 def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None, nocopy=False,
-                 rare_gwids=None, automasker=None, ptrgenmode="sepsum"):
+                 rare_gwids=None, automasker=None, ptrgenmode="sepsum", useoffset=False):
     print("MAKING OUT LIN")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
@@ -1790,12 +1790,14 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
             ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
                                                       gen_outD=osmD)
         elif ptrgenmode == "sharemax":
-            # ptroffsetter = torch.nn.Sequential(
-            #     torch.nn.Linear(dim, dim),
-            #     torch.nn.Tanh(),
-            #     torch.nn.Linear(dim, 1),
-            # )
-            ptroffsetter = None
+            if useoffset:
+                ptroffsetter = torch.nn.Sequential(
+                    torch.nn.Linear(dim, dim),
+                    torch.nn.Tanh(),
+                    torch.nn.Linear(dim, 1),
+                )
+            else:
+                ptroffsetter = None
             ptrgenout = q.PointerGeneratorOutSharedMax(osmD, out, ptr_offsetter=ptroffsetter,
                                                        inpdic=ismD, gen_zero=gen_zero_set, gen_outD=osmD)
         else:
@@ -2078,7 +2080,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot"):
+                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot", useoffset=False):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2176,7 +2178,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                                               colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
                                                                automasker=automasker,
-                                                               ptrgenmode=ptrgenmode)
+                                                               ptrgenmode=ptrgenmode, useoffset=useoffset)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
         return _inpemb, _outemb, _outlin, _encoder
