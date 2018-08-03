@@ -116,6 +116,29 @@ class WGAN(GAN):
         return - fake_score
 
 
+class WGAN_F(WGAN):
+    def __init__(self, critic, gen, featurer, gan_mode=None, mode="LP", lamda=5, **kw):
+        super(WGAN_F, self).__init__(critic, gen, featurer, gan_mode=gan_mode, mode=mode, lamda=lamda, **kw)
+        self.featurer = featurer
+
+    def forward_disc_train(self, x, z):
+        _x = self.featurer(x)
+        real_score = self.discriminator(_x)
+        fake = self.generator(z)
+        fake = fake.detach()
+        _fake = self.featurer(fake)
+        fake_score = self.discriminator(_fake)
+        loss = self.disc_loss(real_score, fake_score, _x, _fake)
+        return loss
+
+    def forward_gen_train(self, *z):
+        fake = self.generator(*z)
+        _fake = self.featurer(fake)
+        fake_score = self.discriminator(_fake)
+        loss = self.gen_loss(fake_score)
+        return loss
+
+
 class GANTrainer(q.LoopRunner, q.EventEmitter):
     START = 0
     END = 1

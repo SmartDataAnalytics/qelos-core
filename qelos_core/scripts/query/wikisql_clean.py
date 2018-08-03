@@ -2080,7 +2080,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot", useoffset=False):
+                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot",
+                   useoffset=False, smoothmix=0.):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2251,7 +2252,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
     validloader = q.dataload(*devdata, batch_size=batsize, shuffle=False)
     testloader = q.dataload(*testdata, batch_size=batsize, shuffle=False)
 
-    losses = q.lossarray(q.SeqKLLoss(ignore_index=0, label_smoothing=labelsmoothing),
+    losses = q.lossarray(q.SeqKLLoss(ignore_index=0, label_smoothing=labelsmoothing, smooth_mix=smoothmix),
                          q.SeqAccuracy(ignore_index=0))
 
     row2tree = lambda x: SqlNode.parse_sql(osm.pp(x))

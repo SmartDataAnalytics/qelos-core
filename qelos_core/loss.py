@@ -230,14 +230,26 @@ class SeqKLLoss(DiscreteLoss):
     """ Straight implementation of cross-entropy loss for sequence prediction.
         Same as Sequence cross-entropy if no label smoothing.
         To be used after torch.nn.Softmax() """
-    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None, label_smoothing=0., **kw):
+    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None,
+                 label_smoothing=0., smooth_mix=0., **kw):
+        """
+
+        :param time_agg:        aggregation over time: if "avg", then averages, "sum" sums
+        :param weight:          ?
+        :param size_average:    average over batch (True) or sum (False)
+        :param ignore_index:    which tokens in gold to ignore (mask)
+        :param label_smoothing: how much uniform label smoothing to perform (between 0 and 1) to get target distribution
+        :param smooth_mix:      how much to mix predictive distribution with target distribution
+        :param kw:
+        """
         super(SeqKLLoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
         assert(time_agg in "sum avg".split())
         self.time_agg = time_agg
         self.label_smoothing = label_smoothing
+        self.smooth_mix= smooth_mix
 
     def _forward(self, probs, gold, mask=None):
-        if q.v(self.label_smoothing) > 0.:
+        if q.v(self.label_smoothing) > 0. or q.v(self.smooth_mix) > 0.:
             return self._forward_smooth(probs, gold, mask=mask)
         else:
             return self._forward_normal(probs, gold, mask=mask)
@@ -264,6 +276,10 @@ class SeqKLLoss(DiscreteLoss):
                                np.ones((_gold.size(0), _gold.size(1)))))
         else:
             _gold = self.label_smoothing(gold, prob_mask)
+
+        if q.v(self.smooth_mix) > 0.:
+            smv = q.v(self.smooth_mix)
+            _gold = _gold * (1 - smv) + smv * probs
 
         log_probs = - (torch.log(probs + (1 - prob_mask)) - torch.log(_gold + (1 - prob_mask)))
         # REMARK: (1 - prob_mask) is added before log() to ensure that no -inf's are there
