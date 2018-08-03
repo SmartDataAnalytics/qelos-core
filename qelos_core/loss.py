@@ -272,14 +272,15 @@ class SeqKLLoss(DiscreteLoss):
             prob_mask_weights = lsv / prob_mask.sum(2)
             _gold = torch.ones_like(probs) * prob_mask_weights.unsqueeze(2) * prob_mask     # masked uniform
             _gold.scatter_(2, gold.unsqueeze(2), (1 - lsv) + prob_mask_weights.unsqueeze(2))
-            assert(np.allclose(_gold.sum(2).cpu().detach().numpy(),
-                               np.ones((_gold.size(0), _gold.size(1)))))
         else:
             _gold = self.label_smoothing(gold, prob_mask)
 
         if q.v(self.smooth_mix) > 0.:
             smv = q.v(self.smooth_mix)
-            _gold = _gold * (1 - smv) + smv * probs
+            _gold = _gold * (1 - smv) + smv * probs.detach()
+
+        assert(np.allclose(_gold.sum(2).cpu().detach().numpy(),
+                           np.ones((_gold.size(0), _gold.size(1)))))
 
         log_probs = - (torch.log(probs + (1 - prob_mask)) - torch.log(_gold + (1 - prob_mask)))
         # REMARK: (1 - prob_mask) is added before log() to ensure that no -inf's are there
