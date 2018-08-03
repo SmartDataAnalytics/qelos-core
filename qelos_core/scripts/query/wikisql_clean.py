@@ -2078,7 +2078,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                    wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules="no", ptrgenmode="sepsum", labelsmoothing=0.):
+                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot"):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2221,7 +2221,12 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         layers = [q.LSTMCell(decdims[i-1], decdims[i], dropout_in=dropout, dropout_rec=rdropout)
                   for i in range(1, len(decdims))]
         _core = torch.nn.Sequential(*layers)
-        _attention = q.DotAttention()
+        if attmode == "dot":
+            _attention = q.DotAttention()
+        elif attmode == "fwd":
+            _attention = q.FwdAttention(ctxdim=decdims[-1], qdim=decdims[-1], attdim=decdims[-1])
+        else:
+            raise q.SumTingWongException("unsupported attmode: {}".format(attmode))
         # _merger = torch.nn.Sequential(
         #     torch.nn.Linear(outlindim, outlindim),
         #     torch.nn.Tanh(),
