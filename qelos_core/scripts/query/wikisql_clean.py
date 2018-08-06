@@ -2085,7 +2085,6 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
-    raise q.SumTingWongException("qsdf")
     # region init
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_new")
