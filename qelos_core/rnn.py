@@ -540,8 +540,9 @@ class FreeDecoder(Decoder):
 
 
 class DynamicOracleDecoder(Decoder):
-    def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., **kw):
+    def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., maxtime=None, **kw):
         super(DynamicOracleDecoder, self).__init__(cell, **kw)
+        self.maxtime = maxtime
         self.mode = mode
         modere = re.compile("(\w+)-(\w+)")
         m = re.match(modere, mode)

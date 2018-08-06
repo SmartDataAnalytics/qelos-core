@@ -2095,7 +2095,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     model_save_path = os.path.join(logger.p, "model")
 
-    print("Seq2Seq + TF (clean)")
+    print("Seq2Seq + TF (new)")
     print("PyTorch initial seed: {}".format(torch.initial_seed()))
 
     device = torch.device("cpu")
@@ -2211,7 +2211,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
                 self.outlin.automasker.update_inpseq(inpseq)
                 self.outlin.automasker.update_coltypes(coltypes)
 
-            decoding = self.decoder(outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq, maxtime=osm.matrix.shape[1]-1)
+            decoding = self.decoder(outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
+                                    maxtime=osm.matrix.shape[1]-1)
             # TODO: why -1 in maxtime?
             # --? maybe because that's max we need to do, given that gold seqs are -1 in len
 
@@ -2235,7 +2236,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         #     torch.nn.Tanh(),
         # )
         _merger = None
-        decoder_cell = q.PointerGeneratorCell(emb=_outemb, core=_core, att=_attention, merge=_merger, out=_outlin)
+        decoder_cell = q.PointerGeneratorCell(emb=_outemb, core=_core, att=_attention, merge=_merger,
+                                              out=_outlin)
         train_decoder = q.TFDecoder(decoder_cell)
         valid_decoder = q.FreeDecoder(decoder_cell)
 
@@ -2363,10 +2365,12 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
                           wreg=0.0000000000001, gradnorm=5., useglove=True, gfrac=0.01,
                           cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                           tieembeddings=False, dorare=False,
-                          oraclemode="zerocost", selectcolfirst=False): # oraclemode: "zerocost" or "sample"
+                          oraclemode="zerocost", selectcolfirst=False,
+                          userules="no", ptrgenmode="sepsum", labelsmoothing=0.,
+                          useoffset=False,): # oraclemode: "zerocost" or "sample"
     # region init
     settings = locals().copy()
-    logger = q.Logger(prefix="wikisql_s2s_oracle_df_clean")
+    logger = q.Logger(prefix="wikisql_s2s_oracle_df_new")
     logger.save_settings(**settings)
     logger.update_settings(completed=False)
     print("LOGGER PATH: {}".format(logger.p))
@@ -2374,9 +2378,11 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
 
     model_save_path = os.path.join(logger.p, "model")
 
-    print("Seq2Seq + ORACLE (clean)")
+    print("Seq2Seq + ORACLE (new)")
     print("PyTorch initial seed: {}".format(torch.initial_seed()))
-    if cuda:    torch.cuda.set_device(gpu)
+
+    device = torch.device("cpu")
+    if cuda:    device = torch.device("cuda", gpu)
     tt = q.ticktock("script")
     # endregion
 
@@ -2400,6 +2406,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
 
     # region data
     ism, osm, cnsm, gwids, splits, e2cn = load_matrices()
+    column_types = load_coltypes()
     gwids._matrix = gwids.matrix * (gwids.matrix != gwids.D["<RARE>"])
     devstart, teststart = splits
     eids = np.arange(0, len(ism), dtype="int64")
@@ -2407,10 +2414,10 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
         osm = reorder_select(osm)
     # splits
     if test:    devstart, teststart, batsize = 200, 250, 50
-    datamats = [ism.matrix, osm.matrix, gwids.matrix, e2cn, eids]
-    traindata = [datamats[i][:devstart] for i in [0, 1, 2, 3, 4]]
-    devdata = [datamats[i][devstart:teststart] for i in [0, 1, 2, 3]]       # should be same as tf script
-    testdata = [datamats[i][teststart:] for i in [0, 1, 2, 3]]              # should be same as tf script
+    datamats = [ism.matrix, osm.matrix, gwids.matrix, e2cn, column_types, eids]
+    traindata = [datamats[i][:devstart] for i in [0, 1, 2, 3, 4, 5]]
+    devdata = [datamats[i][devstart:teststart] for i in [0, 1, 2, 3, 4]]       # should be same as tf script
+    testdata = [datamats[i][teststart:] for i in [0, 1, 2, 3, 4]]              # should be same as tf script
 
     rev_osm_D = {v: k for k, v in osm.D.items()}
     rev_gwids_D = {v: k for k, v in gwids.D.items()}
@@ -2424,23 +2431,29 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
 
     # oracle:
     tracker = make_tracker_df(osm)
-    oracle = make_oracle_df(tracker, mode=oraclemode)
+    # oracle = make_oracle_df(tracker, mode=oraclemode)
     # endregion
 
     # region submodules     # exactly the same as tf script
     def create_submodules():
-        _inpemb, inpbaseemb = make_inp_emb(inpembdim, ism, gwids, useglove=useglove, gdim=gdim, gfrac=gfrac,
+        _inpemb, inpbaseemb = make_inp_emb(inpembdim, ism.D, gwids.D, useglove=useglove, gdim=gdim, gfrac=gfrac,
                                            rare_gwids=rare_gwids_after_glove)
-        _outemb, inpbaseemb, colbaseemb, _ = make_out_emb(outembdim, osm, gwids, cnsm, gdim=gdim,
+        _outemb, inpbaseemb, colbaseemb, _ = make_out_emb(outembdim, osm.D, gwids.D, cnsm.D, gdim=gdim,
                                                           inpbaseemb=inpbaseemb, useglove=useglove, gfrac=gfrac,
                                                           rare_gwids=rare_gwids_after_glove)
         if not tieembeddings:
             inpbaseemb, colbaseemb = None, None
 
-        _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism, osm, gwids, cnsm,
+        automasker = None
+        if userules != "no":
+            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
+            automasker.test_only = userules == "test"
+        _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
-                                                              colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove)
+                                                              colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
+                                                               automasker=automasker,
+                                                               ptrgenmode=ptrgenmode, useoffset=useoffset)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
         return _inpemb, _outemb, _outlin, _encoder
@@ -2456,7 +2469,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
                 = _inpemb, _outemb, _outlin, _encoder, dec
             self.maxtime = maxtime
 
-        def forward(self, inpseq, outseq_starts, inpseqmaps, colnames, eids=None, maxtime=None):
+        def forward(self, inpseq, outseq_starts, inpseqmaps, colnames, coltypes, eids=None, maxtime=None):
             maxtime = self.maxtime if maxtime is None else maxtime
             # encoding
             self.inpemb.prepare(inpseqmaps)
@@ -2468,10 +2481,14 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
 
             # decoding
             self.outemb.prepare(inpseqmaps, colnames)
-            self.outlin.prepare(inpseq, inpenc, inpseqmaps, colnames)
+            self.outlin.prepare(inpseqmaps, colnames)
 
-            decoding = self.decoder(outseq_starts, ctx=ctx, ctx_0=ctx[:, -1, :],
-                                    ctxmask=inpmask, eids=eids, maxtime=maxtime)
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update_inpseq(inpseq)
+                self.outlin.automasker.update_coltypes(coltypes)
+
+            decoding = self.decoder((eids, outseq_starts), ctx=ctx,
+                                    ctx_mask=inpmask, maxtime=maxtime)
 
             return decoding
     # endregion
@@ -2481,34 +2498,27 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
         _inpemb, _outemb, _outlin, _encoder = create_submodules()
         layers = [q.LSTMCell(decdims[i - 1], decdims[i], dropout_in=dropout, dropout_rec=rdropout)
                   for i in range(1, len(decdims))]
-        decoder_top = q.AttentionContextDecoderTop(q.Attention().dot_gen(),
-                                                   q.Dropout(edropout),
-                                                   _outlin, ctx2out=False)
-        decoder_core = q.DecoderCore(_outemb, *layers)
-        decoder_cell = q.ModularDecoderCell(decoder_core, decoder_top)
-        decoder_cell.set_runner(oracle)                 # change from TF script
-        decoder = decoder_cell.to_decoder()
+        _core = torch.nn.Sequential(*layers)
+        _attention = q.DotAttention()
+        _merger = None
+        decoder_cell = q.PointerGeneratorCell(emb=_outemb, core=_core, att=_attention, merge=_merger, out=_outlin)
+        train_decoder = q.DynamicOracleDecoder(decoder_cell, tracker=tracker, mode=oraclemode)
+        valid_decoder = q.FreeDecoder(decoder_cell)
 
-        _m = EncDec(_inpemb, _outemb, _outlin, _encoder, decoder)  # ONLY USE FOR TRAINING !!!
-
-        valid_decoder_cell = q.ModularDecoderCell(decoder_core, decoder_top)
-        valid_decoder_cell.set_runner(q.FreeRunner())
-        valid_decoder = valid_decoder_cell.to_decoder()
-
-        _valid_m = EncDec(_inpemb, _outemb, _outlin, _encoder,
-                          valid_decoder, maxtime=osm.matrix.shape[1]-1)  # use for valid -- change from TF script
-                    # change from original oracle script: added -1 to have same maxtime as TF script --> don't need out_bt
+        _m = EncDec(_inpemb, _outemb, _outlin, _encoder, train_decoder)
+        _valid_m = EncDec(_inpemb, _outemb, _outlin, _encoder, valid_decoder)
         return _m, _valid_m
+
     m, valid_m = create_train_and_test_models()
     # TODO: verify that valid_m doesn't get something wrong !
     # endregion
 
     # region training preparation
-    trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True)
+    trainloader = q.dataload(*traindata, batch_size=batsize, shuffle=True if not test else False)
     validloader = q.dataload(*devdata, batch_size=batsize, shuffle=False)
     testloader = q.dataload(*testdata, batch_size=batsize, shuffle=False)
 
-    losses = q.lossarray(q.SeqCrossEntropyLoss(ignore_index=0),
+    losses = q.lossarray(q.SeqKLLoss(ignore_index=0, label_smoothing=labelsmoothing),
                          q.SeqAccuracy(ignore_index=0))
 
     row2tree = lambda x: SqlNode.parse_sql(osm.pp(x))
@@ -2519,15 +2529,15 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
     logger.update_settings(optimizer="adam")
     optim = torch.optim.Adam(q.paramgroups_of(m), lr=lr, weight_decay=wreg)
 
-    def inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, eids):
+    def inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes, eids):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = q.var(colnames).cuda(colnameids).v
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, eids, eids
+        colnames = torch.tensor(colnames).to(colnameids.device)
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes, eids, eids
 
-    def valid_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
+    def valid_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = q.var(colnames).cuda(colnameids).v
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, osmbatch[:, 1:]
+        colnames = torch.tensor(colnames).to(colnameids.device)
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes, osmbatch[:, 1:]
 
     # old script had gold return whole seq but used valid_gold_bt to remove first element
 
@@ -2535,7 +2545,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
         return _out[:, :-1, :]
 
     def gold_bt(_eids):
-        return torch.stack(oracle.goldacc, 1)
+        return torch.stack(m.decoder.goldacc, 1)
 
     # saving best model
     best_saver = BestSaver(lambda: validlosses.get_agg_errors()[1],
@@ -2543,11 +2553,12 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
     # endregion
 
     # region training
-    q.train(m).train_on(trainloader, losses) \
-        .optimizer(optim).clip_grad_norm(gradnorm).set_batch_transformer(inp_bt, out_bt, gold_bt) \
-        .valid_with(valid_m).valid_on(validloader, validlosses).set_valid_batch_transformer(valid_inp_bt, None, None) \
-        .cuda(cuda).hook(logger).hook(best_saver) \
-        .train(epochs)
+    clip_grad_norm = q.ClipGradNorm(gradnorm)
+    trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).set_batch_transformer(inp_bt, out_bt, gold_bt)\
+        .device(device).hook(clip_grad_norm)
+    validator = q.tester(valid_m).on(validloader).loss(validlosses).set_batch_transformer(valid_inp_bt)\
+        .device(device).hook(best_saver)
+    q.train(trainer, validator).log(logger).run(epochs=epochs)
     logger.update_settings(completed=True)
     # endregion
 
@@ -2565,24 +2576,24 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
     finalvalidlosses = q.lossarray(q.SeqAccuracy(ignore_index=0),
                               TreeAccuracy(ignore_index=0, treeparser=row2tree))
 
-    valid_results = q.test(test_m).on(validloader, finalvalidlosses)\
-        .set_batch_transformer(valid_inp_bt).cuda(cuda).run()
+    valid_results = q.tester(test_m).on(validloader).loss(finalvalidlosses)\
+        .set_batch_transformer(valid_inp_bt).device(device).run()
     print("DEV RESULTS:")
     print(valid_results)
     logger.update_settings(valid_seq_acc=valid_results[0], valid_tree_acc=valid_results[1])
     if not test:
-        test_results = q.test(test_m).on(testloader, testlosses)\
-            .set_batch_transformer(valid_inp_bt).cuda(cuda).run()
+        test_results = q.tester(test_m).on(testloader).loss(testlosses)\
+            .set_batch_transformer(valid_inp_bt).device(device).run()
         print("TEST RESULTS:")
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids):
+    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = q.var(colnames).cuda(colnameids).v
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, None
+        colnames = torch.tensor(colnames).to(colnameids.device)
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                               inp_bt=test_inp_bt, batsize=batsize, cuda=cuda,
+                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
                                                savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion
