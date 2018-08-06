@@ -2,16 +2,25 @@ import torch
 import qelos_core as q
 from torch import nn
 import numpy as np
+import re
 
 EPS = 1e-6
 
 
 class Penalty(torch.nn.Module):
-    """ reference implementation only, doesn't take into account ignoremasks or other masks """
-    def __init__(self, size_average=True, **kw):
+    """ Reference implementation only, doesn't take into account ignoremasks or other masks.
+        To use penalties, must do gather_penalties() first and enable penalties
+            by setting their weights to positive nonzero. """
+
+    __pp_name__ = "P"
+
+    def __init__(self, name=None, size_average=True, weight=0., **kw):
         super(Penalty, self).__init__(**kw)
         self.size_average = size_average
         self.acc = None
+        self.name = name
+        assert(weight >= 0)
+        self.weight = weight
 
     def forward(self, x):
         self.add(x)
@@ -22,17 +31,41 @@ class Penalty(torch.nn.Module):
             self.acc = torch.zeros_like(x)
         self.acc += x
 
-    def get_penalty(self):
+    def get_value(self):
         ret = self.acc.sum()
         if self.size_average:
             ret = ret / self.acc.size(0)
         return ret
+
+    def get_penalty(self):
+        """ Get weighted penalty value. Used by trainer. """
+        value = torch.tensor(0.)
+        if self.weight > 0.:
+            value = self.get_value() * self.weight
+        return value
 
     def reset(self):
         self.acc = None
 
     def batch_reset(self):
         self.reset()
+
+
+def gather_penalties(m, subtype=None, name=None):
+    for module in m.modules():
+        if isinstance(module, Penalty):
+            yieldit = True
+            if subtype is None or (isinstance(module, subtype)):
+                yieldit = yieldit
+            else:
+                yieldit = False
+            if name is None or (module.name is not None and re.match(name, module.name)):
+                yieldit = yieldit
+            else:
+                yieldit = False
+
+            if yieldit:
+                yield module
 
 
 # TODO: REWRITE PROPERLY IN QELOS-CORE

@@ -1252,6 +1252,16 @@ class ColnameEncoder(torch.nn.Module):
 
 
 class OutvecComputer(DynamicVecPreparer):
+    """ This is a DynamicVecPreparer used for both output embeddings and output layer.
+        To be created, needs:
+         * syn_emb:         normal syntax embedder_syn_embs.shape
+         * syn_trans:       normal syntax trans - if sliced with osm.D ids, return ids to use with syn_emb in .prepare()
+         * inpbaseemb:      embedder for input words
+         * inp_trans:       input words trans - if sliced with osm.D ids, return ids to use with inpbaseemb and inpmaps in .prepare()
+         * colencoder:      encoder for column names
+         * col_trans:       column names trans
+         * worddic:         dictionary of output symbols (synids, colids, uwids) = osm.D
+    """
     def __init__(self, syn_emb, inpbaseemb, colencoder, worddic,
                  syn_scatter, inp_scatter, col_scatter,
                  rare_gwids=None):
@@ -1275,6 +1285,9 @@ class OutvecComputer(DynamicVecPreparer):
             self.inpemb_trans = None
 
     def prepare(self, inpmaps, colnames):
+        """ inpmaps (batsize, num_uwids) contains mapping from uwids to gwids for every example = batch from gwids matrix
+            colnames (batsize, numcols, colnamelen) contains colnames for every example
+        """
         batsize = inpmaps.size(0)
         syn_ids = torch.arange(0, self.syn_scatter.size(0), device=inpmaps.device, dtype=torch.int64)
         inp_ids = torch.arange(0, self.inp_scatter.size(0), device=inpmaps.device, dtype=torch.int64)
@@ -1309,172 +1322,6 @@ class OutvecComputer(DynamicVecPreparer):
         out_mask.scatter_(1, self.syn_scatter.unsqueeze(0).repeat(batsize, 1), syn_mask.float())
 
         return out_embs, out_mask
-
-
-class OutVecComputer(DynamicVecPreparer):
-    """ This is a DynamicVecPreparer used for both output embeddings and output layer.
-        To be created, needs:
-         * syn_emb:         normal syntax embedder_syn_embs.shape
-         * syn_trans:       normal syntax trans - if sliced with osm.D ids, return ids to use with syn_emb in .prepare()
-         * inpbaseemb:      embedder for input words
-         * inp_trans:       input words trans - if sliced with osm.D ids, return ids to use with inpbaseemb and inpmaps in .prepare()
-         * colencoder:      encoder for column names
-         * col_trans:       column names trans
-         * worddic:         dictionary of output symbols (synids, colids, uwids) = osm.D
-    """
-    def __init__(self, syn_emb, syn_trans, inpbaseemb, inp_trans,
-                 colencoder, col_trans, worddic, colzero_to_inf=False,
-                 rare_gwids=None, scatters=None):
-        super(OutVecComputer, self).__init__()
-        self.syn_emb = syn_emb
-        self.syn_trans = syn_trans
-        self.inp_emb = inpbaseemb
-        self.inp_trans = inp_trans
-        self.col_enc = colencoder
-        self.col_trans = col_trans
-        self.D = worddic
-        self.colzero_to_inf = colzero_to_inf        # TODO: this is not used
-
-        # initialize rare vec to rare vector from syn_emb
-        self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].data)
-        self.rare_gwids = rare_gwids
-
-        if self.inp_emb.vecdim != self.syn_emb.vecdim:
-            print("USING LIN ADAPTER in OUT")
-            self.inpemb_trans = torch.nn.Linear(self.inp_emb.vecdim, self.syn_emb.vecdim, bias=False)
-        else:
-            self.inpemb_trans = None
-
-        # DEBUG
-        kwkw = {"rare_gwids": rare_gwids}
-        self.alt = OutvecComputer(syn_emb, inpbaseemb, colencoder, worddic, *scatters, **kwkw)
-        self.alt.inpemb_trans = self.inpemb_trans
-        self.alt.rare_vec = self.rare_vec
-
-    def prepare(self, inpmaps, colnames):
-        """ inpmaps (batsize, num_uwids) contains mapping from uwids to gwids for every example = batch from gwids matrix
-            colnames (batsize, numcols, colnamelen) contains colnames for every example
-        """
-        alt_ret, alt_mask = self.alt.prepare(inpmaps, colnames)     # DEBUG
-
-        x = torch.arange(0, len(self.D), device=inpmaps.device, dtype=torch.int64)      # prepare for all possible input tokens (from osm.D)
-        batsize = inpmaps.size(0)
-
-        # region syntax words
-        _syn_ids = self.syn_trans[x]            # maps input ids to syn ids
-        # computes vectors and mask for syn ids from input
-        _syn_embs, _syn_mask = self.syn_emb(_syn_ids.unsqueeze(0).repeat(batsize, 1))
-        # _syn_mask[:, 0] = 1     # <MASK> is always a choice
-        # repeat(batsize, 1) because syn embs are same across examples
-        #   --> produces (batsize, vocsize) indexes that are then embedded to (batsize, vocsize, embdim)
-        # endregion
-
-        # region input words --> used in output embedding but normally overridden by BFOL for output scores
-        _inp_ids = self.inp_trans[x]            # maps input ids to uwid numbers
-        # gets gwids for uwids using inpmaps (=batch from gwids)
-        transids = torch.gather(inpmaps, 1, _inp_ids.unsqueeze(0).repeat(batsize, 1))       # in gwids
-        # repeat(batsize, 1) because mapping from input ids to uwid number is same across all examples
-        #   --> produces (batsize, vocsize) matrix of uwid numbers
-        #           that are then used to gather to (batsize, vocsize) matrix of gwid ids
-
-        # embeds retrieved gwids using provided inpbaseemb
-        _inp_embs, _inp_mask = self.inp_emb(transids)               # inp_emb embeds gwids
-        # if expected vector size doesn't match inpemb vector size, apply linear transform to adapt
-        if self.inpemb_trans is not None:
-            _inp_embs = self.inpemb_trans(_inp_embs)
-        _inp_embs = replace_rare_gwids_with_rare_vec(_inp_embs, transids, self.rare_gwids, self.rare_vec)
-        # _inp_mask should zero out _inp_embs if there is something wrong in rare vec replacement -> TEST!
-        # endregion
-
-        # region column names
-        _colencs, _col_mask = self.col_enc(colnames)        # encode given column names
-        _col_ids = self.col_trans[x]                        # map input ids to col ids
-        _col_ids = _col_ids.unsqueeze(0).repeat(batsize, 1) # mapped col ids are shared across all examples
-        # ???
-        _col_trans_mask = (_col_ids > -1).long()            # where is col_id not mask
-        _col_ids += (1 - _col_trans_mask)                   # inc colids where col_id is mask
-        _col_mask = torch.gather(_col_mask, 1, _col_ids)
-        _col_ids = _col_ids.unsqueeze(2).repeat(1, 1, _colencs.size(2))     # because colens are (batsize, numcols, embdim)
-
-        _col_embs = torch.gather(_colencs, 1, _col_ids)     # gather the right column ids for every example --> (batsize, vocsize, embdim)
-        _col_mask = _col_mask.float() * _col_trans_mask.float()
-        # endregion
-
-        # _col_mask = _col_mask.float() - _inp_mask.float() - _syn_mask.float()
-
-        # region combine
-        _totalmask = _syn_mask.float() + _inp_mask.float() + _col_mask.float()
-
-        assert (np.all(_totalmask.cpu().detach().numpy() < 2))
-
-        # _col_mask = (x > 0).float() - _inp_mask.float() - _syn_mask.float()
-
-        # merge --> (batsize, vocsize, embdim)
-        ret =   _syn_embs * _syn_mask.float().unsqueeze(2) \
-              + _inp_embs * _inp_mask.float().unsqueeze(2) \
-              + _col_embs * _col_mask.float().unsqueeze(2)
-
-        # endregion
-        # _pp = osm.pp(x.cpu().data.numpy())
-        return ret, _totalmask
-
-
-class BFOL(DynamicWordLinout):
-    """ Implements pointer-based scores over uwids, overrides uwid scores produced by OutVecComputer() """
-    def __init__(self, computer=None, worddic=None, ismD=None, inp_trans=None, nocopy=False):
-        """ computer is an OutVecComputer() """
-        super(BFOL, self).__init__(computer=computer, worddic=worddic)
-        self.inppos2uwid = None     # maps positions in the input to uwids
-        self.inpenc = None
-        self.ismD = ismD
-        self.inp_trans = inp_trans
-        self.nocopy = nocopy
-
-    def prepare(self, inpseq, inpenc, *xdata):
-        """ inpseq: (batsize, seqlen) """
-        super(BFOL, self).prepare(*xdata)
-        inppos2uwid = q.var(torch.zeros(inpseq.size(0), inpseq.size(1), len(self.ismD))).cuda(inpseq).v
-        inppos2uwid.data.scatter_(2, inpseq.unsqueeze(2).data, 1)
-        inppos2uwid.data[:, :, 0] = 0
-        # inppos2uwid = torch.log(inppos2uwid)+1
-        self.inppos2uwid = inppos2uwid
-        self.inpenc = inpenc
-
-    def _forward(self, x):
-        ret, rmask = super(BFOL, self)._forward(x)
-        if self.nocopy is True:
-            # just outveccomputer results
-            return ret, rmask
-
-        xshape = x.size()
-        if len(xshape) == 2:
-            x = x.unsqueeze(1)
-
-        # compute scores over input positions
-        # x will be twice the size of inpenc -> which part of x to take???
-        compx = x[:, :, :x.size(2) // 2]  # slice out first half, which is y_t (not ctx_t)
-        scores = torch.bmm(compx, self.inpenc.transpose(2, 1))      # re-apply attention
-
-        # translate scores over input positions to scores over uwids
-        inppos2uwid = self.inppos2uwid[:, :scores.size(-1), :]  # in case input matrix shrank because of seq packing
-        offset = (torch.min(scores) - 1000).data[0]
-        umask = (inppos2uwid == 0).float()
-        uwid_scores = scores.transpose(2, 1) * inppos2uwid
-        uwid_scores = uwid_scores + offset * umask
-
-        # take max scores
-        uwid_scores, _ = torch.max(uwid_scores, 1)
-        uwid_scores_mask = (inppos2uwid.sum(1) > 0).float()  # (batsize, #uwid)
-
-        # replace old scores over uwids with the just computed pointer-based scores over uwids
-        sel_uwid_scores = uwid_scores.index_select(1, self.inp_trans)
-        sel_uwid_scores_mask = uwid_scores_mask.index_select(1, self.inp_trans)
-        # the zeros in seluwid mask for those uwids should already be there in rmask
-        rret = ret * (1 - sel_uwid_scores_mask) + sel_uwid_scores_mask * sel_uwid_scores
-        if len(xshape) == 2:
-            rret = rret.squeeze(1)
-        # assert(((rret != 0.).float() - rmask.float()).norm().cpu().data[0] == 0)
-        return rret, rmask
 
 
 class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
@@ -1921,18 +1768,6 @@ def reorder_select(osm):
     return osm
 
 
-def make_oracle_df(tracker, mode=None):
-    ttt = q.ticktock("oracle maker")
-    print("oracle mode: {}".format(mode))
-    oracle = q.DynamicOracleRunner(tracker=tracker,
-                                   mode=mode,
-                                   explore=0.)
-
-    if _opt_test:
-        print("TODO: oracle tests")
-    return oracle
-
-
 def get_output(model, data, origquestions, batsize=100, inp_bt=None, device=torch.device("cpu"),
                rev_osm_D=None, rev_gwids_D=None):
     """ takes a model (must be freerunning !!!) """
@@ -2073,14 +1908,14 @@ def tst_reconstruct_save_reload_and_eval():
 # endregion
 
 
-# python wikisql_seq2seq_tf_df.py -lr 0.001 -gdim 300 -dim 600 -numlayers 2 -dropout 0.2 -rdropout 0.1 -idropout 0.2 -irdropout 0.1 -gfrac 0.0 -cuda -gpu 0 -epochs 50 -ptrgenmode sharemax -dorare
-def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
-                   inpembdim=50, outembdim=50, innerdim=100, numlayers=1, dim=-1, gdim=-1,
-                   dropout=0.2, rdropout=0.1, edropout=0., idropout=0., irdropout=0.,
-                   wreg=0.000000000001, gradnorm=5., useglove=True, gfrac=0.01,
+# python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 35 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0
+def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
+                   inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
+                   dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1,
+                   wreg=1e-14, gradnorm=5., useglove=True, gfrac=0.,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
-                   userules="no", ptrgenmode="sepsum", labelsmoothing=0., attmode="dot",
+                   userules="no", ptrgenmode="sharemax", labelsmoothing=0., attmode="dot",
                    useoffset=False, smoothmix=0.):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
@@ -2347,18 +2182,18 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
-        colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
-    dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
-                                               savedir=logger.p, test=test)
+        def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
+            colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
+            colnames = torch.tensor(colnames).to(colnameids.device)
+            return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
+        dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
+                                                   inp_bt=test_inp_bt, batsize=batsize, device=device,
+                                                   savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion
 
 
-def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
+def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                           inpembdim=50, outembdim=50, innerdim=100, numlayers=1, dim=-1, gdim=-1,
                           dropout=0.2, rdropout=0.1, edropout=0., idropout=0., irdropout=0.,
                           wreg=0.0000000000001, gradnorm=5., useglove=True, gfrac=0.01,

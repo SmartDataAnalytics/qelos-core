@@ -519,8 +519,19 @@ class trainer(EventEmitter, AutoHooker):
         cost = trainlosses[0]
 
         if torch.isnan(cost).any():
-            print("A NaN occured!")
+            print("Cost is NaN!")
             q.embed()
+
+        penalties = 0.
+        penalty_values = {}
+        for penalty_module in q.gather_penalties(self.model):
+            pen = penalty_module.get_penalty()
+            penalties = penalties + pen
+            if type(penalty_module) not in penalty_values:
+                penalty_values[type(penalty_module)] = 0.
+            penalty_values[type(penalty_module)] += pen.detach().item()
+
+        cost = cost + penalties
 
         cost.backward()
 
@@ -535,6 +546,8 @@ class trainer(EventEmitter, AutoHooker):
                     len(self.dataloader),
                     self.losses.pp(),
                     )
+        if len(penalty_values) > 0:
+            ttmsg += " " + " ".join(["+{}={:.4f}".format(k.__pp_name__, v) for k, v in penalty_values.items()])
         self.do_callbacks(self.END_BATCH)
         return ttmsg
 
