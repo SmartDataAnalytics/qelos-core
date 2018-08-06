@@ -9,6 +9,7 @@ import sys
 from datetime import datetime as dt
 import pickle
 import nltk
+import traceback
 
 import numpy as np
 import unidecode
@@ -479,15 +480,31 @@ def argprun(f, sigint_shell=True, **kwargs):   # command line overrides kwargs
         f(**f_args)
 
         try:
-            from pygame import mixer
+            with open(os.devnull, 'w') as f:
+                oldstdout = sys.stdout
+                sys.stdout = f
+                from pygame import mixer
+                sys.stdout = oldstdout
             mixer.init()
-            mixer.music.load(os.path.join(os.path.dirname(__file__), "../resources/fwhoop.mp3"))
+            mixer.music.load(os.path.join(os.path.dirname(__file__), "../resources/jubilation.mp3"))
             mixer.music.play()
         except Exception as e:
-            print(e)
             pass
     except KeyboardInterrupt as e:
         print("Interrupted by Keyboard")
+    except Exception as e:
+        traceback.print_exc()
+        try:
+            with open(os.devnull, 'w') as f:
+                oldstdout = sys.stdout
+                sys.stdout = f
+                from pygame import mixer
+                sys.stdout = oldstdout
+            mixer.init()
+            mixer.music.load(os.path.join(os.path.dirname(__file__), "../resources/job-done.mp3"))
+            mixer.music.play()
+        except Exception as e:
+            pass
 
 
 def inp():
