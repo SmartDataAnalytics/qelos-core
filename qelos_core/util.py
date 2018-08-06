@@ -478,7 +478,15 @@ def argprun(f, sigint_shell=True, **kwargs):   # command line overrides kwargs
                 f_args[k] = v
         f(**f_args)
 
-    except KeyboardInterrupt:
+        try:
+            from pygame import mixer
+            mixer.init()
+            mixer.music.load(os.path.join(os.path.dirname(__file__), "../resources/fwhoop.mp3"))
+            mixer.music.play()
+        except Exception as e:
+            print(e)
+            pass
+    except KeyboardInterrupt as e:
         print("Interrupted by Keyboard")
 
 

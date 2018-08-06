@@ -540,10 +540,11 @@ class FreeDecoder(Decoder):
 
 
 class DynamicOracleDecoder(Decoder):
-    def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., maxtime=None, **kw):
+    def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., maxtime=None, softmax=None, **kw):
         super(DynamicOracleDecoder, self).__init__(cell, **kw)
         self.maxtime = maxtime
         self.mode = mode
+        self.sm = softmax
         modere = re.compile("(\w+)-(\w+)")
         m = re.match(modere, mode)
         if m:
@@ -587,8 +588,8 @@ class DynamicOracleDecoder(Decoder):
         :return:
         """
         # q.rec_reset(self.cell)
-        assert(q.issequence(xs) and len(xs) >= 2)
-        eids, xs = xs[0], xs[1:]
+        assert(q.issequence(xs) and len(xs) == 2)
+        eids, xs = xs
         maxtime = maxtime if maxtime is not None else self.maxtime
         x_is_seq = True
         if not q.issequence(xs):
@@ -613,12 +614,18 @@ class DynamicOracleDecoder(Decoder):
             else:
                 outs_t = (outs_t,)
             outs.append(outs_t)
-            if self.check_terminate():
+            if self.check_terminate(eids):
                 break
         outs = zip(*outs)
         outs = tuple([torch.cat([a_i.unsqueeze(1) for a_i in a], 1) for a in outs])
         outs = outs[0] if not out_is_seq else outs
         return outs
+
+    def check_terminate(self, eids):
+        eids = eids.cpu().detach().numpy()
+        _terminates = [self.tracker.is_terminated(eid) for eid in eids]
+        _terminate = all(_terminates)
+        return _terminate
 
     def _get_xs_and_gs_from_ys(self, ys, eids):
         eids = eids.cpu().detach().numpy()
@@ -637,10 +644,10 @@ class DynamicOracleDecoder(Decoder):
             ymask[i, list(validnext)] = 1.
 
         # get probs
-        _y_t = y_t + torch.log(ymask)
-        goldprobs = self.sm(_y_t)
+        goldprobs = self.sm(y_t) if self.sm is not None else y_t
+        goldprobs = goldprobs * ymask
 
-        assert(not self.training)
+        assert(self.training)
 
         if self.mode in "zerocost nocost".split():
             _, y_best = y_t.max(1)          # argmax from all
@@ -680,7 +687,7 @@ class DynamicOracleDecoder(Decoder):
                 else:
                     x_t = _sample_using_mode(goldprobs, ymask, self.next_mode)
             else:
-                raise NotImplemented("exporing not supported")
+                raise NotImplemented("exploring not supported")
 
         # update tracker
         for x_t_e, eid, gold_t_e in zip(x_t.cpu().detach().numpy(), eids, gold_t.cpu().detach().numpy()):

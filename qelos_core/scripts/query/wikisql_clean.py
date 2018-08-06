@@ -2188,11 +2188,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=100,
 
     # region encoder-decoder definition
     class EncDec(torch.nn.Module):
-        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec, maxtime=None):
+        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec):
             super(EncDec, self).__init__()
             self.inpemb, self.outemb, self.outlin, self.encoder, self.decoder \
                 = _inpemb, _outemb, _outlin, _encoder, dec
-            self.maxtime = maxtime
 
         def forward(self, inpseq, outseq, inpseqmaps, colnames, coltypes):
             # encoding
@@ -2463,14 +2462,12 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
     # region encoder decoder definitions
     # -- changes from TF script: added maxtime on class itself, forward additionally takes eids and maxtime
     class EncDec(torch.nn.Module):
-        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec, maxtime=None):
+        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec):
             super(EncDec, self).__init__()
             self.inpemb, self.outemb, self.outlin, self.encoder, self.decoder \
                 = _inpemb, _outemb, _outlin, _encoder, dec
-            self.maxtime = maxtime
 
-        def forward(self, inpseq, outseq_starts, inpseqmaps, colnames, coltypes, eids=None, maxtime=None):
-            maxtime = self.maxtime if maxtime is None else maxtime
+        def forward(self, inpseq, outseq_starts, inpseqmaps, colnames, coltypes, eids=None):
             # encoding
             self.inpemb.prepare(inpseqmaps)
             _inpembs, _inpmask = self.inpemb(inpseq)
@@ -2487,8 +2484,9 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
                 self.outlin.automasker.update_inpseq(inpseq)
                 self.outlin.automasker.update_coltypes(coltypes)
 
-            decoding = self.decoder((eids, outseq_starts), ctx=ctx,
-                                    ctx_mask=inpmask, maxtime=maxtime)
+            decinp = (eids, outseq_starts) if eids is not None else outseq_starts
+            decoding = self.decoder(decinp, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
+                                    maxtime=osm.matrix.shape[1]-1)
 
             return decoding
     # endregion
@@ -2542,7 +2540,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
     # old script had gold return whole seq but used valid_gold_bt to remove first element
 
     def out_bt(_out):
-        return _out[:, :-1, :]
+        return _out     #[:, :-1, :]
 
     def gold_bt(_eids):
         return torch.stack(m.decoder.goldacc, 1)
@@ -2588,13 +2586,13 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=100,
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
-        colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-        colnames = torch.tensor(colnames).to(colnameids.device)
-        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
-    dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
-                                               savedir=logger.p, test=test)
+        def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
+            colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
+            colnames = torch.tensor(colnames).to(colnameids.device)
+            return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
+        dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
+                                                   inp_bt=test_inp_bt, batsize=batsize, device=device,
+                                                   savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion
 
