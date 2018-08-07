@@ -2088,8 +2088,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             slot_ptr_addrs = self.slot_ptr_sm(slot_ptr_scores)
             slot_ptr_one = (ctx * slot_ptr_addrs[:, :, 0:1]).sum(1)
             slot_ptr_two = (ctx * slot_ptr_addrs[:, :, 1:2]).sum(1)
-            slot_ptr_one = torch.cat([slot_ptr_one, self.slot_ptr_addr_lin.weight[0, :].unsqueeze(0).repeat(inpseq.size(0), 1)], 1)
-            slot_ptr_two = torch.cat([slot_ptr_two, self.slot_ptr_addr_lin.weight[1, :].unsqueeze(0).repeat(inpseq.size(0), 1)], 1)
+            slot_ptr_one = torch.cat([self.slot_ptr_addr_lin.weight[0, :].unsqueeze(0).repeat(inpseq.size(0), 1),
+                                      slot_ptr_one], 1)
+            slot_ptr_two = torch.cat([self.slot_ptr_addr_lin.weight[1, :].unsqueeze(0).repeat(inpseq.size(0), 1),
+                                      slot_ptr_two], 1)
             # endregion
 
             # region prefix probs
@@ -2157,7 +2159,6 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         valid_decoder = q.FreeDecoder(decoder_cell)
 
         if useslotptr:
-            EncDecClass = EncDecSlotPtr
             _m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, train_decoder)  # ONLY USE FOR TRAINING !!!
             _valid_m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, valid_decoder)  # use for valid
             _valid_m.has_cond_pred = _m.has_cond_pred
