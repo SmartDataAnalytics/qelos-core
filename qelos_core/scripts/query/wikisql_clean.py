@@ -2082,6 +2082,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                 self.outlin.automasker.update_inpseq(inpseq)
                 self.outlin.automasker.update_coltypes(coltypes)
 
+            # region predicting separately
             # region slot ptr
             slot_ptr_scores = self.slot_ptr_addr_lin(ctx)
             slot_ptr_scores = slot_ptr_scores + torch.log(inpmask.unsqueeze(2).float())
@@ -2120,6 +2121,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                 where_outseq = prefix_probs[:, 3].max(1)[1]
             else:
                 where_outseq = outseq[:, 5:]
+
             where_decoding = self.decoder(where_outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
                                     maxtime=osm.matrix.shape[1]-6)
             # endregion
@@ -2129,6 +2131,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                                   torch.stack([select_arg_one_probs, select_arg_two_probs], 1),
                                   prefix_probs[:, 3:4] * has_cond + prefix_probs[:, 4:5] * (1 - has_cond),
                                   where_decoding], 1)
+            # endregion
             return outprobs
     # endregion
 
