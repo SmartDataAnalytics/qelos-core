@@ -118,29 +118,33 @@ class PointerGeneratorOutSeparate(PointerGeneratorOut):
         out_probs_gen = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
         out_probs_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_probs)
 
+        if scores is not None:
         # region masks
-        if mask is not None:
-            # mask is on outdic --> transform to inpdic --> transform to inp seq (!=inpdic)
-            inp_mask = torch.gather(mask, 1, self.inp_to_out.repeat(batsize, 1))
-            inp_mask = torch.gather(inp_mask, 1, ctx_inp[:, :scores.size(1)])
-            scores = scores + torch.log(inp_mask.float())
+            if mask is not None:
+                # mask is on outdic --> transform to inpdic --> transform to inp seq (!=inpdic)
+                inp_mask = torch.gather(mask, 1, self.inp_to_out.repeat(batsize, 1))
+                inp_mask = torch.gather(inp_mask, 1, ctx_inp[:, :scores.size(1)])
+                scores = scores + torch.log(inp_mask.float())
 
-        inp_infty_mask = (scores != -float("inf")).float().sum(1).unsqueeze(1) == 0
-        if inp_infty_mask.any().cpu().item() == 1:  # if any gen scores became all-neg-infinite
-            assert(((gen_infty_mask.float() + inp_infty_mask.float()) < 2).all().cpu().item() == 1)
-            interp = interp * (1 - inp_infty_mask.float()) + inp_infty_mask.float() * torch.ones_like(interp)
-            scores = torch.gather(
-                torch.cat([scores.unsqueeze(2), torch.ones_like(scores).unsqueeze(2)], 2),
-                2, inp_infty_mask.long().unsqueeze(2).repeat(1, scores.size(1), 1)) \
-                .squeeze(2)
+            inp_infty_mask = (scores != -float("inf")).float().sum(1).unsqueeze(1) == 0
+            if inp_infty_mask.any().cpu().item() == 1:  # if any gen scores became all-neg-infinite
+                assert(((gen_infty_mask.float() + inp_infty_mask.float()) < 2).all().cpu().item() == 1)
+                interp = interp * (1 - inp_infty_mask.float()) + inp_infty_mask.float() * torch.ones_like(interp)
+                scores = torch.gather(
+                    torch.cat([scores.unsqueeze(2), torch.ones_like(scores).unsqueeze(2)], 2),
+                    2, inp_infty_mask.long().unsqueeze(2).repeat(1, scores.size(1), 1)) \
+                    .squeeze(2)
         # endregion
 
-        alphas = self.sm(scores)
-        ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
-        out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
-        out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
+            alphas = self.sm(scores)
+            ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
+            out_probs_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
+            out_probs_ptr.scatter_add_(1, ctx_out[:, :alphas.size(1)], alphas)
 
-        out_probs = interp * out_probs_gen + (1 - interp) * out_probs_ptr
+            out_probs = interp * out_probs_gen + (1 - interp) * out_probs_ptr
+        else:
+            out_probs = out_probs_gen
+
         assert(out_probs.size() == (batsize, len(self.D)))
 
         return out_probs
@@ -174,14 +178,19 @@ class PointerGeneratorOutShared(PointerGeneratorOut):
         out_scores_gen.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), gen_scores)
         out_scores_gen_mask.scatter_add_(1, self.gen_to_out.repeat(batsize, 1), torch.ones_like(gen_scores))
 
-        ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
-        out_scores_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
-        out_scores_ptr_mask = torch.zeros_like(out_scores_ptr)
-        out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], scores)
-        out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], torch.ones_like(scores))
+        if scores is not None:
+            ctx_out = self.inp_to_out[ctx_inp]      # map int ids in inp voc to out voc
+            out_scores_ptr = torch.zeros(x.size(0), self.outsize, dtype=x.dtype, device=x.device)
+            out_scores_ptr_mask = torch.zeros_like(out_scores_ptr)
+            out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], scores)
+            out_scores_ptr.scatter_add_(1, ctx_out[:, :scores.size(1)], torch.ones_like(scores))
 
-        out_probs = out_scores_gen + out_scores_ptr
-        out_probs_mask = (out_scores_ptr_mask + out_scores_gen_mask).clamp(min=0, max=1)
+            out_probs = out_scores_gen + out_scores_ptr
+            out_probs_mask = (out_scores_ptr_mask + out_scores_gen_mask).clamp(min=0, max=1)
+        else:
+            out_probs = out_scores_gen
+            out_probs_mask = out_scores_gen_mask.clamp(min=0, max=1)
+
         out_probs = out_probs + torch.log(out_probs_mask)       # mask for not covered symbols in outD
         if mask is not None:
             out_probs = out_probs + torch.log(mask)
@@ -290,23 +299,27 @@ class PointerGeneratorOutSharedMax(PointerGeneratorOut):
         out_scores_gen_mask.scatter_(1, self.gen_to_out.repeat(batsize, 1), torch.ones_like(gen_scores))
         out_scores_gen = out_scores_gen + torch.log(out_scores_gen_mask)
 
-        if self.ptr_offsetter is not None:
-            offsets = self.ptr_offsetter(x)     # (batsize, 1)
-            scores = scores + offsets
+        if scores is not None:
+            if self.ptr_offsetter is not None:
+                offsets = self.ptr_offsetter(x)     # (batsize, 1)
+                scores = scores + offsets
 
-        ctx_out = self.inp_to_out[ctx_inp]  # map int ids in inp voc to out voc
-        # region scatter max
-        mapped_scores = torch.zeros(scores.size(0), scores.size(1), self.outsize, dtype=x.dtype, device=x.device)
-        mapped_scores_mask = torch.zeros_like(mapped_scores)
-        mapped_scores.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), scores.unsqueeze(2))
-        mapped_scores_mask.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), 1)
-        # mapped_scores[:, :, 0] = 0
-        mapped_scores_mask[:, :, 0] = 0
-        mapped_scores = mapped_scores + torch.log(mapped_scores_mask.detach())
-        out_scores_ptr, _ = mapped_scores.max(1)
-        # endregion
+            ctx_out = self.inp_to_out[ctx_inp]  # map int ids in inp voc to out voc
+            # region scatter max
+            mapped_scores = torch.zeros(scores.size(0), scores.size(1), self.outsize, dtype=x.dtype, device=x.device)
+            mapped_scores_mask = torch.zeros_like(mapped_scores)
+            mapped_scores.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), scores.unsqueeze(2))
+            mapped_scores_mask.scatter_(2, ctx_out[:, :scores.size(1)].unsqueeze(2), 1)
+            # mapped_scores[:, :, 0] = 0
+            mapped_scores_mask[:, :, 0] = 0
+            mapped_scores = mapped_scores + torch.log(mapped_scores_mask.detach())
+            out_scores_ptr, _ = mapped_scores.max(1)
+            # endregion
 
-        out_probs = torch.max(out_scores_gen, out_scores_ptr)
+            out_probs = torch.max(out_scores_gen, out_scores_ptr)
+        else:
+            out_probs = out_scores_gen
+
         if mask is not None:
             out_probs = out_probs + torch.log(mask)
         out_probs = self.sm(out_probs)

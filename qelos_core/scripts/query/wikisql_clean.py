@@ -1916,7 +1916,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
                    userules="no", ptrgenmode="sharemax", labelsmoothing=0., attmode="dot",
-                   useoffset=False, smoothmix=0., coveragepenalty=0.):
+                   useoffset=False, smoothmix=0., coveragepenalty=0., useslotptr=False):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2051,6 +2051,76 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             # --? maybe because that's max we need to do, given that gold seqs are -1 in len
 
             return decoding
+
+    class EncDecSlotPtr(EncDec):
+        """ Slot ptr for predicting select clause. Where clause the same"""
+        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec):
+            super(EncDecSlotPtr, self).__init__(_inpemb, _outemb, _outlin, _encoder, dec)
+            self.slot_ptr_addr_lin = torch.nn.Linear(innerdim, 2, bias=False)
+            self.slot_ptr_sm = torch.nn.Softmax(1)
+
+        def forward(self, inpseq, outseq, inpseqmaps, colnames, coltypes):
+            # encoding
+            self.inpemb.prepare(inpseqmaps)
+            _inpembs, _inpmask = self.inpemb(inpseq)
+            _inpenc = self.encoder(_inpembs, mask=_inpmask)
+            inpmask = _inpmask[:, :_inpenc.size(1)]
+            inpenc = q.intercat(_inpenc.chunk(2, -1), -1)       # TODO: do we need intercat?
+            ctx = inpenc    # old normalpointer mode
+
+            # decoding
+            self.outemb.prepare(inpseqmaps, colnames)
+            self.outlin.prepare(inpseqmaps, colnames)
+
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update_inpseq(inpseq)
+                self.outlin.automasker.update_coltypes(coltypes)
+
+            # region slot ptr
+            slot_ptr_scores = self.slot_ptr_addr_lin(ctx)
+            slot_ptr_scores = slot_ptr_scores + torch.log(inpmask.unsqueeze(2).float())
+            slot_ptr_addrs = self.slot_ptr_sm(slot_ptr_scores)
+            slot_ptr_one = (ctx * slot_ptr_addrs[:, :, 0:1]).sum(1)
+            slot_ptr_two = (ctx * slot_ptr_addrs[:, :, 1:2]).sum(1)
+            slot_ptr_one = torch.cat([slot_ptr_one, self.slot_ptr_addr_lin.weight[0, :].unsqueeze(0).repeat(inpseq.size(0), 1)], 1)
+            slot_ptr_two = torch.cat([slot_ptr_two, self.slot_ptr_addr_lin.weight[1, :].unsqueeze(0).repeat(inpseq.size(0), 1)], 1)
+            # endregion
+
+            # region prefix probs
+            prefix = ["<START>", "<QUERY>", "<SELECT>", "<WHERE>"]
+            prefix = [osm.D[p] for p in prefix]
+            prefix = torch.tensor(prefix).to(inpseq.device)
+            prefix_probs = torch.zeros(inpseq.size(0), prefix.size(0), max(osm.D.values())+1).to(inpseq.device)
+            prefix_probs.scatter_(2, prefix.unsqueeze(0).repeat(inpseq.size(0), 1).unsqueeze(2), 1.)
+            # endregion
+
+            # region select clause probs
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(prefix_probs[:, 2].max(1)[1])
+
+            select_arg_one_probs = self.outlin(slot_ptr_one, None, None)
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(select_arg_one_probs.max(1)[1])
+            select_arg_two_probs = self.outlin(slot_ptr_two, None, None)
+            # endregion
+
+            # region where clause
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(prefix_probs[:, 3].max(1)[1])
+
+            if outseq.dim() == 1:
+                where_outseq = prefix_probs[:, 3].max(1)[1]
+            else:
+                where_outseq = outseq[:, 5:]
+            where_decoding = self.decoder(where_outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
+                                    maxtime=osm.matrix.shape[1]-6)
+            # endregion
+
+            outprobs = torch.cat([prefix_probs[:, 1:3],
+                                  torch.stack([select_arg_one_probs, select_arg_two_probs], 1),
+                                  prefix_probs[:, 3:4],
+                                  where_decoding], 1)
+            return outprobs
     # endregion
 
     # region decoders and model, for train and test
@@ -2079,8 +2149,13 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         train_decoder = q.TFDecoder(decoder_cell)
         valid_decoder = q.FreeDecoder(decoder_cell)
 
-        _m = EncDec(_inpemb, _outemb, _outlin, _encoder, train_decoder)         # ONLY USE FOR TRAINING !!!
-        _valid_m = EncDec(_inpemb, _outemb, _outlin, _encoder, valid_decoder)     # use for valid
+        if useslotptr:
+            EncDecClass = EncDecSlotPtr
+        else:
+            EncDecClass = EncDec
+
+        _m = EncDecClass(_inpemb, _outemb, _outlin, _encoder, train_decoder)         # ONLY USE FOR TRAINING !!!
+        _valid_m = EncDecClass(_inpemb, _outemb, _outlin, _encoder, valid_decoder)     # use for valid
         return _m, _valid_m
 
     m, valid_m = create_train_and_test_models()
