@@ -2158,11 +2158,13 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
 
         if useslotptr:
             EncDecClass = EncDecSlotPtr
+            _m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, train_decoder)  # ONLY USE FOR TRAINING !!!
+            _valid_m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, valid_decoder)  # use for valid
+            _valid_m.has_cond_pred = _m.has_cond_pred
+            _valid_m.slot_ptr_addr_lin = _m.slot_ptr_addr_lin
         else:
-            EncDecClass = EncDec
-
-        _m = EncDecClass(_inpemb, _outemb, _outlin, _encoder, train_decoder)         # ONLY USE FOR TRAINING !!!
-        _valid_m = EncDecClass(_inpemb, _outemb, _outlin, _encoder, valid_decoder)     # use for valid
+            _m = EncDec(_inpemb, _outemb, _outlin, _encoder, train_decoder)         # ONLY USE FOR TRAINING !!!
+            _valid_m = EncDec(_inpemb, _outemb, _outlin, _encoder, valid_decoder)     # use for valid
         return _m, _valid_m
 
     m, valid_m = create_train_and_test_models()
