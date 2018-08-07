@@ -29,7 +29,7 @@ class Penalty(torch.nn.Module):
     def add(self, x):
         if self.acc is None:
             self.acc = torch.zeros_like(x)
-        self.acc += x
+        self.acc = self.acc + x
 
     def get_value(self):
         ret = self.acc.sum()
