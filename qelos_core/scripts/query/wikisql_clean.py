@@ -1916,7 +1916,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
                    userules="no", ptrgenmode="sharemax", labelsmoothing=0., attmode="dot",
-                   useoffset=False, smoothmix=0.):
+                   useoffset=False, smoothmix=0., coveragepenalty=0.):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2060,7 +2060,11 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                   for i in range(1, len(decdims))]
         _core = torch.nn.Sequential(*layers)
         if attmode == "dot":
-            _attention = q.DotAttention()
+            if coveragepenalty > 0.:
+                _attention = q.DotAttentionWithCoverage()
+                _attention.penalty.weight = coveragepenalty
+            else:
+                _attention = q.DotAttention()
         elif attmode == "fwd":
             _attention = q.FwdAttention(ctxdim=decdims[-1], qdim=decdims[-1], attdim=decdims[-1])
         else:

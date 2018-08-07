@@ -5,7 +5,7 @@ from qelos_core.train import trainer, train, tester, eval, AutoHooker, lossarray
 from qelos_core.log import *
 from qelos_core.loss import Accuracy, LinearLoss, SelectedLinearLoss, Penalty, gather_penalties, SeqAccuracy, SeqNLLLoss, SeqKLLoss
 from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
-    Attention, DotAttention, FwdAttention, FwdMulAttention, GeneralDotAttention, AttentionWithCoverage, \
+    Attention, DotAttention, FwdAttention, FwdMulAttention, GeneralDotAttention, AttentionWithCoverage, DotAttentionWithCoverage, \
     Decoder, ThinDecoder, FreeDecoder, TFDecoder, DynamicOracleDecoder, \
     BasicDecoderCell, DecoderCell, LuongCell, \
     AutoMaskedOut, AutoMasker

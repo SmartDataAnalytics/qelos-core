@@ -203,7 +203,7 @@ class AttentionWithCoverage(Attention):
         self.coverage = None
         self.cov_count = 0
         self._cached_ctx = None
-        self.penalty = None #AttentionCoveragePenalty()
+        self.penalty = AttentionCoveragePenalty()
 
     def reset_coverage(self):
         self.coverage = None
@@ -213,6 +213,7 @@ class AttentionWithCoverage(Attention):
     def rec_reset(self):
         super(AttentionWithCoverage, self).rec_reset()
         self.reset_coverage()
+        self.penalty.reset()
 
     def forward(self, q, ctx, ctx_mask=None, values=None):
         alphas, summary, scores = super(AttentionWithCoverage, self)\
@@ -233,6 +234,10 @@ class AttentionWithCoverage(Attention):
         assert((self._cached_ctx - ctx).norm() < 1e-5)
         self.coverage += alphas
         self.cov_count += 1
+
+
+class AttentionCoveragePenalty(q.Penalty):
+    __pp_name__ = "ACP"
 
 
 class AttentionWithMonotonicCoverage(AttentionWithCoverage):
@@ -263,6 +268,10 @@ class _DotAttention(AttentionBase):
 
 
 class DotAttention(Attention, _DotAttention):
+    pass
+
+
+class DotAttentionWithCoverage(AttentionWithCoverage, _DotAttention):
     pass
 
 
@@ -659,7 +668,7 @@ class DynamicOracleDecoder(Decoder):
             if self.mode == "nocost":   # set mask as gold if best is valid --> no improvement if best is correct
                 zero_gold = torch.zeros_like(gold_t).long()
                 goldcat = torch.stack([gold_t, zero_gold], 1)
-                gold_t = torch.gather(goldcat, 1, y_best_is_valid).squeeze(1)
+                gold_t = onlytorch.gather(goldcat, 1, y_best_is_valid).squeeze(1)
 
         else:
 
