@@ -232,7 +232,7 @@ class AttentionWithCoverage(Attention):
             self.coverage = torch.zeros_like(alphas)
             self._cached_ctx = ctx
         assert((self._cached_ctx - ctx).norm() < 1e-5)
-        self.coverage += alphas
+        self.coverage = self.coverage + alphas
         self.cov_count += 1
 
 
