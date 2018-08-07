@@ -2101,11 +2101,12 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             prefix = torch.tensor(prefix).to(inpseq.device)
             prefix_probs = torch.zeros(inpseq.size(0), prefix.size(0), max(osm.D.values())+1).to(inpseq.device)
             prefix_probs.scatter_(2, prefix.unsqueeze(0).repeat(inpseq.size(0), 1).unsqueeze(2), 1.)
+            ones = torch.ones(inpseq.size(0)).to(inpseq.device)
             # endregion
 
             # region select clause probs
             if self.outlin.automasker is not None:
-                self.outlin.automasker.update(prefix_probs[:, 2].max(1)[1])
+                self.outlin.automasker.update(ones.long() * osm.D["<SELECT>"])
 
             select_arg_one_probs = self.outlin(slot_ptr_one, None, None)
             if self.outlin.automasker is not None:
@@ -2114,22 +2115,114 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             # endregion
 
             # region where clause
-            if self.outlin.automasker is not None:
-                self.outlin.automasker.update(prefix_probs[:, 3].max(1)[1])
+            has_cond = self.has_cond_pred(final_ctx)
+            whereend = prefix_probs[:, 3] * has_cond + prefix_probs[:, 4] * (1 - has_cond)
 
             if outseq.dim() == 1:
-                where_outseq = prefix_probs[:, 3].max(1)[1]
+                where_outseq = whereend.max(1)[1]
             else:
                 where_outseq = outseq[:, 5:]
+
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(whereend.max(1)[1])
 
             where_decoding = self.decoder(where_outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
                                     maxtime=osm.matrix.shape[1]-6)
             # endregion
 
-            has_cond = self.has_cond_pred(final_ctx).unsqueeze(2)
             outprobs = torch.cat([prefix_probs[:, 1:3],
                                   torch.stack([select_arg_one_probs, select_arg_two_probs], 1),
-                                  prefix_probs[:, 3:4] * has_cond + prefix_probs[:, 4:5] * (1 - has_cond),
+                                  whereend.unsqueeze(1),
+                                  where_decoding], 1)
+            # endregion
+            return outprobs
+
+    class EncDecSelect(EncDec):
+        """ Predicts select clause separately. Where clause the same"""
+        # TODO
+
+        def __init__(self, _inpemb, _outemb, _outlin, _encoder, dec):
+            super(EncDecSelect, self).__init__(_inpemb, _outemb, _outlin, _encoder, dec)
+            self.slot_ptr_addr_lin = torch.nn.Linear(innerdim, 2, bias=False)
+            self.slot_ptr_sm = torch.nn.Softmax(1)
+            self.has_cond_pred = torch.nn.Sequential(torch.nn.Linear(innerdim, innerdim // 2),
+                                                     torch.nn.ReLU(),
+                                                     torch.nn.Linear(innerdim // 2, 1),
+                                                     torch.nn.Sigmoid(), )
+
+        def forward(self, inpseq, outseq, inpseqmaps, colnames, coltypes):
+            # encoding
+            self.inpemb.prepare(inpseqmaps)
+            _inpembs, _inpmask = self.inpemb(inpseq)
+            _inpenc = self.encoder(_inpembs, mask=_inpmask)
+            inpmask = _inpmask[:, :_inpenc.size(1)]
+            final_ctx = self.encoder.y_n[-1]
+            final_ctx = torch.cat([final_ctx[:, 0], final_ctx[:, 1]], 1)
+            inpenc = q.intercat(_inpenc.chunk(2, -1), -1)  # TODO: do we need intercat?
+            ctx = inpenc  # old normalpointer mode
+
+            # decoding
+            self.outemb.prepare(inpseqmaps, colnames)
+            self.outlin.prepare(inpseqmaps, colnames)
+
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update_inpseq(inpseq)
+                self.outlin.automasker.update_coltypes(coltypes)
+
+            # region predicting separately
+            # region slot ptr
+            slot_ptr_scores = self.slot_ptr_addr_lin(ctx)
+            slot_ptr_scores = slot_ptr_scores + torch.log(inpmask.unsqueeze(2).float())
+            slot_ptr_addrs = self.slot_ptr_sm(slot_ptr_scores)
+            slot_ptr_one = (ctx * slot_ptr_addrs[:, :, 0:1]).sum(1)
+            slot_ptr_two = (ctx * slot_ptr_addrs[:, :, 1:2]).sum(1)
+            slot_ptr_one = torch.cat(
+                [self.slot_ptr_addr_lin.weight[0, :].unsqueeze(0).repeat(inpseq.size(0), 1),
+                 slot_ptr_one], 1)
+            slot_ptr_two = torch.cat(
+                [self.slot_ptr_addr_lin.weight[1, :].unsqueeze(0).repeat(inpseq.size(0), 1),
+                 slot_ptr_two], 1)
+            # endregion
+
+            # region prefix probs
+            prefix = ["<START>", "<QUERY>", "<SELECT>", "<WHERE>", "<END>"]
+            prefix = [osm.D[p] for p in prefix]
+            prefix = torch.tensor(prefix).to(inpseq.device)
+            prefix_probs = torch.zeros(inpseq.size(0), prefix.size(0), max(osm.D.values()) + 1).to(
+                inpseq.device)
+            prefix_probs.scatter_(2, prefix.unsqueeze(0).repeat(inpseq.size(0), 1).unsqueeze(2), 1.)
+            ones = torch.ones(inpseq.size(0)).to(inpseq.device)
+            # endregion
+
+            # region select clause probs
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(ones.long() * osm.D["<SELECT>"])
+
+            select_arg_one_probs = self.outlin(slot_ptr_one, None, None)
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(select_arg_one_probs.max(1)[1])
+            select_arg_two_probs = self.outlin(slot_ptr_two, None, None)
+            # endregion
+
+            # region where clause
+            has_cond = self.has_cond_pred(final_ctx)
+            whereend = prefix_probs[:, 3] * has_cond + prefix_probs[:, 4] * (1 - has_cond)
+
+            if outseq.dim() == 1:
+                where_outseq = whereend.max(1)[1]
+            else:
+                where_outseq = outseq[:, 5:]
+
+            if self.outlin.automasker is not None:
+                self.outlin.automasker.update(whereend.max(1)[1])
+
+            where_decoding = self.decoder(where_outseq, ctx=ctx, ctx_mask=inpmask, ctx_inp=inpseq,
+                                          maxtime=osm.matrix.shape[1] - 6)
+            # endregion
+
+            outprobs = torch.cat([prefix_probs[:, 1:3],
+                                  torch.stack([select_arg_one_probs, select_arg_two_probs], 1),
+                                  whereend.unsqueeze(1),
                                   where_decoding], 1)
             # endregion
             return outprobs
@@ -2162,6 +2255,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         valid_decoder = q.FreeDecoder(decoder_cell)
 
         if useslotptr:
+            print("USING SLOTPTR !!")
             _m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, train_decoder)  # ONLY USE FOR TRAINING !!!
             _valid_m = EncDecSlotPtr(_inpemb, _outemb, _outlin, _encoder, valid_decoder)  # use for valid
             _valid_m.has_cond_pred = _m.has_cond_pred
@@ -2274,25 +2368,25 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-        def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
-            colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-            colnames = torch.tensor(colnames).to(colnameids.device)
-            return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
-        dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                                   inp_bt=test_inp_bt, batsize=batsize, device=device,
-                                                   savedir=logger.p, test=test)
+    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
+        colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
+        colnames = torch.tensor(colnames).to(colnameids.device)
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
+    dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
+                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
+                                               savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion
 
 
 def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
-                          inpembdim=50, outembdim=50, innerdim=100, numlayers=1, dim=-1, gdim=-1,
-                          dropout=0.2, rdropout=0.1, edropout=0., idropout=0., irdropout=0.,
-                          wreg=0.0000000000001, gradnorm=5., useglove=True, gfrac=0.01,
+                          inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
+                          dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1,
+                          wreg=1e-14, gradnorm=5., useglove=True, gfrac=0.0,
                           cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                           tieembeddings=False, dorare=False,
                           oraclemode="zerocost", selectcolfirst=False,
-                          userules="no", ptrgenmode="sepsum", labelsmoothing=0.,
+                          userules="no", ptrgenmode="sharemax", labelsmoothing=0.,
                           useoffset=False,): # oraclemode: "zerocost" or "sample"
     # region init
     settings = locals().copy()
