@@ -313,7 +313,7 @@ class SeqKLLoss(DiscreteLoss):
             _gold = _gold * (1 - smv) + smv * probs.detach()
 
         assert(np.allclose(_gold.sum(2).cpu().detach().numpy(),
-                           np.ones((_gold.size(0), _gold.size(1)))))
+                           np.ones((_gold.size(0), _gold.size(1))), atol=1e-3))
 
         log_probs = - (torch.log(probs + (1 - prob_mask)) - torch.log(_gold + (1 - prob_mask)))
         # REMARK: (1 - prob_mask) is added before log() to ensure that no -inf's are there
