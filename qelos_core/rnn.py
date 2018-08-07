@@ -252,7 +252,7 @@ class AttentionWithMonotonicCoverage(AttentionWithCoverage):
 
         cum_alphas = 1 - torch.cumsum(alphas, 1)
         cum_alphas = torch.cat([cum_alphas[:, 0:1], cum_alphas[:, :-1]], 1)
-        self.coverage += cum_alphas
+        self.coverage = self.coverage + cum_alphas
         self.cov_count += 1
 
 
