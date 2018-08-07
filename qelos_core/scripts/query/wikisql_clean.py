@@ -1911,7 +1911,7 @@ def tst_reconstruct_save_reload_and_eval():
 # python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 35 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
-                   dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1,
+                   dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1, dropouts=-1., rdropouts=-1., alldropouts=-1.,
                    wreg=1e-14, gradnorm=5., useglove=True, gfrac=0.,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
@@ -1921,6 +1921,12 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
     # region init
+    if alldropouts > 0.:
+        dropouts, rdropouts = alldropouts, alldropouts
+    if dropouts > 0.:
+        dropout, idropout = dropouts, dropouts
+    if rdropouts > 0.:
+        rdropout, irdropout = rdropouts, rdropouts
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_new")
     logger.save_settings(**settings)
