@@ -1307,7 +1307,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
 
 class FastestLSTMEncoder(FastLSTMEncoder):
     """ Fastest LSTM encoder using multiple layers.
-        Access to states of layers is provided through .y_0, .c_0 and .y_n, .c_n (bottom layers first) """
+        Access to states of layers is provided through .y_0, .c_0 and .y_n, .c_n (bottom layers first). """
     def __init__(self, indim, *dims, **kw):
         self.dropout_rec = q.getkw(kw, "dropout_rec", default=0.)
         self.skipper = q.getkw(kw, "skipper", default=False)

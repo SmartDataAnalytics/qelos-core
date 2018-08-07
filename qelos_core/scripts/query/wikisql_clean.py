@@ -2058,6 +2058,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             super(EncDecSlotPtr, self).__init__(_inpemb, _outemb, _outlin, _encoder, dec)
             self.slot_ptr_addr_lin = torch.nn.Linear(innerdim, 2, bias=False)
             self.slot_ptr_sm = torch.nn.Softmax(1)
+            self.has_cond_pred = torch.nn.Sequential(torch.nn.Linear(innerdim, innerdim//2),
+                                                     torch.nn.ReLU(),
+                                                     torch.nn.Linear(innerdim//2, 1),
+                                                     torch.nn.Sigmoid(),)
 
         def forward(self, inpseq, outseq, inpseqmaps, colnames, coltypes):
             # encoding
@@ -2065,6 +2069,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             _inpembs, _inpmask = self.inpemb(inpseq)
             _inpenc = self.encoder(_inpembs, mask=_inpmask)
             inpmask = _inpmask[:, :_inpenc.size(1)]
+            final_ctx = self.encoder.y_n[-1]
+            final_ctx = torch.cat([final_ctx[:, 0], final_ctx[:, 1]], 1)
             inpenc = q.intercat(_inpenc.chunk(2, -1), -1)       # TODO: do we need intercat?
             ctx = inpenc    # old normalpointer mode
 
@@ -2087,7 +2093,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             # endregion
 
             # region prefix probs
-            prefix = ["<START>", "<QUERY>", "<SELECT>", "<WHERE>"]
+            prefix = ["<START>", "<QUERY>", "<SELECT>", "<WHERE>", "<END>"]
             prefix = [osm.D[p] for p in prefix]
             prefix = torch.tensor(prefix).to(inpseq.device)
             prefix_probs = torch.zeros(inpseq.size(0), prefix.size(0), max(osm.D.values())+1).to(inpseq.device)
@@ -2116,9 +2122,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                                     maxtime=osm.matrix.shape[1]-6)
             # endregion
 
+            has_cond = self.has_cond_pred(final_ctx).unsqueeze(2)
             outprobs = torch.cat([prefix_probs[:, 1:3],
                                   torch.stack([select_arg_one_probs, select_arg_two_probs], 1),
-                                  prefix_probs[:, 3:4],
+                                  prefix_probs[:, 3:4] * has_cond + prefix_probs[:, 4:5] * (1 - has_cond),
                                   where_decoding], 1)
             return outprobs
     # endregion
