@@ -1222,13 +1222,14 @@ class ColnameEncoder(torch.nn.Module):
     """ Encoder for column names.
         Uses one LSTM layer.
     """
-    def __init__(self, dim, colbaseemb, nocolid=None):
+    def __init__(self, dim, colbaseemb, nocolid=None, useskip=False):
         super(ColnameEncoder, self).__init__()
         self.emb = colbaseemb
         self.embdim = colbaseemb.vecdim
         self.dim = dim
         self.enc = torch.nn.LSTM(self.embdim, self.dim, 1, batch_first=True)
         self.nocolid = nocolid
+        self.useskip = useskip      # add average of word vectors to bottom part of encoding
 
     def forward(self, x):
         """ input is (batsize, numcols, colnamelen)
@@ -1248,6 +1249,20 @@ class ColnameEncoder(torch.nn.Module):
         y_T = y_T[0][order]
         # y_t, umask = q.seq_unpack(_y_t, order)
         ret = y_T.contiguous().view(x.size(0), x.size(1), y_T.size(-1))
+        if self.useskip:
+            embxx = embx.view(x.size(0), x.size(1), x.size(2), -1)
+            maskx = mask.view(x.size(0), x.size(1), x.size(2)).float().unsqueeze(3)
+            avg_emb = embxx * maskx
+            avg_emb = avg_emb.sum(2)
+            avg_emb = avg_emb / maskx.sum(2)
+            if avg_emb.size(2) < ret.size(2):
+                xtr_emb = torch.zeros(x.size(0), x.size(1), ret.size(2) - avg_emb.size(2)).to(embx.device)
+                avg_emb = torch.cat([xtr_emb, avg_emb], 2)       # put embeddings at the end
+            elif avg_emb.size(2) > ret.size(2):
+                avg_emb = avg_emb[:, :, :ret.size(2)]
+            else:
+                pass
+            ret = ret + avg_emb
         return ret, rmask
 
 
@@ -1524,7 +1539,7 @@ def build_subdics(osmD):
 
 
 def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None, colenc=None,
-                          useglove=True, gdim=None, gfrac=0.1,
+                          useglove=True, gdim=None, gfrac=0.1, useskip=False,
                           rare_gwids=None, nogloveforinp=False, no_maskzero=False):
     # base embedder for input tokens
     embdim = gdim if gdim is not None else dim
@@ -1545,7 +1560,7 @@ def make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=Non
     syn_emb = q.WordEmb(dim, worddic=synD, no_masking=no_maskzero)        # TODO: enable
 
     if colenc is None:
-        colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"])
+        colenc = ColnameEncoder(dim, colbaseemb, nocolid=csmD["nonecolumnnonecolumnnonecolumn"], useskip=useskip)
 
     # TODO: fix: backward breaks
     computer = OutvecComputer(syn_emb, inpbaseemb, colenc, osmD,
@@ -1603,23 +1618,23 @@ def make_inp_emb(dim, ismD, psmD, useglove=True, gdim=None, gfrac=0.1,
 
 def make_out_emb(dim, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None,
-                 rare_gwids=None):
+                 rare_gwids=None, useskip=False):
     print("MAKING OUT EMB")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
-                                rare_gwids=rare_gwids)
+                                rare_gwids=rare_gwids, useskip=useskip)
     return DynamicWordEmb(computer=comp, worddic=osmD), inpbaseemb, colbaseemb, colenc
 
 
 def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                  useglove=True, gdim=None, gfrac=0.1, colenc=None, nocopy=False,
-                 rare_gwids=None, automasker=None, ptrgenmode="sepsum", useoffset=False):
+                 rare_gwids=None, automasker=None, ptrgenmode="sepsum", useoffset=False, useskip=False):
     print("MAKING OUT LIN")
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
-                                rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True)
+                                rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True, useskip=useskip)
 
     out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),)
 
@@ -1916,7 +1931,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
                    userules="no", ptrgenmode="sharemax", labelsmoothing=0., attmode="dot",
-                   useoffset=False, smoothmix=0., coveragepenalty=0., useslotptr=False):
+                   useoffset=False, smoothmix=0., coveragepenalty=0., useslotptr=False, useskip=False):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2007,7 +2022,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                                            rare_gwids=rare_gwids_after_glove)
         _outemb, inpbaseemb, colbaseemb, _ = make_out_emb(outembdim, osm.D, gwids.D, cnsm.D, gdim=gdim,
                                               inpbaseemb=inpbaseemb, useglove=useglove, gfrac=gfrac,
-                                              rare_gwids=rare_gwids_after_glove)
+                                              rare_gwids=rare_gwids_after_glove, useskip=useskip)
         if not tieembeddings:
             inpbaseemb, colbaseemb = None, None
 
@@ -2019,7 +2034,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                                               colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
-                                                               automasker=automasker,
+                                                               automasker=automasker, useskip=useskip,
                                                                ptrgenmode=ptrgenmode, useoffset=useoffset)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
@@ -2042,6 +2057,10 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             inpmask = _inpmask[:, :_inpenc.size(1)]
             inpenc = q.intercat(_inpenc.chunk(2, -1), -1)       # TODO: do we need intercat?
             ctx = inpenc    # old normalpointer mode
+            if useskip:
+                ctxadd = torch.zeros(ctx.size(0), ctx.size(1), ctx.size(2) - _inpembs.size(2)).to(ctx.device)
+                ctxadd = torch.cat([ctxadd, _inpembs[:, :ctx.size(1)]], 2)
+                ctx = ctx + ctxadd
 
             # decoding
             self.outemb.prepare(inpseqmaps, colnames)
