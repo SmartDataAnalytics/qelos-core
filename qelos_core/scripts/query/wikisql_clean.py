@@ -780,7 +780,7 @@ def querylin2json(qlin, origquestion):
         return {"agg": 10, "sel": 1345, "conds": [[5, 0, "https://www.youtube.com/watch?v=oHg5SJYRHA0"]]}
 
 
-def same_sql_json(x, y):    # x is pred, y is gold
+def same_sql_json(x, y):    # should not matter whether x or y is pred or gold, better to have x as gold
     same = True
     same &= x["sel"] == y["sel"]
     same &= x["agg"] == y["agg"]
@@ -804,12 +804,32 @@ def same_sql_json(x, y):    # x is pred, y is gold
                 del yconds[j]
                 break
         same &= found
-    same &= len(yconds) == 0
+    if same:
+        assert(len(yconds) == 0)
     return same
 
 
 def same_lin_json(x, y):
-    pass
+    same = True
+    same &= x["sel"] == y["sel"]
+    same &= x["agg"] == y["agg"]
+    same &= len(x["conds"]) == len(y["conds"])
+    xconds = x["conds"] + []
+    yconds = y["conds"] + []
+    if same:
+        for xcond, ycond in zip(xconds, yconds):
+            xcondval = xcond[2]
+            if isinstance(xcondval, float):
+                xcondval = xcondval.__repr__()
+            ycondval = ycond[2]
+            if isinstance(ycondval, float):
+                ycondval = ycondval.__repr__()
+            xcondval, ycondval = unicode(xcondval), unicode(ycondval)
+            if xcond[0] == ycond[0] \
+                    and xcond[1] == ycond[1] \
+                    and xcondval.lower() == ycondval.lower():
+                same &= True
+    return same
 
 
 def load_jsonls(p, questionsonly=False, sqlsonly=False):
@@ -1819,6 +1839,15 @@ def compute_sql_acc(pred_sql, gold_sql):
     return sql_acc / sql_acc_norm
 
 
+def compute_seq_acc(pred_sql, gold_sql):
+    sql_acc = 0.
+    sql_acc_norm = 1e-6
+    for pred_sql_i, gold_sql_i in zip(pred_sql, gold_sql):
+        sql_acc_norm += 1
+        sql_acc += 1. if same_lin_json(gold_sql_i, pred_sql_i) else 0.
+    return sql_acc / sql_acc_norm
+
+
 def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
                    inp_bt=None, batsize=100, device=None, savedir=None, test=False):
     def save_lines(lines, fname):
@@ -1869,6 +1898,7 @@ def get_accuracies(p):
     """ p is where experiment outputs are at"""
     devsqls = load_jsonls(DATA_PATH + "dev.jsonl", sqlsonly=True)
     pred_devsqls = load_pred_jsonl(os.path.join(p, "dev_pred.jsonl"))
+    dev_seq_acc = compute_seq_acc(pred_devsqls, devsqls)
     dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
     print("DEV SQL ACC: {}".format(dev_sql_acc))
 
