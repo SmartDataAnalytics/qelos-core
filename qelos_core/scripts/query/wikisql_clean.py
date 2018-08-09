@@ -1900,7 +1900,9 @@ def get_accuracies(p):
     pred_devsqls = load_pred_jsonl(os.path.join(p, "dev_pred.jsonl"))
     dev_seq_acc = compute_seq_acc(pred_devsqls, devsqls)
     dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
+    print("DEV SEQ ACC: {}".format(dev_seq_acc))
     print("DEV SQL ACC: {}".format(dev_sql_acc))
+
 
 
 # region test
