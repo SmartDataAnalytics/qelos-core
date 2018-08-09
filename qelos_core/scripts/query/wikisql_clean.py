@@ -804,7 +804,11 @@ def same_sql_json(x, y):    # x is pred, y is gold
                 del yconds[j]
                 break
         same &= found
+    same &= len(yconds) == 0
     return same
+
+
+def same_lin_json(x, y):
 
 
 def load_jsonls(p, questionsonly=False, sqlsonly=False):
