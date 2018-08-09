@@ -829,6 +829,8 @@ def same_lin_json(x, y):
                     and xcond[1] == ycond[1] \
                     and xcondval.lower() == ycondval.lower():
                 same &= True
+            else:
+                same &= False
     return same
 
 
