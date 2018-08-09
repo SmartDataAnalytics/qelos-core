@@ -1805,22 +1805,21 @@ def get_output(model, data, origquestions, batsize=100, inp_bt=None, device=torc
     return rawlines, sqls
 
 
+def compute_sql_acc(pred_sql, gold_sql):
+    sql_acc = 0.
+    sql_acc_norm = 1e-6
+    for pred_sql_i, gold_sql_i in zip(pred_sql, gold_sql):
+        sql_acc_norm += 1
+        sql_acc += 1. if same_sql_json(pred_sql_i, gold_sql_i) else 0.
+    return sql_acc / sql_acc_norm
+
+
 def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
                    inp_bt=None, batsize=100, device=None, savedir=None, test=False):
-    def compute_sql_acc(pred_sql, gold_sql):
-        sql_acc = 0.
-        sql_acc_norm = 1e-6
-        for pred_sql_i, gold_sql_i in zip(pred_sql, gold_sql):
-            sql_acc_norm += 1
-            sql_acc += 1. if same_sql_json(pred_sql_i, gold_sql_i) else 0.
-        return sql_acc / sql_acc_norm
-
-
     def save_lines(lines, fname):
         with codecs.open(savedir + '/' + fname, "w", encoding="utf-8") as f:
             for lin in lines:
                 f.write(u"{}\n".format(lin))
-
 
     # dev predictions
     devquestions = load_jsonls(DATA_PATH + "dev.jsonl", questionsonly=True)
@@ -1853,6 +1852,20 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
     test_sql_acc = compute_sql_acc(pred_testsqls, testsqls)
     print("TEST SQL ACC: {}".format(test_sql_acc))
     return dev_sql_acc, test_sql_acc
+
+
+def load_pred_jsonl(p):
+    lines = open(p).readlines()
+    lines = [json.loads(line) for line in lines]
+    return lines
+
+
+def get_accuracies(p):
+    """ p is where experiment outputs are at"""
+    devsqls = load_jsonls(DATA_PATH + "dev.jsonl", sqlsonly=True)
+    pred_devsqls = load_pred_jsonl(os.path.join(p, "dev_pred.jsonl"))
+    dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
+    print("DEV SQL ACC: {}".format(dev_sql_acc))
 
 
 # region test
@@ -2385,13 +2398,13 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         .set_batch_transformer(valid_inp_bt).device(device).run()
     print("DEV RESULTS:")
     print(valid_results)
-    logger.update_settings(valid_seq_acc=valid_results[0], valid_tree_acc=valid_results[1])
+    logger.update_settings(valid_results=valid_results)
     if not test:
         test_results = q.tester(test_m).on(testloader).loss(testlosses)\
             .set_batch_transformer(valid_inp_bt).device(device).run()
         print("TEST RESULTS:")
         print(test_results)
-        logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
+        logger.update_settings(test_results=test_results)
 
     def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
         colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
@@ -2400,6 +2413,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                                inp_bt=test_inp_bt, batsize=batsize, device=device,
                                                savedir=logger.p, test=test)
+    logger.update_settings(dev_sql_acc=dev_sql_acc, test_sql_acc=test_sql_acc)
     tt.tock("evaluated")
     # endregion
 
