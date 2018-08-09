@@ -780,7 +780,7 @@ def querylin2json(qlin, origquestion):
         return {"agg": 10, "sel": 1345, "conds": [[5, 0, "https://www.youtube.com/watch?v=oHg5SJYRHA0"]]}
 
 
-def same_sql_json(x, y):
+def same_sql_json(x, y):    # x is pred, y is gold
     same = True
     same &= x["sel"] == y["sel"]
     same &= x["agg"] == y["agg"]
@@ -1810,7 +1810,7 @@ def compute_sql_acc(pred_sql, gold_sql):
     sql_acc_norm = 1e-6
     for pred_sql_i, gold_sql_i in zip(pred_sql, gold_sql):
         sql_acc_norm += 1
-        sql_acc += 1. if same_sql_json(pred_sql_i, gold_sql_i) else 0.
+        sql_acc += 1. if same_sql_json(gold_sql_i, pred_sql_i) else 0.
     return sql_acc / sql_acc_norm
 
 
