@@ -809,6 +809,7 @@ def same_sql_json(x, y):    # x is pred, y is gold
 
 
 def same_lin_json(x, y):
+    pass
 
 
 def load_jsonls(p, questionsonly=False, sqlsonly=False):
