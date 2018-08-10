@@ -2469,11 +2469,12 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     test_m_param_dic = {n: p for n, p in test_m.named_parameters()}
     valid_m_param_dic = {n: p for n, p in valid_m.named_parameters()}
     diffs = {}
-    try:
-        for n in valid_m_param_dic:
-            diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
-            assert(diffs[n].cpu().item() == 0)
-    except AssertionError as e:
+    allzerodiffs = True
+    for n in valid_m_param_dic:
+        diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
+        allzerodiffs &= diffs[n].cpu().item() == 0
+    if not allzerodiffs:
+        print("reloaded weights don't match")
         q.embed()
 
     if test:
