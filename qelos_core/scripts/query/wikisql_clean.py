@@ -2003,11 +2003,19 @@ def tst_reconstruct_save_reload_and_eval():
 # endregion
 
 
+# SHAREMAX runs:
 # best one: python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
 # - rules:              python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "no" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
-# / rules in train:     python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "both" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
+# / rules in train:     python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "both" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip
 # - label smoothing:    python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0 -cuda -gpu 1 -useskip
-# / sepsum:             python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip -ptrgenmode sepsum
+# - skip:               python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0
+
+# SEPSUM runs:
+# best one: python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -ptrgenmode sepsum
+# - rules:              python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "no" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -ptrgenmode sepsum
+# / rules in train:     python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "both" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip -ptrgenmode sepsum
+# - label smoothing:    python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0 -cuda -gpu 1 -useskip -ptrgenmode sepsum
+# - skip:               python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -ptrgenmode sepsum
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1, dropouts=-1., rdropouts=-1., alldropouts=-1.,
