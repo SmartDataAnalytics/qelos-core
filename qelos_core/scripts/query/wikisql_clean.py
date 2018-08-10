@@ -1329,7 +1329,7 @@ class OutvecComputer(DynamicVecPreparer):
         self.D = worddic
 
         # initialize rare vec to rare vector from syn_emb
-        self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].data)
+        self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].detach())
         self.rare_gwids = rare_gwids
 
         if self.inp_emb.vecdim != self.syn_emb.vecdim:
@@ -1640,7 +1640,7 @@ def make_inp_emb(dim, ismD, psmD, useglove=True, gdim=None, gfrac=0.1,
             super(Computer, self).__init__()
             self.baseemb = baseemb
             self.rare_gwids = rare_gwids
-            self.rare_vec = torch.nn.Parameter(baseemb.embedding.weight[baseemb.D["<RARE>"]].data)
+            self.rare_vec = torch.nn.Parameter(baseemb.embedding.weight[baseemb.D["<RARE>"]].detach())
             if embdim != dim:
                 print("USING LIN ADAPTER")
                 self.trans = torch.nn.Linear(embdim, dim, bias=False)
@@ -2467,11 +2467,13 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     test_m_param_dic = {n: p for n, p in test_m.named_parameters()}
     valid_m_param_dic = {n: p for n, p in valid_m.named_parameters()}
     diffs = {}
-    for n in valid_m_param_dic:
-        diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
-        # assert(diffs[n].cpu().item() == 0)
+    try:
+        for n in valid_m_param_dic:
+            diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
+            assert(diffs[n].cpu().item() == 0)
+    except AssertionError as e:
+        q.embed()
 
-    q.embed()
     if test:
         q.embed()
 
