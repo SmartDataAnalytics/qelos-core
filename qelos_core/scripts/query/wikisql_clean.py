@@ -2469,7 +2469,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     diffs = {}
     for n in valid_m_param_dic:
         diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
-        assert(diffs[n].cpu().item() == 0)
+        # assert(diffs[n].cpu().item() == 0)
 
     q.embed()
     if test:
