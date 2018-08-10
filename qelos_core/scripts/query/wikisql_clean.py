@@ -2462,6 +2462,8 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     tt.msg("setting weights from best model: {}".format(model_save_path))
     test_m.load_state_dict(torch.load(model_save_path))
 
+    valid_m.to(torch.device("cpu"))
+
     test_m_param_dic = {n: p for n, p in test_m.named_parameters()}
     valid_m_param_dic = {n: p for n, p in valid_m.named_parameters()}
     diffs = {}
