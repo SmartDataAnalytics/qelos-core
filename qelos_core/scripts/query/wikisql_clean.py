@@ -1329,7 +1329,8 @@ class OutvecComputer(DynamicVecPreparer):
         self.D = worddic
 
         # initialize rare vec to rare vector from syn_emb
-        self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].detach())
+        # self.rare_vec = torch.nn.Parameter(syn_emb.embedding.weight[syn_emb.D["<RARE>"]].detach())
+        self.rare_vec = torch.nn.Parameter(torch.randn(syn_emb.embedding.weight.size(1)))
         self.rare_gwids = rare_gwids
 
         if self.inp_emb.vecdim != self.syn_emb.vecdim:
@@ -1640,7 +1641,8 @@ def make_inp_emb(dim, ismD, psmD, useglove=True, gdim=None, gfrac=0.1,
             super(Computer, self).__init__()
             self.baseemb = baseemb
             self.rare_gwids = rare_gwids
-            self.rare_vec = torch.nn.Parameter(baseemb.embedding.weight[baseemb.D["<RARE>"]].detach())
+            # self.rare_vec = torch.nn.Parameter(baseemb.embedding.weight[baseemb.D["<RARE>"]].detach())
+            self.rare_vec = torch.nn.Parameter(torch.randn(baseemb.embedding.weight.size(1)))
             if embdim != dim:
                 print("USING LIN ADAPTER")
                 self.trans = torch.nn.Linear(embdim, dim, bias=False)
