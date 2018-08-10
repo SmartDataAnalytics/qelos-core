@@ -1192,6 +1192,10 @@ class DynamicWordEmb(WordEmbBase):
                 ret = ret.squeeze(1)
             return ret
 
+    def __eq__(self, other):
+        return self.computer == other.computer and self.maskid == other.maskid \
+               and self.indim == other.indim and self.D == other.D
+
 
 class DynamicWordLinout(WordLinoutBase):        # removed the logsoftmax in here
     """ Must be used with a DynamicVecPreparer (see DynamicWordEmb doc).
@@ -1241,6 +1245,10 @@ class DynamicWordLinout(WordLinoutBase):        # removed the logsoftmax in here
         if len(xshape) == 2:
             ret = ret.squeeze(1)
         return ret, rmask
+
+    def __eq__(self, other):
+        return self.computer == other.computer and self.maskid == other.maskid \
+               and self.outdim == other.outdim and self.D == other.D
 # endregion
 
 
@@ -1292,6 +1300,10 @@ class ColnameEncoder(torch.nn.Module):
             ret = ret + avg_emb
         return ret, rmask
 
+    def __eq__(self, other):
+        return self.emb == other.emb and self.embdim == other.embdim and self.dim == other.dim \
+               and self.enc == other.enc and self.nocolid == other.nocolid and self.useskip == other.useskip
+
 
 class OutvecComputer(DynamicVecPreparer):
     """ This is a DynamicVecPreparer used for both output embeddings and output layer.
@@ -1325,6 +1337,11 @@ class OutvecComputer(DynamicVecPreparer):
             self.inpemb_trans = torch.nn.Linear(self.inp_emb.vecdim, self.syn_emb.vecdim, bias=False)
         else:
             self.inpemb_trans = None
+
+    def __eq__(self, other):
+        return self.syn_emb == other.syn_emb and self.inp_emb == other.inp_emb and self.col_enc == other.col_enc \
+               and self.syn_scatter == other.syn_scatter and self.inp_scatter == other.inp_scatter \
+               and self.col_scatter == other.col_scatter and self.D == other.D and self.rare_gwids == other.rare_gwids
 
     def prepare(self, inpmaps, colnames):
         """ inpmaps (batsize, num_uwids) contains mapping from uwids to gwids for every example = batch from gwids matrix
@@ -1661,7 +1678,8 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
     comp, inpbaseemb, colbaseemb, colenc \
         = make_out_vec_computer(dim, osmD, psmD, csmD, inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                 colenc=colenc, useglove=useglove, gdim=gdim, gfrac=gfrac,
-                                rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True, useskip=useskip)
+                                rare_gwids=rare_gwids, nogloveforinp=False, no_maskzero=True,
+                                useskip=useskip)
 
     out = torch.nn.Sequential(DynamicWordLinout(comp, osmD),)
 
@@ -1676,7 +1694,8 @@ def make_out_lin(dim, ismD, osmD, psmD, csmD, inpbaseemb=None, colbaseemb=None,
                 torch.nn.Sigmoid(),
             )
 
-            ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD, gen_zero=gen_zero_set,
+            ptrgenout = q.PointerGeneratorOutSeparate(osmD, switcher, out, inpdic=ismD,
+                                                      gen_zero=gen_zero_set,
                                                       gen_outD=osmD)
         elif ptrgenmode == "sharemax":
             if useoffset:
@@ -1982,7 +2001,11 @@ def tst_reconstruct_save_reload_and_eval():
 # endregion
 
 
-# python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 35 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0
+# best one: python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
+# - rules:              python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "no" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
+# / rules in train:     python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "both" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
+# - label smoothing:    python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0 -cuda -gpu 1 -useskip
+# / sepsum:             python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip -ptrgenmode sepsum
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1, dropouts=-1., rdropouts=-1., alldropouts=-1.,
@@ -2135,6 +2158,11 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
             # --? maybe because that's max we need to do, given that gold seqs are -1 in len
 
             return decoding
+
+        def __eq__(self, other):
+            return self.inpemb == other.inpemb and self.outemb == other.outemb \
+                   and self.outlin == other.outlin and self.encoder == other.encoder \
+                   and self.decoder == other.decoder
 
     class EncDecSlotPtr(EncDec):
         """ Slot ptr for predicting select clause. Where clause the same"""
@@ -2412,7 +2440,6 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
         .device(device).hook(best_saver)
     q.train(trainer, validator).log(logger).run(epochs=epochs)
 
-
     # q.train(m).train_on(trainloader, losses)\
     #     .optimizer(optim).clip_grad_norm(gradnorm).set_batch_transformer(inp_bt)\
     #     .valid_with(valid_m).valid_on(validloader, validlosses).set_valid_batch_transformer(valid_inp_bt)\
@@ -2427,11 +2454,24 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     # region evaluation
     tt.tick("evaluating")
 
+    valid_m.load_state_dict(torch.load(model_save_path))
+
     tt.msg("generating model from scratch")
     _, test_m = create_train_and_test_models()
 
-    tt.msg("setting weights from best model")
+    tt.msg("setting weights from best model: {}".format(model_save_path))
     test_m.load_state_dict(torch.load(model_save_path))
+
+    test_m_param_dic = {n: p for n, p in test_m.named_parameters()}
+    valid_m_param_dic = {n: p for n, p in valid_m.named_parameters()}
+    diffs = {}
+    for n in valid_m_param_dic:
+        diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
+        assert(diffs[n].cpu().item() == 0)
+
+    q.embed()
+    if test:
+        q.embed()
 
     # assert(all([(list(test_m.parameters())[i] - list(valid_m.parameters())[i].cpu()).float().norm()[0] == 0 for i in range(42)]))
 

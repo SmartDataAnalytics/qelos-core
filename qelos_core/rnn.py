@@ -1406,7 +1406,7 @@ class AutoMasker(torch.nn.Module):
 
     def reset(self):
         self.history = None
-        self.device = None
+        # self.device = None
 
     def rec_reset(self):
         self.reset()
