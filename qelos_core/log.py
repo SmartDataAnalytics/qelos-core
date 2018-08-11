@@ -117,7 +117,7 @@ def find_experiments(p=None, **kw):
         if "settings.json" in files:
             settings = json.load(open(os.path.join(subdir, "settings.json")))
             incl = True
-            for k, v in kw:
+            for k, v in kw.items():
                 if k not in settings:
                     incl = False
                     break
