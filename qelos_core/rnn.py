@@ -668,7 +668,7 @@ class DynamicOracleDecoder(Decoder):
             if self.mode == "nocost":   # set mask as gold if best is valid --> no improvement if best is correct
                 zero_gold = torch.zeros_like(gold_t).long()
                 goldcat = torch.stack([gold_t, zero_gold], 1)
-                gold_t = onlytorch.gather(goldcat, 1, y_best_is_valid).squeeze(1)
+                gold_t = torch.gather(goldcat, 1, y_best_is_valid).squeeze(1)
 
         else:
 

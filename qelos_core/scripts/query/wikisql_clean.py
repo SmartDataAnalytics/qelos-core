@@ -2020,6 +2020,8 @@ def tst_reconstruct_save_reload_and_eval():
 # order runs
 # python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -reorder reverse
 # python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -reorder arbitrary
+# python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -oraclemode zerocost
+# python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -oraclemode sample
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1, dropouts=-1., rdropouts=-1., alldropouts=-1.,
@@ -2531,7 +2533,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                           tieembeddings=False, dorare=False,
                           oraclemode="zerocost", selectcolfirst=False,
                           userules="no", ptrgenmode="sharemax", labelsmoothing=0.,
-                          useoffset=False,): # oraclemode: "zerocost" or "sample"
+                          useoffset=False, useskip=False): # oraclemode: "zerocost" or "sample"
     # region init
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_oracle_df_new")
@@ -2604,7 +2606,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                                            rare_gwids=rare_gwids_after_glove)
         _outemb, inpbaseemb, colbaseemb, _ = make_out_emb(outembdim, osm.D, gwids.D, cnsm.D, gdim=gdim,
                                                           inpbaseemb=inpbaseemb, useglove=useglove, gfrac=gfrac,
-                                                          rare_gwids=rare_gwids_after_glove)
+                                                          rare_gwids=rare_gwids_after_glove, useskip=useskip)
         if not tieembeddings:
             inpbaseemb, colbaseemb = None, None
 
@@ -2616,7 +2618,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
                                                               inpbaseemb=inpbaseemb, colbaseemb=colbaseemb,
                                                               colenc=None, nocopy=ablatecopy, rare_gwids=rare_gwids_after_glove,
-                                                               automasker=automasker,
+                                                               automasker=automasker, useskip=useskip,
                                                                ptrgenmode=ptrgenmode, useoffset=useoffset)
 
         _encoder = q.FastestLSTMEncoder(*encdims, dropout_in=idropout, dropout_rec=irdropout, bidir=True)
@@ -2640,6 +2642,10 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
             inpmask = _inpmask[:, :_inpenc.size(1)]
             inpenc = q.intercat(_inpenc.chunk(2, -1), -1)
             ctx = inpenc  # old normalpointer mode
+            if useskip:
+                ctxadd = torch.zeros(ctx.size(0), ctx.size(1), ctx.size(2) - _inpembs.size(2)).to(ctx.device)
+                ctxadd = torch.cat([ctxadd, _inpembs[:, :ctx.size(1)]], 2)
+                ctx = ctx + ctxadd
 
             # decoding
             self.outemb.prepare(inpseqmaps, colnames)
