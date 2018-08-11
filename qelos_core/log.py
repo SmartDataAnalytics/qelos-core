@@ -109,6 +109,29 @@ class Logger(object):
             self.open_liners[p].close()
 
 
+def find_experiments(p=None, **kw):
+    """ finds directories satisfying settings conditions in kw (as recorded by logger) """
+    if p is None:
+        p = "."
+    for subdir, dirs, files in os.walk(p):
+        if "settings.json" in files:
+            settings = json.load(open(os.path.join(subdir, "settings.json")))
+            incl = True
+            for k, v in kw:
+                if k not in settings:
+                    incl = False
+                    break
+                if q.iscallable(v):
+                    incl &= v(settings[k])
+                else:
+                    incl &= settings[k] == v
+                if not incl:
+                    break
+            if incl:
+                print(subdir)
+
+
+
 class LossesWriter(q.AutoHooker):
     """ Keeps writing lossarray on every push"""
     def __init__(self, looper, logfilepath):
