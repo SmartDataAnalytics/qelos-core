@@ -2006,6 +2006,7 @@ def tst_reconstruct_save_reload_and_eval():
 
 # SHAREMAX runs:
 # best one: python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
+# - sem rules:          python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -synonly
 # - rules:              python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "no" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip
 # / rules in train:     python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "both" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip
 # - label smoothing:    python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 30 -dorare -userules "test" -selectcolfirst -labelsmoothing 0 -cuda -gpu 1 -useskip
