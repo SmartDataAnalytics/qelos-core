@@ -1406,7 +1406,7 @@ class PtrGenOut(DynamicWordLinout, q.AutoMaskedOut):
 
 
 class MyAutoMasker(q.AutoMasker):
-    def __init__(self, inpD, outD, ctxD=None, selectcolfirst=False, **kw):
+    def __init__(self, inpD, outD, ctxD=None, selectcolfirst=False, usesem=True, **kw):
         super(MyAutoMasker, self).__init__(inpD, outD, **kw)
         self.selectcolfirst = selectcolfirst
         self.flags = None
@@ -1414,6 +1414,7 @@ class MyAutoMasker(q.AutoMasker):
         self.coltypes = None
         self.ctxD = ctxD
         self.RctxD = {v: k for k, v in ctxD.items()}
+        self.usesem = usesem
 
     def reset(self):
         super(MyAutoMasker, self).reset()
@@ -1463,15 +1464,16 @@ class MyAutoMasker(q.AutoMasker):
 
             def get_rets(k, coltype=None):
                 ret = list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
-                if coltype == "text":   # restrict aggs and ops
-                    def text_col_filter_fun(x):
-                        if re.match("OP\d+", x):
-                            return x in ["OP0"]     # allowed ops after a "text" column
-                        elif re.match("AGG\d+", x):
-                            return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
-                        else:
-                            return True
-                    ret = filter(text_col_filter_fun, ret)
+                if self.usesem:
+                    if coltype == "text":   # restrict aggs and ops
+                        def text_col_filter_fun(x):
+                            if re.match("OP\d+", x):
+                                return x in ["OP0"]     # allowed ops after a "text" column
+                            elif re.match("AGG\d+", x):
+                                return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
+                            else:
+                                return True
+                        ret = filter(text_col_filter_fun, ret)
                 return ret
 
             if prev == "<START>":
@@ -1507,11 +1509,10 @@ class MyAutoMasker(q.AutoMasker):
             elif prev == "<VAL>":
                 ret = get_rets("UWID")
             elif re.match("UWID\d+", prev):
-                ret = self.inpseqs[i][prev]
-                # if not self.training:
-                #     ret = self.inpseqs[i][prev]
-                # else:
-                #     ret = get_rets("UWID")
+                if self.usesem:
+                    ret = self.inpseqs[i][prev]
+                else:
+                    ret = get_rets("UWID")
                 ret += ["<ENDVAL>"]
             elif prev == "<ENDVAL>":
                 ret = ["<COND>", "<END>"]
@@ -2029,7 +2030,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    cuda=False, gpu=0, tag="none", ablatecopy=False, test=False,
                    tieembeddings=False, dorare=False, reorder="no", selectcolfirst=False,
                    userules="no", ptrgenmode="sharemax", labelsmoothing=0., attmode="dot",
-                   useoffset=False, smoothmix=0., coveragepenalty=0., useslotptr=False, useskip=False):
+                   useoffset=False, smoothmix=0., coveragepenalty=0., useslotptr=False, useskip=False, synonly=False):
                     # userules: "no", "test", "both"
                     # reorder: "no", "reverse", "arbitrary"
                     # ptrgenmode: "sepsum" or "sharemax"
@@ -2126,7 +2127,7 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
 
         automasker = None
         if userules != "no":
-            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
+            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst, usesem=not synonly)
             automasker.test_only = userules == "test"
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
@@ -2533,7 +2534,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                           tieembeddings=False, dorare=False,
                           oraclemode="zerocost", selectcolfirst=False,
                           userules="no", ptrgenmode="sharemax", labelsmoothing=0.,
-                          useoffset=False, useskip=False): # oraclemode: "zerocost" or "sample"
+                          useoffset=False, useskip=False, synonly=False): # oraclemode: "zerocost" or "sample"
     # region init
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_oracle_df_new")
@@ -2612,7 +2613,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
 
         automasker = None
         if userules != "no":
-            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst)
+            automasker = MyAutoMasker(osm.D, osm.D, ctxD=ism.D, selectcolfirst=selectcolfirst, usesem=not synonly)
             automasker.test_only = userules == "test"
         _outlin, inpbaseemb, colbaseemb, colenc = make_out_lin(outlindim, ism.D, osm.D, gwids.D, cnsm.D,
                                                               useglove=useglove, gdim=gdim, gfrac=gfrac,
