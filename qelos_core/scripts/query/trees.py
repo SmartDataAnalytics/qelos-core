@@ -738,7 +738,7 @@ class NodeTrackerDF(object):
             try:
                 assert(inpx in self._nvt)
             except AssertionError as e:
-                print(inpx, self._nvt)
+                print("token {} not in vnt: {} (trees.py, l.741)".format(inpx, self._nvt))
                 return self._nvt
             allnewpossiblepaths = []
             xsplits = inpx.split(self.root.suffix_sep)

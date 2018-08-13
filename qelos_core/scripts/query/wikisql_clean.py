@@ -1028,6 +1028,7 @@ class SqlGroupTrackerDF(object):
         else:
             if not force and len(self._dirty_ids) > 0:
                 self.reset(*list(self._dirty_ids))
+                self._dirty_ids = set()
             else:
                 for tracker in self.trackers:
                     tracker.reset()
@@ -2047,6 +2048,10 @@ def tst_reconstruct_save_reload_and_eval():
 # python wikisql_seq2seq_tf_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules "test" -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -reorder arbitrary
 # python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -oraclemode zerocost
 # python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -oraclemode sample
+
+# uniform pretrain runs
+# python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 0 -useskip -oraclemode zerocost -uniformpretrain 3
+# python wikisql_seq2seq_oracle_df.py -gdim 300 -dim 600 -epochs 20 -dorare -userules test -selectcolfirst -labelsmoothing 0.2 -cuda -gpu 1 -useskip -oraclemode sample -uniformpretrain 3
 def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
                    inpembdim=50, outembdim=50, innerdim=100, numlayers=2, dim=-1, gdim=-1,
                    dropout=0.2, rdropout=0.1, edropout=0., idropout=0.2, irdropout=0.1, dropouts=-1., rdropouts=-1., alldropouts=-1.,
@@ -2753,10 +2758,12 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     # region uniform pretrain
     if uniformpretrain > 0:
         print("pretraining uniformly")
+        m.decoder.set_mode("uniform")
         preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr, weight_decay=wreg)
         pretrainer = q.trainer(m).on(trainloader).loss(losses).optimizer(preoptim).set_batch_transformer(inp_bt, out_bt, gold_bt) \
                         .device(device).hook(clip_grad_norm)
         q.train(pretrainer).run(epochs=uniformpretrain)
+        m.decoder.set_mode(oraclemode)
         print("done pretraining uniformly")
     # endregion
 
