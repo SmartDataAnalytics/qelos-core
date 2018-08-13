@@ -2,8 +2,7 @@ import qelos_core as q
 import os
 import json
 import warnings
-import pandas as pd
-import glob
+import re
 import codecs
 
 
@@ -109,14 +108,21 @@ class Logger(object):
             self.open_liners[p].close()
 
 
-def find_experiments(p=None, **kw):
-    """ finds directories satisfying settings conditions in kw (as recorded by logger) """
+def find_experiments(*args, **kw):
+    """ finds directories satisfying settings conditions in kw (as recorded by logger)
+        if any, the first element of *args will always be interpreted as a prefix to filter subdirs by,
+            and the second element of *args will be interpreted as an alternative path to search experiments in
+    """
+    p = None if len(args) < 2 else args[1]
+    prefix = None if len(args) < 1 else args[0]
     if p is None:
         p = "."
     for subdir, dirs, files in os.walk(p):
         if "settings.json" in files:
             settings = json.load(open(os.path.join(subdir, "settings.json")))
             incl = True
+            if prefix is not None:
+                incl &= re.match(prefix, subdir)
             for k, v in kw.items():
                 if k not in settings:
                     incl = False
@@ -128,7 +134,7 @@ def find_experiments(p=None, **kw):
                 if not incl:
                     break
             if incl:
-                print(subdir)
+                yield subdir
 
 
 

@@ -1918,22 +1918,45 @@ def load_pred_jsonl(p):
     return lines
 
 
-def get_accuracies(p):
+def get_accuracies(p, verbose=False):
     """ p is where experiment outputs are at"""
+    if verbose:
+        print(p)
     devsqls = load_jsonls(DATA_PATH + "dev.jsonl", sqlsonly=True)
     pred_devsqls = load_pred_jsonl(os.path.join(p, "dev_pred.jsonl"))
     dev_seq_acc = compute_seq_acc(pred_devsqls, devsqls)
     dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
-    print("DEV SEQ ACC: {}".format(dev_seq_acc))
-    print("DEV SQL ACC: {}".format(dev_sql_acc))
+    if verbose:
+        print("DEV SEQ ACC: {}".format(dev_seq_acc))
+        print("DEV SQL ACC: {}".format(dev_sql_acc))
 
     testsqls = load_jsonls(DATA_PATH + "test.jsonl", sqlsonly=True)
     pred_testsqls = load_pred_jsonl(os.path.join(p, "test_pred.jsonl"))
     test_seq_acc = compute_seq_acc(pred_testsqls, testsqls)
     test_sql_acc = compute_sql_acc(pred_testsqls, testsqls)
-    print("TEST SEQ ACC: {}".format(test_seq_acc))
-    print("TEST SQL ACC: {}".format(test_sql_acc))
+    if verbose:
+        print("TEST SEQ ACC: {}".format(test_seq_acc))
+        print("TEST SQL ACC: {}".format(test_sql_acc))
 
+    return dev_seq_acc, dev_sql_acc, test_seq_acc, test_sql_acc
+
+
+def get_avg_accs_of(*args, **kw):
+    """ signature is forward to q.log.find_experiments(*args, **kw) to find matching experiments
+        get_accuracies() is run for every found experiment and the average is returned """
+    experiment_dirs = list(q.find_experiments(*args, **kw))
+    accses = [0., 0., 0., 0.]
+    cnt = 0.
+    for experiment_dir in experiment_dirs:
+        accs = get_accuracies(experiment_dir, verbose=True)
+        accses = [accse + accs_i for accse, accs_i in zip(accses, accs)]
+    accses = [accse / cnt for accse in accses]
+    print("Average accs for {} selected experiments:".format(int(cnt)))
+    print("DEV SEQ ACC: {}".format(accses[0]))
+    print("DEV SQL ACC: {}".format(accses[1]))
+    print("TEST SEQ ACC: {}".format(accses[2]))
+    print("TEST SQL ACC: {}".format(accses[3]))
+    return tuple(accses)
 
 
 # region test
