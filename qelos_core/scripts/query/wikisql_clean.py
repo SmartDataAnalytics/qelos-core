@@ -2759,11 +2759,12 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     if uniformpretrain > 0:
         print("pretraining uniformly")
         m.decoder.set_mode("uniform")
-        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr, weight_decay=wreg)
+        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr*0.1, weight_decay=wreg)
         pretrainer = q.trainer(m).on(trainloader).loss(losses).optimizer(preoptim).set_batch_transformer(inp_bt, out_bt, gold_bt) \
                         .device(device).hook(clip_grad_norm)
         q.train(pretrainer).run(epochs=uniformpretrain)
         m.decoder.set_mode(oraclemode)
+        print(m.decoder.mode, m.decoder.gold_mode)
         print("done pretraining uniformly")
     # endregion
 
