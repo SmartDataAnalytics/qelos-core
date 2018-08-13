@@ -1949,12 +1949,12 @@ def get_avg_accs_of(*args, **kw):
     for experiment_dir in experiment_dirs:
         accs = get_accuracies(experiment_dir, verbose=True)
         for acc, accse in zip(accs, accses):
-            accse.append(acc)
+            accse.append(acc * 100.)
     print("Average accs for {} selected experiments:".format(len(accses[0])))
-    print("  DEV SEQ ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  DEV SQL ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  TEST SEQ ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  TEST SQL ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  DEV SEQ ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  DEV SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  TEST SEQ ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  TEST SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
     return accses
 
 
