@@ -125,7 +125,7 @@ def find_experiments(*args, **kw):
                 incl &= re.match(prefix, subdir) is not None
             for k, v in kw.items():
                 if k not in settings:
-                    v = None
+                    settings[k] = None
                 if q.iscallable(v):
                     incl &= v(settings[k])
                 else:
