@@ -552,16 +552,8 @@ class DynamicOracleDecoder(Decoder):
     def __init__(self, cell, tracker=None, mode="sample", eps=0.2, explore=0., maxtime=None, softmax=None, **kw):
         super(DynamicOracleDecoder, self).__init__(cell, **kw)
         self.maxtime = maxtime
-        self.mode = mode
         self.sm = softmax
-        modere = re.compile("(\w+)-(\w+)")
-        m = re.match(modere, mode)
-        if m:
-            self.gold_mode, self.next_mode = m.group(1), m.group(2)
-            self.modes_split = True
-        else:
-            self.gold_mode, self.next_mode = mode, mode
-            self.modes_split = False
+        self.set_mode(mode)
         self.eps = eps
         self.explore = explore
         #
@@ -570,6 +562,17 @@ class DynamicOracleDecoder(Decoder):
         self.goldacc = []       # use for supervision
 
         self._argmax_in_eval = True
+
+    def set_mode(self, mode):
+        self.mode = mode
+        modere = re.compile("(\w+)-(\w+)")
+        m = re.match(modere, mode)
+        if m:
+            self.gold_mode, self.next_mode = m.group(1), m.group(2)
+            self.modes_split = True
+        else:
+            self.gold_mode, self.next_mode = mode, mode
+            self.modes_split = False
 
     def rec_reset(self):
         self.reset()

@@ -1941,6 +1941,7 @@ def get_accuracies(p, verbose=False):
     return dev_seq_acc, dev_sql_acc, test_seq_acc, test_sql_acc
 
 
+# _ = get_avg_accs_of(".+s2s_new.+", completed=True, epochs=lambda x: x >15, selectcolfirst=True, userules="test", labelsmoothing=0.2, useskip=True, ptrgenmode="sharemax", synonly=True, reorder="no", test=False)
 def get_avg_accs_of(*args, **kw):
     """ signature is forward to q.log.find_experiments(*args, **kw) to find matching experiments
         get_accuracies() is run for every found experiment and the average is returned """
@@ -2470,10 +2471,11 @@ def run_seq2seq_tf(lr=0.001, batsize=100, epochs=50,
     # saving best model
     best_saver = BestSaver(lambda: validlosses.get_agg_errors()[1],
                            valid_m, path=model_save_path, verbose=True)
+
+    clip_grad_norm = q.ClipGradNorm(gradnorm)
     # endregion
 
     # region training
-    clip_grad_norm = q.ClipGradNorm(gradnorm)
     trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).set_batch_transformer(inp_bt)\
         .device(device).hook(clip_grad_norm)
     validator = q.tester(valid_m).on(validloader).loss(validlosses).set_batch_transformer(valid_inp_bt)\
@@ -2557,7 +2559,8 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
                           tieembeddings=False, dorare=False,
                           oraclemode="zerocost", selectcolfirst=False,
                           userules="no", ptrgenmode="sharemax", labelsmoothing=0.,
-                          useoffset=False, useskip=False, synonly=False): # oraclemode: "zerocost" or "sample"
+                          useoffset=False, useskip=False, synonly=False,
+                          uniformpretrain=-1): # oraclemode: "zerocost" or "sample"
     # region init
     settings = locals().copy()
     logger = q.Logger(prefix="wikisql_s2s_oracle_df_new")
@@ -2743,10 +2746,21 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     # saving best model
     best_saver = BestSaver(lambda: validlosses.get_agg_errors()[1],
                            valid_m, path=model_save_path, verbose=True)
+
+    clip_grad_norm = q.ClipGradNorm(gradnorm)
+    # endregion
+
+    # region uniform pretrain
+    if uniformpretrain > 0:
+        print("pretraining uniformly")
+        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr, weight_decay=wreg)
+        pretrainer = q.trainer(m).on(trainloader).loss(losses).optimizer(preoptim).set_batch_transformer(inp_bt, out_bt, gold_bt) \
+                        .device(device).hook(clip_grad_norm)
+        q.train(pretrainer).run(epochs=uniformpretrain)
+        print("done pretraining uniformly")
     # endregion
 
     # region training
-    clip_grad_norm = q.ClipGradNorm(gradnorm)
     trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).set_batch_transformer(inp_bt, out_bt, gold_bt)\
         .device(device).hook(clip_grad_norm)
     validator = q.tester(valid_m).on(validloader).loss(validlosses).set_batch_transformer(valid_inp_bt)\
