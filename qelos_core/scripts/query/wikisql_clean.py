@@ -1927,16 +1927,16 @@ def get_accuracies(p, verbose=False):
     dev_seq_acc = compute_seq_acc(pred_devsqls, devsqls)
     dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
     if verbose:
-        print("DEV SEQ ACC: {}".format(dev_seq_acc))
-        print("DEV SQL ACC: {}".format(dev_sql_acc))
+        print("\tDEV SEQ ACC: {}".format(dev_seq_acc))
+        print("\tDEV SQL ACC: {}".format(dev_sql_acc))
 
     testsqls = load_jsonls(DATA_PATH + "test.jsonl", sqlsonly=True)
     pred_testsqls = load_pred_jsonl(os.path.join(p, "test_pred.jsonl"))
     test_seq_acc = compute_seq_acc(pred_testsqls, testsqls)
     test_sql_acc = compute_sql_acc(pred_testsqls, testsqls)
     if verbose:
-        print("TEST SEQ ACC: {}".format(test_seq_acc))
-        print("TEST SQL ACC: {}".format(test_sql_acc))
+        print("\tTEST SEQ ACC: {}".format(test_seq_acc))
+        print("\tTEST SQL ACC: {}".format(test_sql_acc))
 
     return dev_seq_acc, dev_sql_acc, test_seq_acc, test_sql_acc
 
@@ -1950,12 +1950,13 @@ def get_avg_accs_of(*args, **kw):
     for experiment_dir in experiment_dirs:
         accs = get_accuracies(experiment_dir, verbose=True)
         accses = [accse + accs_i for accse, accs_i in zip(accses, accs)]
+        cnt += 1
     accses = [accse / cnt for accse in accses]
     print("Average accs for {} selected experiments:".format(int(cnt)))
-    print("DEV SEQ ACC: {}".format(accses[0]))
-    print("DEV SQL ACC: {}".format(accses[1]))
-    print("TEST SEQ ACC: {}".format(accses[2]))
-    print("TEST SQL ACC: {}".format(accses[3]))
+    print("  DEV SEQ ACC: {}".format(accses[0]))
+    print("  DEV SQL ACC: {}".format(accses[1]))
+    print("  TEST SEQ ACC: {}".format(accses[2]))
+    print("  TEST SQL ACC: {}".format(accses[3]))
     return tuple(accses)
 
 
