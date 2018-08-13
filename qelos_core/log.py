@@ -122,7 +122,7 @@ def find_experiments(*args, **kw):
             settings = json.load(open(os.path.join(subdir, "settings.json")))
             incl = True
             if prefix is not None:
-                incl &= re.match(prefix, subdir)
+                incl &= re.match(prefix, subdir) is not None
             for k, v in kw.items():
                 if k not in settings:
                     incl = False
