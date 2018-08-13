@@ -1945,19 +1945,17 @@ def get_avg_accs_of(*args, **kw):
     """ signature is forward to q.log.find_experiments(*args, **kw) to find matching experiments
         get_accuracies() is run for every found experiment and the average is returned """
     experiment_dirs = list(q.find_experiments(*args, **kw))
-    accses = [0., 0., 0., 0.]
-    cnt = 0.
+    accses = [[] for i in range(4)]
     for experiment_dir in experiment_dirs:
         accs = get_accuracies(experiment_dir, verbose=True)
-        accses = [accse + accs_i for accse, accs_i in zip(accses, accs)]
-        cnt += 1
-    accses = [accse / cnt for accse in accses]
-    print("Average accs for {} selected experiments:".format(int(cnt)))
-    print("  DEV SEQ ACC: {}".format(accses[0]))
-    print("  DEV SQL ACC: {}".format(accses[1]))
-    print("  TEST SEQ ACC: {}".format(accses[2]))
-    print("  TEST SQL ACC: {}".format(accses[3]))
-    return tuple(accses)
+        for acc, accse in zip(accs, accses):
+            accse.append(acc)
+    print("Average accs for {} selected experiments:".format(len(accses[0])))
+    print("  DEV SEQ ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  DEV SQL ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  TEST SEQ ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  TEST SQL ACC: {}, std={}".format(np.mean(accses[0]), np.std(accses[0])))
+    return accses
 
 
 # region test
