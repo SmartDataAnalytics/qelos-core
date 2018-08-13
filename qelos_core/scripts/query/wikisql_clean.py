@@ -1952,9 +1952,9 @@ def get_avg_accs_of(*args, **kw):
             accse.append(acc * 100.)
     print("Average accs for {} selected experiments:".format(len(accses[0])))
     print("  DEV SEQ ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  DEV SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  TEST SEQ ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
-    print("  TEST SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[0]), np.std(accses[0])))
+    print("  DEV SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[1]), np.std(accses[1])))
+    print("  TEST SEQ ACC: {:.2f}, std={:.2f}".format(np.mean(accses[2]), np.std(accses[2])))
+    print("  TEST SQL ACC: {:.2f}, std={:.2f}".format(np.mean(accses[3]), np.std(accses[3])))
     return accses
 
 
