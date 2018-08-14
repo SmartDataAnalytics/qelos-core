@@ -2756,21 +2756,26 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     # endregion
 
     # region uniform pretrain
-    if uniformpretrain > 0:
-        print("pretraining uniformly")
-        m.decoder.set_mode("uniform")
-        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr*0.5, weight_decay=wreg)
-        pretrainer = q.trainer(m).on(trainloader).loss(losses).optimizer(preoptim).set_batch_transformer(inp_bt, out_bt, gold_bt) \
-                        .device(device).hook(clip_grad_norm)
-        q.train(pretrainer).run(epochs=uniformpretrain)
-        m.decoder.set_mode(oraclemode)
-        print(m.decoder.mode, m.decoder.gold_mode)
-        print("done pretraining uniformly")
+    class PretrainHooker(q.AutoHooker):
+        def get_hooks(self, ee):
+            return {q.trainer.END_EPOCH: self.on_end_epoch}
+
+        def on_end_epoch(self, _trainer, **kw):
+            if _trainer.current_epoch > uniformpretrain:
+                m.decoder.set_mode(oraclemode)
+                print("done pretraining uniformly")
     # endregion
 
     # region training
-    trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).set_batch_transformer(inp_bt, out_bt, gold_bt)\
+    trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim)\
+        .set_batch_transformer(inp_bt, out_bt, gold_bt)\
         .device(device).hook(clip_grad_norm)
+
+    if uniformpretrain > 0:
+        print("pretraining uniformly")
+        m.decoder.set_mode("uniform")
+        trainer.hook(PretrainHooker())
+
     validator = q.tester(valid_m).on(validloader).loss(validlosses).set_batch_transformer(valid_inp_bt)\
         .device(device).hook(best_saver)
     q.train(trainer, validator).log(logger).run(epochs=epochs)
