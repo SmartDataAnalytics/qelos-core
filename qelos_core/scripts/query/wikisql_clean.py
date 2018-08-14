@@ -2759,7 +2759,7 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     if uniformpretrain > 0:
         print("pretraining uniformly")
         m.decoder.set_mode("uniform")
-        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr*0.1, weight_decay=wreg)
+        preoptim = torch.optim.Adam(q.paramgroups_of(m), lr=lr*0.5, weight_decay=wreg)
         pretrainer = q.trainer(m).on(trainloader).loss(losses).optimizer(preoptim).set_batch_transformer(inp_bt, out_bt, gold_bt) \
                         .device(device).hook(clip_grad_norm)
         q.train(pretrainer).run(epochs=uniformpretrain)
@@ -2780,11 +2780,29 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
     # region evaluation     -- exactly same as tf script
     tt.tick("evaluating")
 
+    valid_m.load_state_dict(torch.load(model_save_path))
+
     tt.msg("generating model from scratch")
     _, test_m = create_train_and_test_models()
 
-    tt.msg("setting weights from best model")
+    tt.msg("setting weights from best model: {}".format(model_save_path))
     test_m.load_state_dict(torch.load(model_save_path))
+
+    valid_m.to(torch.device("cpu"))
+
+    test_m_param_dic = {n: p for n, p in test_m.named_parameters()}
+    valid_m_param_dic = {n: p for n, p in valid_m.named_parameters()}
+    diffs = {}
+    allzerodiffs = True
+    for n in valid_m_param_dic:
+        diffs[n] = (valid_m_param_dic[n] - test_m_param_dic[n]).float().norm()
+        allzerodiffs &= diffs[n].cpu().item() == 0
+    if not allzerodiffs:
+        print("reloaded weights don't match")
+        q.embed()
+
+    if test:
+        q.embed()
 
     testlosses = q.lossarray(q.SeqAccuracy(ignore_index=0),
                               TreeAccuracy(ignore_index=0, treeparser=row2tree))
@@ -2803,13 +2821,13 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
         print(test_results)
         logger.update_settings(test_seq_acc=test_results[0], test_tree_acc=test_results[1])
 
-        def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
-            colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
-            colnames = torch.tensor(colnames).to(colnameids.device)
-            return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
-        dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
-                                                   inp_bt=test_inp_bt, batsize=batsize, device=device,
-                                                   savedir=logger.p, test=test)
+    def test_inp_bt(ismbatch, osmbatch, gwidsbatch, colnameids, coltypes):
+        colnames = cnsm.matrix[colnameids.cpu().data.numpy()]
+        colnames = torch.tensor(colnames).to(colnameids.device)
+        return ismbatch, osmbatch[:, 0], gwidsbatch, colnames, coltypes
+    dev_sql_acc, test_sql_acc = evaluate_model(test_m, devdata, testdata, rev_osm_D, rev_gwids_D,
+                                               inp_bt=test_inp_bt, batsize=batsize, device=device,
+                                               savedir=logger.p, test=test)
     tt.tock("evaluated")
     # endregion
 
