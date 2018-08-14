@@ -2762,8 +2762,10 @@ def run_seq2seq_oracle_df(lr=0.001, batsize=100, epochs=50,
 
         def on_end_epoch(self, _trainer, **kw):
             if _trainer.current_epoch >= uniformpretrain:
-                m.decoder.set_mode(oraclemode)
-                print("done pretraining uniformly")
+                if m.decoder.mode != oraclemode:
+                    m.decoder.set_mode(oraclemode)
+                    print("done pretraining uniformly")
+
     # endregion
 
     # region training
