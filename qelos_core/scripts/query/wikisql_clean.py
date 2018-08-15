@@ -2933,6 +2933,6 @@ if __name__ == "__main__":
     # test_sqlnode_and_sqls()
     # test_grouptracker()
     # test_save()
-    q.argprun(run_seq2seq_tf)
+    # q.argprun(run_seq2seq_tf)
     # q.argprun(run_seq2seq_oracle_df)
-    # q.argprun(compare_trees)
+    q.argprun(compare_trees)
