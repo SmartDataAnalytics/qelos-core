@@ -54,7 +54,7 @@ def load_jsons(datap="../../../datasets/lcquad/newdata.json",
         def flatten_chain(chainspec):
             flatchainspec = []
             for x in chainspec:
-                if x in (u"+", u"-"):
+                if x in ("+", "-"):
                     flatchainspec.append(x)
                 elif x > -1:
                     relwords = rels[str(x)]
@@ -138,7 +138,7 @@ class RankingComputer(object):
         # get all pairs to score
         current_batch = []
         # given questions are already shuffled --> just traverse
-        for eid, ldata_id in zip(list(eids), range(len(self.eids))):
+        for eid, ldata_id in zip(list(eids), list(range(len(self.eids)))):
             rdata = []
             rids = [self.eid2rid_gold[eid]] + list(set(self.eid2rid_neg[eid]) - {self.eid2rid_gold[eid],})
             ldata = [ldat[ldata_id][np.newaxis, ...].repeat(len(rids), axis=0)
@@ -148,7 +148,7 @@ class RankingComputer(object):
             for rid in rids:
                 right_data = tuple([rdat[rid] for rdat in self.rdata])
                 rdata.append(right_data)
-            rdata = zip(*rdata)
+            rdata = list(zip(*rdata))
             ldata = [q.var(ldat, volatile=True).cuda(cuda).v for ldat in ldata]
             rdata = [q.var(np.stack(posdata_e), volatile=True).cuda(cuda).v for posdata_e in rdata]
             scores = self.scoremodel(ldata, rdata)
@@ -390,7 +390,7 @@ def run(lr=OPT_LR, batsize=100, epochs=1000, validinter=20,
                 rankmetric = np.asarray(rankmetric)
                 ret_i = rankmetric.mean()
                 ret.append(ret_i)
-            return "valid: " + " - ".join(map(lambda x: "{:.4f}".format(x), ret))
+            return "valid: " + " - ".join(["{:.4f}".format(x) for x in ret])
 
         q.train(trainer, validation_function).run(epochs, validinter=validinter)
         # endregion

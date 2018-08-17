@@ -197,7 +197,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             _disciters = burnin if current_iter == 0 else disciters
 
             for disc_iter in range(_disciters):  # discriminator iterations
-                batch = disc_batch_iter.next()
+                batch = next(disc_batch_iter)
                 self.disc_trainer.do_batch(batch)
                 ttmsg = "iter {}/{} - disc: {}/{} :: {}".format(current_iter, iters,
                                                                disc_iter+1, _disciters,
@@ -207,7 +207,7 @@ class GANTrainer(q.LoopRunner, q.EventEmitter):
             self.do_callbacks(self.END_DISC)
             self.do_callbacks(self.START_GEN)
             for gen_iter in range(geniters):  # generator iterations
-                batch = gen_batch_iter.next()
+                batch = next(gen_batch_iter)
                 self.gen_trainer.do_batch(batch)
                 ttmsg = "iter {}/{} - gen: {}/{} :: {}".format(current_iter, iters,
                                                               gen_iter+1, geniters,

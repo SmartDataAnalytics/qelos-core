@@ -16,7 +16,7 @@ def run(lr=0.001):
     disc_data = q.dataload(disc_data, batch_size=20, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=20, shuffle=True)
 
-    iter(disc_data).next()
+    next(iter(disc_data))
 
     # models
     class Generator(torch.nn.Module):

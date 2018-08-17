@@ -184,7 +184,7 @@ class SeqLoss(nn.Module):       # TODO: take end of sequence token into account
         try:
             y = gold.contiguous().view(batsize * seqlen)
         except Exception as e:
-            print(batsize, seqlen, gold.size())
+            print((batsize, seqlen, gold.size()))
         if mask is not None:
             mask = mask.contiguous().view(batsize * seqlen, -1)
 

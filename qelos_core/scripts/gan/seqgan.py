@@ -479,7 +479,7 @@ def run_words(lr=0.001,
     # get some words
     N = 1000
     glove = q.PretrainedWordEmb(50, vocabsize=N+2)
-    words = glove.D.keys()[2:]
+    words = list(glove.D.keys())[2:]
     datasm = q.StringMatrix()
     datasm.tokenize = lambda x: list(x)
     for word in words:

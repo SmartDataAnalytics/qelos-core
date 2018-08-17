@@ -3,6 +3,7 @@ from collections import OrderedDict
 
 import numpy as np
 import os, pickle as pkl
+import json
 
 import qelos_core as q
 from torch import nn
@@ -61,7 +62,7 @@ class WordVecBase(object):
                 return self.getdistance(other[0], other[1])
             else:
                 y = other[0]
-                return map(lambda x: self.getdistance(y, x), other[1:])
+                return [self.getdistance(y, x) for x in other[1:]]
         else:  # embed
             return self.__getitem__(other)
     # endregion
@@ -149,7 +150,7 @@ class WordEmb(WordEmbBase):
         """
         assert(worddic is not None)     # always needs a dictionary
         super(WordEmb, self).__init__(worddic, **kw)
-        wdvals = worddic.values()
+        wdvals = list(worddic.values())
         assert(min(wdvals) >= 0)     # word ids must be positive
 
         # extract maskid and rareid from worddic
@@ -227,7 +228,7 @@ class ComputedWordEmb(WordEmbBase):
         self.data = nn.Parameter(torch.from_numpy(data), requires_grad=False)
         self.computer = computer
         self.weight = None
-        wdvals = worddic.values()
+        wdvals = list(worddic.values())
         assert(min(wdvals) >= 0)     # word ids must be positive
 
         # extract maskid and rareid from worddic
@@ -346,7 +347,7 @@ class PretrainedWordVec(object):
         # load words
         tt.tick()
         if path not in self.loadcache:
-            words = pkl.load(open(path+".words"))
+            words = json.load(open(path+".words"))
         else:
             words = self.loadcache[path][1]
         tt.tock("words loaded")
@@ -427,7 +428,7 @@ class PretrainedWordEmb(WordEmb, PretrainedWordVec):
                                          rareid=incl_rareid)
         else:
             wdic = worddic
-        self.allwords = wdic.keys()
+        self.allwords = list(wdic.keys())
         super(PretrainedWordEmb, self).__init__(dim=dim, value=value,
                                                 worddic=wdic, fixed=fixed, **kw)
 
@@ -559,7 +560,7 @@ class WordLinout(WordLinoutBase):
         :param fixed: (optional) don't train this
         """
         super(WordLinout, self).__init__(worddic)
-        wdvals = worddic.values()
+        wdvals = list(worddic.values())
         assert(min(wdvals) >= 0)     # word ids must be positive
 
         # extract maskid and rareid from worddic
@@ -626,7 +627,7 @@ class ComputedWordLinout(WordLinoutBase):
         self.computer = computer
         # TODO: batches for computer???
 
-        wdvals = worddic.values()
+        wdvals = list(worddic.values())
         assert(min(wdvals) >= 0)     # word ids must be positive
 
         # extract maskid and rareid from worddic
@@ -721,7 +722,7 @@ class PretrainedWordLinout(WordLinout, PretrainedWordVec):
         assert ("worddic" not in kw)
         path = self._get_path(dim, path=path)
         value, wdic = self.loadvalue(path, dim, indim=vocabsize, worddic=worddic, maskid=incl_maskid, rareid=incl_rareid)
-        self.allwords = wdic.keys()
+        self.allwords = list(wdic.keys())
         bias = bias and not fixed
         super(PretrainedWordLinout, self).__init__(dim, weight=value,
                                                    worddic=wdic, fixed=fixed,

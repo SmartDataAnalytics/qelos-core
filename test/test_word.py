@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 from unittest import TestCase
 import qelos_core as q
 from torch.autograd import Variable

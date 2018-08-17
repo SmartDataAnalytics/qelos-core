@@ -8,7 +8,7 @@ class Dropout(torch.nn.Module):
         self.d = torch.nn.Dropout(p=p, inplace=False)
 
     def forward(self, *x):
-        y = map(lambda z: self.d(z), x)
+        y = [self.d(z) for z in x]
         y = y[0] if len(y) == 1 else y
         return y
 

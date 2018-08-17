@@ -1,4 +1,4 @@
-from __future__ import print_function
+
 import argparse
 import collections
 import inspect
@@ -180,7 +180,7 @@ class StringMatrix():
         if not self._dictionary_external:
             sortedwordidxs = [self.d(x) for x in self.protectedwords] + \
                              ([self.d(x) for x, y
-                              in sorted(self._wordcounts_original.items(), key=lambda (x, y): y, reverse=True)
+                              in sorted(list(self._wordcounts_original.items()), key=lambda x_y: x_y[1], reverse=True)
                               if y >= self._rarefreq and x not in self.protectedwords][:self._topnwords])
             transdic = zip(sortedwordidxs, range(len(sortedwordidxs)))
             transdic = dict(transdic)
@@ -205,14 +205,14 @@ class StringMatrix():
 
 
 def tokenize(s, preserve_patterns=None, extrasubs=True):
-    if not isinstance(s, unicode):
+    if not isinstance(s, str):
         s = s.decode("utf-8")
     s = unidecode.unidecode(s)
     repldic = None
     if preserve_patterns is not None:
         repldic = {}
         def _tokenize_preserve_repl(x):
-            id = max(repldic.keys() + [-1]) + 1
+            id = max(list(repldic.keys()) + [-1]) + 1
             repl = "replreplrepl{}".format(id)
             assert(repl not in s)
             assert(id not in repldic)
@@ -460,7 +460,7 @@ def argprun(f, sigint_shell=True, **kwargs):   # command line overrides kwargs
                 setattr(l, k, v)
             stopprompt = False
             while not stopprompt:
-                whattodo = raw_input("(s)hell, (k)ill\n>>")
+                whattodo = input("(s)hell, (k)ill\n>>")
                 if whattodo == "s":
                     embed()
                 elif whattodo == "k":
@@ -508,11 +508,11 @@ def argprun(f, sigint_shell=True, **kwargs):   # command line overrides kwargs
 
 
 def inp():
-    return raw_input("Press ENTER to continue:\n>>> ")
+    return input("Press ENTER to continue:\n>>> ")
 
 
 def issequence(x):
-    return isinstance(x, collections.Sequence) and not isinstance(x, basestring)
+    return isinstance(x, collections.Sequence) and not isinstance(x, str)
 
 
 def iscollection(x):
@@ -524,7 +524,7 @@ def isnumber(x):
 
 
 def isstring(x):
-    return isinstance(x, basestring)
+    return isinstance(x, str)
 
 
 def iscuda(x):
@@ -637,7 +637,7 @@ def v(x):
 def params_of(m):
     """ gets parameters of given nn.Module, filtering out params that don't require grad (q.val().v)"""
     params = m.parameters()
-    params = filter(lambda x: x.requires_grad == True, params)
+    params = [x for x in params if x.requires_grad == True]
     return params
 
 

@@ -178,13 +178,13 @@ def jsonls_to_lines(p=DATA_PATH):
 
     with codecs.open(p + "train.lines", "w", encoding="utf-8") as f:
         for example in trainexamples:
-            f.write(u"{}\n".format(example))
+            f.write("{}\n".format(example))
     with codecs.open(p + "dev.lines", "w", encoding="utf-8") as f:
         for example in devexamples:
-            f.write(u"{}\n".format(example))
+            f.write("{}\n".format(example))
     with codecs.open(p + "test.lines", "w", encoding="utf-8") as f:
         for example in testexamples:
-            f.write(u"{}\n".format(example))
+            f.write("{}\n".format(example))
     # endregion
 
     return trainexamples, devexamples, testexamples
@@ -193,24 +193,24 @@ def jsonls_to_lines(p=DATA_PATH):
 def jsonl_to_line(line, alltables):
     """ takes object from .jsonl, creates line"""
     column_names = alltables[line["table_id"]]["header"]
-    question = u" ".join(nltk.word_tokenize(line["question"])).lower()
+    question = " ".join(nltk.word_tokenize(line["question"])).lower()
 
     # region replacements on top of tokenization:
     # question = question.replace(u"\u2009", u" ")    # unicode long space to normal space
     # question = question.replace(u"\u2013", u"-")    # unicode long dash to normal dash
-    question = question.replace(u"`", u"'")         # unicode backward apostrophe to normal
-    question = question.replace(u"\u00b4", u"'")    # unicode forward apostrophe to normal
-    question = question.replace(u"''", u'"')    # double apostrophe to quote
+    question = question.replace("`", "'")         # unicode backward apostrophe to normal
+    question = question.replace("\u00b4", "'")    # unicode forward apostrophe to normal
+    question = question.replace("''", '"')    # double apostrophe to quote
     # add spaces around some special characters because nltk tokenizer doesn't:
-    question = question.replace(u'\u20ac', u' \u20ac ')     # euro sign
-    question = question.replace(u'\uffe5', u' \uffe5 ')     # yen sign
-    question = question.replace(u'\u00a3', u' \u00a3 ')     # pound sign
-    question = question.replace(u"'", u" ' ")
-    question = re.sub(u'/$', u' /', question)
+    question = question.replace('\u20ac', ' \u20ac ')     # euro sign
+    question = question.replace('\uffe5', ' \uffe5 ')     # yen sign
+    question = question.replace('\u00a3', ' \u00a3 ')     # pound sign
+    question = question.replace("'", " ' ")
+    question = re.sub('/$', ' /', question)
     # split up meters and kilometers because nltk tokenizer doesn't
-    question = re.sub(u'(\d+[,\.]\d+)(k?m)', u'\g<1> \g<2>', question)
+    question = re.sub('(\d+[,\.]\d+)(k?m)', '\g<1> \g<2>', question)
 
-    question = re.sub(u'\s+', u' ', question)
+    question = re.sub('\s+', ' ', question)
     # endregion
 
     # MANUAL FIXES FOR TYPOS OR FAILED TOKENIZATION (done in original jsonl's) - train fixes not included:
@@ -230,22 +230,22 @@ def jsonl_to_line(line, alltables):
 
     # region construct query
     # select clause
-    sql_select = u"AGG{} COL{}".format(line["sql"]["agg"], line["sql"]["sel"])
+    sql_select = "AGG{} COL{}".format(line["sql"]["agg"], line["sql"]["sel"])
     # where clause
     sql_wheres = []
     for cond in line["sql"]["conds"]:
         if isinstance(cond[2], float):
-            condval = unicode(cond[2].__repr__())       # printing float in original precision
+            condval = str(cond[2].__repr__())       # printing float in original precision
         else:
-            condval = unicode(cond[2]).lower()
+            condval = str(cond[2]).lower()
 
         # replacements in condval, equivalent to question replacements
         # condval = condval.replace(u"\u2009", u" ")    # unicode long space to normal space
         # condval = condval.replace(u"\u2013", u"-")    # unicode long dash to normal dash
-        condval = condval.replace(u"`", u"'")
-        condval = condval.replace(u"\u00b4", u"'")    # unicode forward apostrophe to normal
-        condval = condval.replace(u"''", u'"')
-        _condval = condval.replace(u" ", u"")
+        condval = condval.replace("`", "'")
+        condval = condval.replace("\u00b4", "'")    # unicode forward apostrophe to normal
+        condval = condval.replace("''", '"')
+        _condval = condval.replace(" ", "")
 
         # region rephrase condval in terms of span of question
         condval = None
@@ -255,9 +255,9 @@ def jsonl_to_line(line, alltables):
             for qwordd in _condval:
                 found = False
                 for j in range(i+1, len(questionsplit) + 1):
-                    if u"".join(questionsplit[i:j]) in _condval:
-                        if u"".join(questionsplit[i:j]) == _condval:
-                            condval = u" ".join(questionsplit[i:j])
+                    if "".join(questionsplit[i:j]) in _condval:
+                        if "".join(questionsplit[i:j]) == _condval:
+                            condval = " ".join(questionsplit[i:j])
                             found = True
                             break
                     else:
@@ -267,15 +267,15 @@ def jsonl_to_line(line, alltables):
         assert(condval in question)
         # endregion
 
-        condl = u"<COND> COL{} OP{} <VAL> {} <ENDVAL>".format(cond[0], cond[1], condval)
+        condl = "<COND> COL{} OP{} <VAL> {} <ENDVAL>".format(cond[0], cond[1], condval)
         sql_wheres.append(condl)
 
     # create full query:
     if len(sql_wheres) > 0:
-        sql = u"<QUERY> <SELECT> {} <WHERE> {}".format(sql_select, u" ".join(sql_wheres))
+        sql = "<QUERY> <SELECT> {} <WHERE> {}".format(sql_select, " ".join(sql_wheres))
     else:
-        sql = u"<QUERY> <SELECT> {}".format(sql_select)
-    ret = u"{}\t{}\t{}".format(question, sql, u"\t".join(column_names))
+        sql = "<QUERY> <SELECT> {}".format(sql_select)
+    ret = "{}\t{}\t{}".format(question, sql, "\t".join(column_names))
     # endregion
     return ret
 
@@ -402,8 +402,8 @@ def create_mats(p=DATA_PATH):
     # create matrix with for every unique column name (row), the sequence of words describing it
     csm = q.StringMatrix(indicate_start=False, indicate_end=False)
     for i, columnname in enumerate(uniquecolnames.keys()):
-        if columnname == u'№':
-            columnname = u'number'
+        if columnname == '№':
+            columnname = 'number'
         csm.add(columnname)
     csm.finalize()
     # idx 3986 is zero because it's u'№' and unidecode makes it empty string, has 30+ occurrences
@@ -497,11 +497,11 @@ def reconstruct_question(uwids, gwids, rgd):
 
 
 def reconstruct_query(osmrow, gwidrow, rod, rgd):
-    query = u" ".join([rod[wordid] for wordid in osmrow])
-    query = query.replace(u"<MASK>", u" ")
-    query = re.sub(u"\s+", u" ", query)
+    query = " ".join([rod[wordid] for wordid in osmrow])
+    query = query.replace("<MASK>", " ")
+    query = re.sub("\s+", " ", query)
     query = query.strip()
-    query = re.sub(u"UWID\d+", lambda x: rgd[gwidrow[int(x.group(0)[4:])]], query)
+    query = re.sub("UWID\d+", lambda x: rgd[gwidrow[int(x.group(0)[4:])]], query)
     return query
 
 
@@ -541,7 +541,7 @@ def tst_matrices(p=DATA_PATH, writeout=False):
         try:
             assert (orig_query == reco_query)
         except Exception as e:
-            print(u"FAILED: {} \n - {}".format(orig_query, reco_query))
+            print("FAILED: {} \n - {}".format(orig_query, reco_query))
         dev_reco_queries.append(reco_query)
     print("dev queries reconstruction matches")
     test_reco_queries = []
@@ -555,10 +555,10 @@ def tst_matrices(p=DATA_PATH, writeout=False):
     if writeout:
         with codecs.open(DATA_PATH+"dev.gold.outlines", "w", encoding="utf-8") as f:
             for query in dev_reco_queries:
-                f.write(u"{}\n".format(query))
+                f.write("{}\n".format(query))
         with codecs.open(DATA_PATH+"test.gold.outlines", "w", encoding="utf-8") as f:
             for query in test_reco_queries:
-                f.write(u"{}\n".format(query))
+                f.write("{}\n".format(query))
 
 # endregion
 # endregion
@@ -769,7 +769,7 @@ def querylin2json(qlin, origquestion):
                 val_nodes = val_node.children
                 if val_nodes[-1].name == "<ENDVAL>":        # all should end with endval but if not, accept
                     val_nodes = val_nodes[:-1]
-                valstring = u" ".join(map(lambda x: x.name, val_nodes))
+                valstring = " ".join([x.name for x in val_nodes])
                 valsearch = re.escape(valstring.lower()).replace("\\ ", "\s?")
                 found = re.findall(valsearch, origquestion.lower())
                 if len(found) > 0:
@@ -796,7 +796,7 @@ def same_sql_json(x, y):    # should not matter whether x or y is pred or gold, 
             ycondval = yconds[j][2]
             if isinstance(ycondval, float):
                 ycondval = ycondval.__repr__()
-            xcondval, ycondval = unicode(xcondval), unicode(ycondval)
+            xcondval, ycondval = str(xcondval), str(ycondval)
             if xcond[0] == yconds[j][0] \
                     and xcond[1] == yconds[j][1] \
                     and xcondval.lower() == ycondval.lower():
@@ -824,7 +824,7 @@ def same_lin_json(x, y):
             ycondval = ycond[2]
             if isinstance(ycondval, float):
                 ycondval = ycondval.__repr__()
-            xcondval, ycondval = unicode(xcondval), unicode(ycondval)
+            xcondval, ycondval = str(xcondval), str(ycondval)
             if xcond[0] == ycond[0] \
                     and xcond[1] == ycond[1] \
                     and xcondval.lower() == ycondval.lower():
@@ -851,8 +851,8 @@ def load_jsonls(p, questionsonly=False, sqlsonly=False):
 
 
 def tst_querylin2json():
-    qlin = u"<QUERY> <SELECT> AGG0 COL3 <WHERE> <COND> COL5 OP0 <VAL> butler cc ( ks ) <ENDVAL>"
-    jsonl = u"""{"phase": 1, "table_id": "1-10015132-11", "question": "What position does the player who played for butler cc (ks) play?",
+    qlin = "<QUERY> <SELECT> AGG0 COL3 <WHERE> <COND> COL5 OP0 <VAL> butler cc ( ks ) <ENDVAL>"
+    jsonl = """{"phase": 1, "table_id": "1-10015132-11", "question": "What position does the player who played for butler cc (ks) play?",
                 "sql": {"sel": 3, "conds": [[5, 0, "Butler CC (KS)"]], "agg": 0}}"""
     jsonl = json.loads(jsonl)
     origquestion = jsonl["question"]
@@ -1040,16 +1040,16 @@ class SqlGroupTrackerDF(object):
         if len(nvt) == 0:
             if self._did_the_end[eid] is True:
                 # nvt = {u'<RARE>'}
-                nvt = {u'<MASK>'}           # <-- why was rare? loss handles -inf on mask now
+                nvt = {'<MASK>'}           # <-- why was rare? loss handles -inf on mask now
             else:
-                nvt = {u"<END>"}
+                nvt = {"<END>"}
                 self._did_the_end[eid] = True
                 self._dirty_ids.add(eid)
         _nvt = set()
         for x in nvt:
-            x = x.replace(u'*NC', u'').replace(u'*LS', u'')
+            x = x.replace('*NC', '').replace('*LS', '')
             _nvt.add(x)
-        nvt = map(lambda x: self.D[x], _nvt)
+        nvt = [self.D[x] for x in _nvt]
         return nvt
 
     def update(self, eid, x, alt_x=None):
@@ -1060,18 +1060,18 @@ class SqlGroupTrackerDF(object):
             pass
         else:
             core = self.rD[x]
-            suffix = u''
-            if core not in u"<QUERY> <SELECT> <WHERE> <COND> <VAL>".split():
-                suffix += u'*NC'
-            if core in u'<ENDVAL> <END> <QUERY>'.split():
-                suffix += u'*LS'
+            suffix = ''
+            if core not in "<QUERY> <SELECT> <WHERE> <COND> <VAL>".split():
+                suffix += '*NC'
+            if core in '<ENDVAL> <END> <QUERY>'.split():
+                suffix += '*LS'
             else:       # check previous _nvt, if it occurred as *LS there, do *LS
-                if core + suffix in nvt and not (core + suffix + u'*LS' in nvt):
-                    suffix += u''
-                elif core + suffix + u'*LS' in nvt and not (core + suffix in nvt):
-                    suffix += u'*LS'
+                if core + suffix in nvt and not (core + suffix + '*LS' in nvt):
+                    suffix += ''
+                elif core + suffix + '*LS' in nvt and not (core + suffix in nvt):
+                    suffix += '*LS'
                 else:
-                    suffix += u''
+                    suffix += ''
                     print("sum ting wong in sql tracker df !!!!!!!!!!!")
             x = core + suffix
             tracker.nxt(x)
@@ -1107,14 +1107,14 @@ def tst_grouptracker():
         numconds = len(re.findall("<COND>", tracker.trackables[i].pp()))
         numsamples = {0: 3, 1: 3, 2: 5, 3: 10, 4: 100, 5: 1000}[numconds]
         for j in range(numsamples):
-            acc = u""
+            acc = ""
             tracker.reset()
             while True:
                 if tracker.is_terminated(i):
                     break
                 vnt = tracker.get_valid_next(i)
                 sel = random.choice(vnt)
-                acc += u" " + tracker.rD[sel]
+                acc += " " + tracker.rD[sel]
                 tracker.update(i, sel)
             accs.add(acc)
             assert(SqlNode.parse_sql(acc).equals(tracker.trackables[i]))
@@ -1464,7 +1464,7 @@ class MyAutoMasker(q.AutoMasker):
             prev = hist[-1]
 
             def get_rets(k, coltype=None):
-                ret = list(filter(lambda x: k == x[:len(k)], self.outD.keys()))
+                ret = list([x for x in self.outD.keys() if k == x[:len(k)]])
                 if self.usesem:
                     if coltype == "text":   # restrict aggs and ops
                         def text_col_filter_fun(x):
@@ -1474,7 +1474,7 @@ class MyAutoMasker(q.AutoMasker):
                                 return x in ["AGG0", "AGG3"]    # allowed aggs after a "text" column
                             else:
                                 return True
-                        ret = filter(text_col_filter_fun, ret)
+                        ret = list(filter(text_col_filter_fun, ret))
                 return ret
 
             if prev == "<START>":
@@ -1878,7 +1878,7 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
     def save_lines(lines, fname):
         with codecs.open(savedir + '/' + fname, "w", encoding="utf-8") as f:
             for lin in lines:
-                f.write(u"{}\n".format(lin))
+                f.write("{}\n".format(lin))
 
     # dev predictions
     devquestions = load_jsonls(DATA_PATH + "dev.jsonl", questionsonly=True)
@@ -1893,7 +1893,7 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                              rev_osm_D=rev_osm_D, rev_gwids_D=rev_gwids_D)
     if savedir is not None:
         save_lines(pred_devlines, "dev_pred.lines")
-        save_lines(map(lambda x: json.dumps(x), pred_devsqls), "dev_pred.jsonl")
+        save_lines([json.dumps(x) for x in pred_devsqls], "dev_pred.jsonl")
 
     dev_sql_acc = compute_sql_acc(pred_devsqls, devsqls)
     print("DEV SQL ACC: {}".format(dev_sql_acc))
@@ -1906,7 +1906,7 @@ def evaluate_model(m, devdata, testdata, rev_osm_D, rev_gwids_D,
                                                rev_osm_D=rev_osm_D, rev_gwids_D=rev_gwids_D)
     if savedir is not None:
         save_lines(pred_testlines, "test_pred.lines")
-        save_lines(map(lambda x: json.dumps(x), pred_testsqls), "test_pred.jsonl")
+        save_lines([json.dumps(x) for x in pred_testsqls], "test_pred.jsonl")
 
     test_sql_acc = compute_sql_acc(pred_testsqls, testsqls)
     print("TEST SQL ACC: {}".format(test_sql_acc))
@@ -1986,11 +1986,11 @@ def tst_reconstruct_save_reload_and_eval():
     # saving without codecs doesn't work
     with codecs.open("testsave.lines", "w", encoding="utf-8") as f:
         for line in rawlines:
-            f.write(u"{}\n".format(line))
+            f.write("{}\n".format(line))
 
     with codecs.open("testsave.sqls", "w", encoding="utf-8") as f:
         for sql in sqls:
-            f.write(u"{}\n".format(json.dumps(sql)))
+            f.write("{}\n".format(json.dumps(sql)))
     tt.tock("saved")
 
     tt.tick("reloading saved...")

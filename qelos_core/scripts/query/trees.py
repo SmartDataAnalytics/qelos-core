@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from __future__ import print_function
+
 import qelos_core as q
 import torch
 import numpy as np
@@ -310,7 +310,7 @@ class Node(Trackable):
                     return _lines
 
                 parent = self.symbol(with_label=True, with_annotation=False, with_order=not _remove_order)
-                if isinstance(parent, unicode):
+                if isinstance(parent, str):
                     parent = unidecode(parent)
                 up_children, down_children = children[:len(children)//2], children[len(children)//2:]
                 up_lines = print_children(up_children, "up")
@@ -324,7 +324,7 @@ class Node(Trackable):
             else:
                 connector = '┌' if direction == "up" else '└' if direction == "down" else '├' if direction == "middle" else ""
                 s = self.symbol(with_annotation=False, with_label=True, with_order=not _remove_order)
-                if isinstance(s, unicode):
+                if isinstance(s, str):
                     s = unidecode(s)
                 lines = [connector + s]
             if not _top_rec:
@@ -503,16 +503,14 @@ class UniqueNodeTracker(Tracker):
             del self._lost_children[x_name]
         if x_isleaf:
             if not x_isnone:
-                own_children = list(filter(lambda x: x.name in self._available_names,
-                                    self._allnames[x_name].children))
+                own_children = [x for x in self._allnames[x_name].children if x.name in self._available_names]
                 for own_child in own_children:
                     self._lost_children[own_child.name] = own_child
         else:
             self._stack.append(x_name)  # append to list
         if x_islast:
             parent_children = self._allnames[self._stack[0]].children
-            parent_children = list(filter(lambda x: x.name in self._available_names,
-                                          parent_children))
+            parent_children = [x for x in parent_children if x.name in self._available_names]
             for child in parent_children:
                 self._lost_children[child.name] = child
 
@@ -532,8 +530,7 @@ class UniqueNodeTracker(Tracker):
         # else:
         if len(self._stack) > 0:
             isroot = self._stack[0] == "<ROOT>"
-            parent_children = list(filter(lambda x: x.name in self._available_names,
-                                          self._allnames[self._stack[0]].children))
+            parent_children = [x for x in self._allnames[self._stack[0]].children if x.name in self._available_names]
             lost_children = list(self._lost_children.values())
             possible_children = parent_children + lost_children
 
@@ -546,8 +543,7 @@ class UniqueNodeTracker(Tracker):
                 if len(possible_children) == 1:     # TODO not all of lost children must be here !!!
                     islast = True
                 for child in possible_children:
-                    own_children = list(filter(lambda x: x.name in self._available_names,
-                                               child.children))
+                    own_children = [x for x in child.children if x.name in self._available_names]
 
                     token = child.name
                     token += (child.label_sep + child.label) if child.label is not None else ""
@@ -1237,8 +1233,8 @@ class GroupTracker(object):
         if len(nvt) == 0:  # done
             nvt = {"<MASK>"}
             anvt = {"<MASK>"} if anvt is not None else None
-        nvt = map(lambda x: self.dic[x], nvt)
-        anvt = map(lambda x: self.dic[x], anvt) if anvt is not None else None
+        nvt = [self.dic[x] for x in nvt]
+        anvt = [self.dic[x] for x in anvt] if anvt is not None else None
         if anvt is not None:
             return nvt, anvt
         else:

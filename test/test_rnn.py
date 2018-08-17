@@ -267,7 +267,7 @@ class TestFastestLSTMInitStates(TestCase):
         y_whole = lstm(x)
 
         y_first, states = lstm(x[:, :seqlen], ret_states=True)
-        states = zip(*states)
+        states = list(zip(*states))
         y_second = lstm(x[:, seqlen:], y_0s=states[0], c_0s=states[1])
 
         y_part = torch.cat([y_first, y_second], 1)

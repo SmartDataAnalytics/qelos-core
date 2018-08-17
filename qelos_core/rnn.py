@@ -26,8 +26,8 @@ class RecDropout(Dropout):
         y = x
         if self.training:
             if self.mask is None:
-                self.mask = map(lambda xe: self.d(torch.ones_like(xe).to(xe.device)), x)
-            y = map(lambda (xe, me): xe * me, zip(x, self.mask))
+                self.mask = [self.d(torch.ones_like(xe).to(xe.device)) for xe in x]
+            y = [xe_me[0] * xe_me[1] for xe_me in zip(x, self.mask)]
         y = y[0] if len(y) == 1 else y
         return y
 
@@ -37,7 +37,7 @@ class Zoneout(RecDropout):
         y = [xe[1] for xe in x]
         if self.training:
             if self.mask is None:
-                self.mask = map(lambda (_, xe): self.d(torch.ones_like(xe).to(xe.device)).clamp(0, 1), x)
+                self.mask = [self.d(torch.ones_like(__xe[1]).to(__xe[1].device)).clamp(0, 1) for __xe in x]
             y = [(1 - zoner) + h_t + zoner * h_tm1
                  for (h_tm1, h_t), zoner in zip(x, self.mask)]
         y = y[0] if len(y) == 1 else y
@@ -72,7 +72,7 @@ class RecCell(torch.nn.Module):
             self.dropout_in = RecDropout(p=self.dropout_in)
         if self.dropout_rec and not isinstance(self.dropout_rec, q.Dropout):
             self.dropout_rec = RecDropout(p=self.dropout_rec)
-        if self.zoneout and not isinstance(self.zoneout, (Zoneout,)):
+        if self.zoneout and not isinstance(self.zoneout, Zoneout):
             self.zoneout = Zoneout(p=self.zoneout)
         assert(isinstance(self.zoneout, (Zoneout, type(None))))
         assert(isinstance(self.zoneout, (q.Dropout, type(None))))
@@ -458,7 +458,7 @@ class ThinDecoder(Decoder):
         q.rec_reset(self.cell)
         outs = []
         out_is_seq = False
-        for t in xrange(10e9):
+        for t in range(10e9):
             outs_t = self.cell(t, *args, **kw)
             if q.issequence(outs_t):
                 out_is_seq = True
@@ -1114,7 +1114,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
         # dropouts
         if self.training and self.dropout_in is not None:
             weights = ["weight_ih_l0", "weight_ih_l0_reverse"]
-            weights = filter(lambda x: hasattr(self, x), weights)
+            weights = [x for x in weights if hasattr(self, x)]
             for weight in weights:
                 dropoutmask = torch.ones(getattr(self.layer, weight).size(1)).to(vecs.device)
                 dropoutmask = self.dropout_in(dropoutmask)
@@ -1122,7 +1122,7 @@ class FastestGRUEncoderLayer(torch.nn.Module):
                 setattr(self, weight, new_weight_ih)
         if self.training and self.dropout_rec is not None:
             weights = ["weight_hh_l0", "weight_hh_l0_reverse"]
-            weights = filter(lambda x: hasattr(self, x), weights)
+            weights = [x for x in weights if hasattr(self, x)]
             for weight in weights:
                 dropoutmask = torch.ones(getattr(self.layer, weight).size(1)).to(vecs.device)
                 dropoutmask = self.dropout_rec(dropoutmask)
@@ -1251,7 +1251,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
         # dropouts
         if self.dropout_in is not None:
             weights = ["weight_ih_l0", "weight_ih_l0_reverse"]
-            weights = filter(lambda x: hasattr(self, x), weights)
+            weights = [x for x in weights if hasattr(self, x)]
             for weight in weights:
                 layer_weight = getattr(self.layer, weight)
                 dropoutmask = torch.ones(layer_weight.size(1)).to(layer_weight.device)
@@ -1260,7 +1260,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
                 setattr(self, weight, new_weight_ih)
         if self.dropout_rec is not None:
             weights = ["weight_hh_l0", "weight_hh_l0_reverse"]
-            weights = filter(lambda x: hasattr(self, x), weights)
+            weights = [x for x in weights if hasattr(self, x)]
             for weight in weights:
                 layer_weight = getattr(self.layer, weight)
                 dropoutmask = torch.ones(layer_weight.size(1)).to(layer_weight.device)
