@@ -19,10 +19,12 @@ class TestPointerGeneratorOut(TestCase):
         gendic = "a b c d e".split()
         gendic = dict(zip(gendic, range(len(gendic))))
 
-        gen_prob_comp = torch.nn.Linear(dim, 1)
-
         gen_out = torch.nn.Sequential(
             torch.nn.Linear(dim, len(gendic)),
+            torch.nn.Sigmoid())
+
+        gen_prob_comp = torch.nn.Sequential(
+            torch.nn.Linear(dim, 1),
             torch.nn.Sigmoid())
 
         pgo = q.PointerGeneratorOutSeparate(outdic, gen_prob_comp, gen_out, inpdic=inpdic, gen_outD=gendic)

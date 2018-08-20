@@ -339,7 +339,7 @@ class PretrainedWordVec(object):
         tt.tick()
         # load weights
         if path not in self.loadcache:
-            W = np.load(open(path+".npy"))
+            W = np.load(path+".npy")
         else:
             W = self.loadcache[path][0]
         tt.tock("vectors loaded")
