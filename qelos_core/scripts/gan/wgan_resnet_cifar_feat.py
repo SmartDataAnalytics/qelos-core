@@ -468,5 +468,5 @@ def run(lr=0.0001,
 
 if __name__ == "__main__":
     # tst_subvgg()
-    tst_subvgg_with_disc()
-    # q.argprun(run)
+    # tst_subvgg_with_disc()
+    q.argprun(run)
