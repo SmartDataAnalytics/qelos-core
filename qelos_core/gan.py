@@ -16,7 +16,7 @@ class SampleDataset(Dataset):
         """
         super(SampleDataset, self).__init__()
         self.sf = sample_function
-        self.length = size
+        self.length = int(size)
 
     def __getitem__(self, item):
         if isinstance(item, int):
