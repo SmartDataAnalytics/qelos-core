@@ -165,6 +165,7 @@ def tst_subvgg():
     x = torch.rand(1, 3, 32, 32) * 2 - 1
     y = vgg(x)
     print(y.size())
+    return y.size(1)
 
 
 def tst_subvgg_with_disc():
@@ -401,7 +402,8 @@ def run(lr=0.0001,
 
     tt.tick("creating networks")
     gen = OldGenerator(z_dim, dim_g).to(device)
-    crit = OldDiscriminator(dim_d).to(device)
+    inpd = tst_subvgg()
+    crit = OldDiscriminator(inpd, dim_d).to(device)
     subvgg = SubVGG(vggversion, vgglayer)
     tt.tock("created networks")
 
