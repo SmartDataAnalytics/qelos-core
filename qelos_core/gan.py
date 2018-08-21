@@ -98,6 +98,7 @@ class WGAN(GAN):
         core = - (real_score - fake_score)
         interp_alpha = torch.rand(real.size(0), 1, 1, 1, device=real_score.device)
         interp_points = interp_alpha * real + (1 - interp_alpha) * fake
+        interp_points = interp_points.detach()
         interp_points.requires_grad = True
         interp_score = self.discriminator(interp_points)
         interp_grad, = torch.autograd.grad(interp_score, interp_points,
