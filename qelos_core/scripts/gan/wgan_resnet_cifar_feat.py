@@ -168,6 +168,13 @@ def tst_subvgg():
     return y.size(1)
 
 
+def get_vgg_outdim(v, l):
+    vgg = SubVGG(version=v, feat_layer=l)
+    x = torch.rand(1, 3, 32, 32) * 2 - 1
+    y = vgg(x)
+    return y.size(1)
+
+
 def tst_subvgg_with_disc():
 
     v = 13
@@ -402,7 +409,7 @@ def run(lr=0.0001,
 
     tt.tick("creating networks")
     gen = OldGenerator(z_dim, dim_g).to(device)
-    inpd = tst_subvgg()
+    inpd = get_vgg_outdim(vggversion, vgglayer)
     crit = OldDiscriminator(inpd, dim_d).to(device)
     subvgg = SubVGG(vggversion, vgglayer)
     tt.tock("created networks")

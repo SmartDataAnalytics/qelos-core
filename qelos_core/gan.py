@@ -118,7 +118,7 @@ class WGAN(GAN):
 
 class WGAN_F(WGAN):
     def __init__(self, critic, gen, featurer, gan_mode=None, mode="LP", lamda=5, **kw):
-        super(WGAN_F, self).__init__(critic, gen, featurer, gan_mode=gan_mode, mode=mode, lamda=lamda, **kw)
+        super(WGAN_F, self).__init__(critic, gen, gan_mode=gan_mode, mode=mode, lamda=lamda, **kw)
         self.featurer = featurer
 
     def forward_disc_train(self, x, z):
