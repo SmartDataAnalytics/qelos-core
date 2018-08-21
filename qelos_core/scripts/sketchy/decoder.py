@@ -104,7 +104,6 @@ class BFLRSketchyDecoderTF(q.TFDecoder):
         return super(BFLRSketchyDecoderTF, self).forward([xs, whereats])
 
 
-
 def get_bflr_sketchy_tf_seqs(xs, levels, D):
     """ All inputs are numpy !
     :param xs:      (batsize, seqlen) integer ids of tokens in tree (linearized).

@@ -126,7 +126,7 @@ class Discriminator(torch.nn.Module):
 
 
 class SubVGG(torch.nn.Module):
-    def __init__(self, version=16, feat_layer=9, **kw):
+    def __init__(self, version=11, feat_layer=9, **kw):
         """
         Pretrained VGG-*version*, taking only first *feat_layer*-th layer's output.
         :param version:     11/13/16/19
@@ -160,11 +160,23 @@ class SubVGG(torch.nn.Module):
 
 def tst_subvgg():
     v = 13
-    l = 9
+    l = 8
     vgg = SubVGG(version=v, feat_layer=l)
-    x = torch.rand(1, 3, 128, 128) * 2 - 1
+    x = torch.rand(1, 3, 32, 32) * 2 - 1
     y = vgg(x)
     print(y.size())
+
+
+def tst_subvgg_with_disc():
+
+    v = 13
+    l = 8
+    vgg = SubVGG(version=v, feat_layer=l)
+    d = OldDiscriminator(128, 128)
+    x = torch.rand(2, 3, 32, 32) * 2 - 1
+    y = vgg(x)
+    z = d(y)
+    print(y.size(), z.size(), z)
 
 
 # region oldmodel
@@ -367,10 +379,12 @@ def run(lr=0.0001,
         test=False,
         dim_d=128,
         dim_g=128,
+        vggversion=13,
+        vgglayer=9,
         ):
 
     settings = locals().copy()
-    logger = q.log.Logger(prefix="resnet_cifar")
+    logger = q.log.Logger(prefix="wgan_resnet_cifar")
     logger.save_settings(**settings)
 
     burnin = disciters if burnin == -1 else burnin
@@ -388,6 +402,7 @@ def run(lr=0.0001,
     tt.tick("creating networks")
     gen = OldGenerator(z_dim, dim_g).to(device)
     crit = OldDiscriminator(dim_d).to(device)
+    subvgg = SubVGG(vggversion, vgglayer)
     tt.tock("created networks")
 
     # test
@@ -418,8 +433,8 @@ def run(lr=0.0001,
     # q.embed()
     tt.tock("loaded data")
 
-    disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
-    gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
+    disc_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda).disc_train()
+    gen_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda).gen_train()
 
     disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr, betas=(0.5, 0.9))
     gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0.5, 0.9))
@@ -452,5 +467,6 @@ def run(lr=0.0001,
 
 
 if __name__ == "__main__":
-    tst_subvgg()
+    # tst_subvgg()
+    tst_subvgg_with_disc()
     # q.argprun(run)
