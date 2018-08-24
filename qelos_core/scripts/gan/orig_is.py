@@ -111,5 +111,5 @@ def run(p, splits=10):
 
 if __name__ == '__main__':
     p = sys.argv[1]
-    splits = int(sys.argv[2])
+    # splits = int(sys.argv[2])
     run(p)
