@@ -91,21 +91,22 @@ def _init_inception():
                     new_shape.append(None)
                 else:
                     new_shape.append(s)
-            o.set_shape(tf.TensorShape(new_shape))
+            o._shape = tf.TensorShape(new_shape)
     w = sess.graph.get_operation_by_name("softmax/logits/MatMul").inputs[1]
     logits = tf.matmul(tf.squeeze(pool3), w)
     softmax = tf.nn.softmax(logits)
 
 if softmax is None:
+  print(tf.__version__)
   _init_inception()
 
 
 def run(p="", splits=10):
     d = np.load(p)["0"]
     d = (d + 1.) * 127.99
-    print(d)
+    # print(d)
     dl = list(d)
-    print(dl)
+    # print(dl)
     get_inception_score(dl, splits=splits)
 
 
