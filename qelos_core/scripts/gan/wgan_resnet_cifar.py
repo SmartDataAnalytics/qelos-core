@@ -328,8 +328,9 @@ def run(lr=0.0001,
         ):
 
     settings = locals().copy()
-    logger = q.log.Logger(prefix="resnet_cifar")
+    logger = q.log.Logger(prefix="wgan_resnet_cifar")
     logger.save_settings(**settings)
+    print("started")
 
     burnin = disciters if burnin == -1 else burnin
 

@@ -8,11 +8,7 @@ import qelos_core as q
 from qelos_core.util import isnumber, isstring, ticktock, issequence
 
 
-# TODO: FINISH REFACTORING
-# TODO: write tests
-
-
-class TensorDataset(PytorchTensorDataset):      # TODO
+class TensorDataset(PytorchTensorDataset):
     def __init__(self, *x):
         """
         :param x: tensors in torch or numpy (converted to tensors). Last tensor must be gold.
