@@ -51,6 +51,8 @@ def get_inception_probs(inps):
     preds = []
     n_batches = len(inps)//BATCH_SIZE
     for i in range(n_batches):
+        sys.stdout.write(".")
+        sys.stdout.flush()
         inp = inps[i * BATCH_SIZE:(i + 1) * BATCH_SIZE]
         pred = logits.eval({inception_images:inp})[:,:1000]
         preds.append(pred)
