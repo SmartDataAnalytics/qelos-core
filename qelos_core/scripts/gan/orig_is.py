@@ -15,7 +15,6 @@ import glob
 import scipy.misc
 import math
 import sys
-import qelos_core as q
 
 MODEL_DIR = '/tmp/imagenet'
 DATA_URL = 'http://download.tensorflow.org/models/image/imagenet/inception-2015-12-05.tgz'
@@ -101,7 +100,7 @@ if softmax is None:
   _init_inception()
 
 
-def run(p="", splits=10):
+def run(p, splits=10):
     d = np.load(p)["0"]
     d = (d + 1.) * 127.99
     # print(d)
@@ -111,4 +110,6 @@ def run(p="", splits=10):
 
 
 if __name__ == '__main__':
-    q.argprun(run)
+    p = sys.argv[1]
+    splits = int(sys.argv[2])
+    run(p)
