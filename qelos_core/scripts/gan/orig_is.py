@@ -103,6 +103,7 @@ if softmax is None:
 def run(p="", splits=10):
     d = np.load(p)["0"]
     d = (d + 1.) * 127.99
+    print(d)
     dl = list(d)
     print(dl)
     get_inception_score(dl, splits=splits)
