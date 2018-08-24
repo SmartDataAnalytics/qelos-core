@@ -42,7 +42,7 @@ def get_inception_score(images, splits=10):
         sys.stdout.flush()
         inp = inps[(i * bs):min((i + 1) * bs, len(inps))]
         inp = np.concatenate(inp, 0)
-        inp = np.transpose(inp, (0,2,3,1))
+        # inp = np.transpose(inp, (0,2,3,1))
         pred = sess.run(softmax, {'ExpandDims:0': inp})
         preds.append(pred)
     preds = np.concatenate(preds, 0)
@@ -93,7 +93,7 @@ def _init_inception():
                     new_shape.append(s)
             o._shape = tf.TensorShape(new_shape)
     w = sess.graph.get_operation_by_name("softmax/logits/MatMul").inputs[1]
-    logits = tf.matmul(tf.squeeze(pool3), w)
+    logits = tf.matmul(tf.squeeze(pool3, [1, 2]), w)
     softmax = tf.nn.softmax(logits)
 
 if softmax is None:
@@ -107,7 +107,8 @@ def run(p, splits=10):
     # print(d)
     dl = list(d)
     # print(dl)
-    get_inception_score(dl, splits=splits)
+    ret = get_inception_score(dl, splits=splits)
+    print(ret)
 
 
 if __name__ == '__main__':
