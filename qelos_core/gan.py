@@ -136,6 +136,27 @@ class WGAN_F(WGAN):
         loss = self.disc_loss(real_score, fake_score, _x, _fake)
         return loss
 
+    def disc_loss(self, real_score, fake_score, real, fake):
+        core = - (real_score - fake_score)
+        interp_alpha = torch.rand(real.size(0), 1, 1, 1, device=real_score.device)
+        interp_points = interp_alpha * real + (1 - interp_alpha) * fake
+        interp_points = interp_points.detach()
+        interp_points.requires_grad = True
+        if self.pixel_penalty:
+            interp_points = self.featurer(interp_points)
+        interp_score = self.discriminator(interp_points)
+        interp_grad, = torch.autograd.grad(interp_score, interp_points,
+                                           grad_outputs=torch.ones_like(interp_score),
+                                           create_graph=True)
+        interp_grad_norm = interp_grad.view(interp_grad.size(0), -1).norm(p=2, dim=1)
+        if self.mode == "LP":
+            penalty = (interp_grad_norm - 1).clamp(0, np.infty) ** 2
+        elif self.mode == "GP":
+            penalty = (interp_grad_norm - 1) ** 2
+        penalty = self.lamda * penalty
+        loss = core + penalty
+        return loss, core, penalty
+
     def forward_gen_train(self, *z):
         fake = self.generator(*z)
         _fake = self.featurer(fake)
