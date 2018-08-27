@@ -143,8 +143,10 @@ class WGAN_F(WGAN):
         interp_points = interp_points.detach()
         interp_points.requires_grad = True
         if self.pixel_penalty:
-            interp_points = self.featurer(interp_points)
-        interp_score = self.discriminator(interp_points)
+            _interp_points = self.featurer(interp_points)
+        else:
+            _interp_points = interp_points
+        interp_score = self.discriminator(_interp_points)
         interp_grad, = torch.autograd.grad(interp_score, interp_points,
                                            grad_outputs=torch.ones_like(interp_score),
                                            create_graph=True)
