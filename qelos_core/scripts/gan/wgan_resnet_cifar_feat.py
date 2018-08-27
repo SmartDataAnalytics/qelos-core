@@ -393,9 +393,11 @@ def run(lr=0.0001,
         dim_g=128,
         vggversion=13,
         vgglayer=9,
-        vggvanilla=False,           # if True, makes a normal WGAN
+        vggvanilla=False,           # if True, makes trainable feature transform
         extralayers=False,          # adds a couple extra res blocks to generator to match added VGG
+        pixelpenalty=False,         # if True, uses penalty based on pixel-wise interpolate
         ):
+        # vggvanilla=True and pixelpenalty=True makes a normal WGAN
 
     settings = locals().copy()
     logger = q.log.Logger(prefix="wgan_resnet_cifar_feat")
@@ -418,9 +420,6 @@ def run(lr=0.0001,
     inpd = get_vgg_outdim(vggversion, vgglayer)
     crit = OldDiscriminator(inpd, dim_d).to(device)
     subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
-    if vggvanilla:
-        crit = torch.nn.Sequential(subvgg, crit)
-        subvgg = q.Lambda(lambda x: x)
     tt.tock("created networks")
 
     # test
@@ -451,10 +450,13 @@ def run(lr=0.0001,
     # q.embed()
     tt.tock("loaded data")
 
-    disc_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda).disc_train()
-    gen_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda).gen_train()
+    disc_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).disc_train()
+    gen_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).gen_train()
 
-    disc_optim = torch.optim.Adam(q.params_of(crit), lr=lr, betas=(0.5, 0.9))
+    disc_params = q.params_of(crit)
+    if vggvanilla:
+        disc_params += q.params_of(subvgg)
+    disc_optim = torch.optim.Adam(disc_params, lr=lr, betas=(0.5, 0.9))
     gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0.5, 0.9))
 
     disc_bt = UnquantizeTransform()

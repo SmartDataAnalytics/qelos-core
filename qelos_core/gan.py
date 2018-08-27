@@ -118,9 +118,11 @@ class WGAN(GAN):
 
 
 class WGAN_F(WGAN):
-    def __init__(self, critic, gen, featurer, gan_mode=None, mode="LP", lamda=5, **kw):
+    def __init__(self, critic, gen, featurer, gan_mode=None, mode="LP", lamda=5,
+                 pixel_penalty=False, **kw):
         super(WGAN_F, self).__init__(critic, gen, gan_mode=gan_mode, mode=mode, lamda=lamda, **kw)
         self.featurer = featurer
+        self.pixel_penalty = pixel_penalty
 
     def forward_disc_train(self, x, z):
         _x = self.featurer(x)
@@ -129,6 +131,8 @@ class WGAN_F(WGAN):
         fake = fake.detach()
         _fake = self.featurer(fake)
         fake_score = self.discriminator(_fake)
+        if self.pixel_penalty:      # implements pixel value based gradient penalty as usual
+            _x, _fake = x, fake
         loss = self.disc_loss(real_score, fake_score, _x, _fake)
         return loss
 
