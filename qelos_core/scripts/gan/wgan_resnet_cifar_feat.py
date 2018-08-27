@@ -393,8 +393,8 @@ def run(lr=0.0001,
         dim_g=128,
         vggversion=13,
         vgglayer=9,
-        vggvanilla=False,
-        extralayers=False,
+        vggvanilla=False,           # if True, makes a normal WGAN
+        extralayers=False,          # adds a couple extra res blocks to generator to match added VGG
         ):
 
     settings = locals().copy()
@@ -418,6 +418,9 @@ def run(lr=0.0001,
     inpd = get_vgg_outdim(vggversion, vgglayer)
     crit = OldDiscriminator(inpd, dim_d).to(device)
     subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
+    if vggvanilla:
+        crit = torch.nn.Sequential(subvgg, crit)
+        subvgg = q.Lambda(lambda x: x)
     tt.tock("created networks")
 
     # test
