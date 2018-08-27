@@ -126,7 +126,7 @@ class Discriminator(torch.nn.Module):
 
 
 class SubVGG(torch.nn.Module):
-    def __init__(self, version=11, feat_layer=9, pretrained=True, **kw):
+    def __init__(self, version=11, feat_layer=9, **kw):
         """
         Pretrained VGG-*version*, taking only first *feat_layer*-th layer's output.
         :param version:     11/13/16/19
@@ -140,7 +140,7 @@ class SubVGG(torch.nn.Module):
         }
         if version not in v2f:
             raise q.SumTingWongException("vgg{} does not exist, please specify valid version number (11, 13, 16 or 19)".format(version))
-        self.vgg = v2f[version](pretrained=pretrained)
+        self.vgg = v2f[version](pretrained=False)
         if feat_layer > len(self.vgg.features):
             raise q.SumTingWongException("vgg{} does not have layer nr. {}. Please use a valid layer number."
                                          .format(version, feat_layer))
@@ -297,7 +297,7 @@ class OptimizedResBlockDisc1(torch.nn.Module):
 
 
 class OldGenerator(torch.nn.Module):
-    def __init__(self, z_dim, dim_g, use_bn=True, extra_layers=False, **kw):
+    def __init__(self, z_dim, dim_g, use_bn=True, **kw):
         super(OldGenerator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
             torch.nn.Linear(z_dim, 4*4*dim_g),
@@ -305,11 +305,7 @@ class OldGenerator(torch.nn.Module):
             ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
             ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
             ResidualBlock(dim_g, dim_g, 3, resample="up", use_bn=use_bn),
-        ])
-        if extra_layers:
-            self.layers.append(ResidualBlock(dim_g, dim_g, 3, resample=None, use_bn=use_bn))
-            self.layers.append(ResidualBlock(dim_g, dim_g, 3, resample=None, use_bn=use_bn))
-        self.layers.extend([Normalize(dim_g),
+            Normalize(dim_g),
             torch.nn.ReLU(),
             torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1),
             torch.nn.Tanh(),
@@ -393,8 +389,6 @@ def run(lr=0.0001,
         dim_g=128,
         vggversion=13,
         vgglayer=9,
-        vggvanilla=False,
-        extralayers=False,
         ):
 
     settings = locals().copy()
@@ -414,10 +408,10 @@ def run(lr=0.0001,
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
 
     tt.tick("creating networks")
-    gen = OldGenerator(z_dim, dim_g, extra_layers=extralayers).to(device)
+    gen = OldGenerator(z_dim, dim_g).to(device)
     inpd = get_vgg_outdim(vggversion, vgglayer)
     crit = OldDiscriminator(inpd, dim_d).to(device)
-    subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
+    subvgg = SubVGG(vggversion, vgglayer)
     tt.tock("created networks")
 
     # test
