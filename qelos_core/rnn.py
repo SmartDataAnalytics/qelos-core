@@ -171,8 +171,8 @@ class AttentionBase(torch.nn.Module):
         super(AttentionBase, self).__init__()
         self.sm = torch.nn.Softmax(-1)
 
-    def forward(self, q, ctx, ctx_mask=None, values=None):
-        return self._forward(q, ctx, ctx_mask=ctx_mask, values=values)
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
+        return self._forward(qry, ctx, ctx_mask=ctx_mask, values=values)
 
 
 class Attention(AttentionBase):
@@ -180,21 +180,37 @@ class Attention(AttentionBase):
         super(Attention, self).__init__(**kw)
         self.alpha_tm1, self.summ_tm1 = None, None
 
-    def forward(self, q, ctx, ctx_mask=None, values=None):
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
         """
         :param ctx:     context (keys), (batsize, seqlen, dim)
-        :param q:       query, (batsize, dim)
+        :param qry:       query, (batsize, dim)
         :param ctxmask: context mask (batsize, seqlen)
         :param values:  values to summarize, (batsize, seqlen, dim), if unspecified, ctx is used
         :return:        attention alphas (batsize, seqlen) and summary (batsize, dim)
         """
         alphas, summary, scores = super(Attention, self)\
-            .forward(q, ctx, ctx_mask=ctx_mask, values=values)
+            .forward(qry, ctx, ctx_mask=ctx_mask, values=values)
         self.alpha_tm1, self.summ_tm1 = alphas, summary
         return alphas, summary, scores
 
     def rec_reset(self):
         self.alpha_tm1, self.summ_tm1 = None, None
+
+
+class SpanAttention(AttentionBase):
+    """ Single contiguous span attention with two softmaxes """
+    def __init__(self, att_start, att_end, **kw):
+        super(SpanAttention, self).__init__(**kw)
+        self.att_start, self.att_end = att_start, att_end
+
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
+        qry_b, qry_e = qry.chunk(2, 1)
+        b_alphas, _, b_scores = self.att_start(qry_b, ctx, ctx_mask=ctx_mask, values=values)
+        b_cums = torch.cumsum(b_alphas, 1)
+        # TODO: add an at-least-one thing here? to ensure gap between start and end
+        e_alphas, _, e_scores = self.att_end(qry_e, ctx, ctx_mask=ctx_mask, values=values)
+        e_scores = e_scores + torch.log(b_cums.detach())
+        e_alphas = self.sm(e_scores)
 
 
 class AttentionWithCoverage(Attention):
@@ -257,8 +273,8 @@ class AttentionWithMonotonicCoverage(AttentionWithCoverage):
 
 
 class _DotAttention(AttentionBase):
-    def _forward(self, q, ctx, ctx_mask=None, values=None):
-        scores = torch.bmm(ctx, q.unsqueeze(2)).squeeze(2)
+    def _forward(self, qry, ctx, ctx_mask=None, values=None):
+        scores = torch.bmm(ctx, qry.unsqueeze(2)).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
         alphas = self.sm(scores)
         values = ctx if values is None else values
@@ -284,9 +300,9 @@ class _GeneralDotAttention(AttentionBase):
     def reset_parameters(self):
         torch.nn.init.xavier_normal_(self.W)
 
-    def _forward(self, q, ctx, ctx_mask=None, values=None):
-        projq = torch.matmul(self.W, q)     # (batsize, ctxdim)
-        alphas, summary, scores = super(_GeneralDotAttention, self)._forward(projq, ctx, ctx_mask=ctx_mask, values=values)
+    def _forward(self, qry, ctx, ctx_mask=None, values=None):
+        projqry = torch.matmul(self.W, qry)     # (batsize, ctxdim)
+        alphas, summary, scores = super(_GeneralDotAttention, self)._forward(projqry, ctx, ctx_mask=ctx_mask, values=values)
         return alphas, summary, scores
 
 
@@ -301,9 +317,9 @@ class _FwdAttention(AttentionBase):
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
 
-    def _forward(self, q, ctx, ctx_mask=None, values=None):
-        q = q.unsqueeze(1).repeat(1, ctx.size(1), 1)
-        x = torch.cat([ctx, q], 2)
+    def _forward(self, qry, ctx, ctx_mask=None, values=None):
+        qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
+        x = torch.cat([ctx, qry], 2)
         y = self.linear(x)      # (batsize, seqlen, attdim)
         scores = self.afterlinear(y).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
@@ -325,9 +341,9 @@ class _FwdMulAttention(AttentionBase):
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
 
-    def _forward(self, q, ctx, ctx_mask=None, values=None):
-        q = q.unsqueeze(1).repeat(1, ctx.size(1), 1)
-        x = torch.cat([ctx, q, ctx * q], 2)
+    def _forward(self, qry, ctx, ctx_mask=None, values=None):
+        qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
+        x = torch.cat([ctx, qry, ctx * qry], 2)
         y = self.linear(x)      # (batsize, seqlen, attdim)
         scores = self.afterlinear(y).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
@@ -392,13 +408,13 @@ class RelationContentAttention(Attention):
 
         return rel_summ
 
-    def forward(self, q, ctx, ctx_mask=None, values=None):
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
         rel_ctx = self.get_rel_ctx(ctx)
         aug_ctx = torch.cat([ctx, rel_ctx], 2)
         if self.query_proc is not None:
-            cont_q, rel_q = self.query_proc(q)
-            q = torch.cat([cont_q, rel_q], 1)
-        return super(RelationContentAttention, self).forward(q, aug_ctx, ctx_mask=ctx_mask, values=values)
+            cont_qry, rel_qry = self.query_proc(qry)
+            qry = torch.cat([cont_qry, rel_qry], 1)
+        return super(RelationContentAttention, self).forward(qry, aug_ctx, ctx_mask=ctx_mask, values=values)
 
 
 class RelationContextAttentionSeparated(RelationContentAttention):
@@ -413,13 +429,13 @@ class RelationContextAttentionSeparated(RelationContentAttention):
         super(RelationContextAttentionSeparated, self).__init__(relemb=relemb, query_proc=query_proc, **kw)
         self.rel_att = rel_att
 
-    def forward(self, q, ctx, ctx_mask=None, values=None):
-        cont_q, rel_q, vs_prob = self.query_proc(q)
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
+        cont_qry, rel_qry, vs_prob = self.query_proc(qry)
         rel_ctx = self.get_rel_ctx(ctx)
-        rel_alphas, rel_summaries, rel_scores = self.rel_att(rel_q, rel_ctx, ctx_mask=ctx_mask)
+        rel_alphas, rel_summaries, rel_scores = self.rel_att(rel_qry, rel_ctx, ctx_mask=ctx_mask)
         cont_alphas, cont_summaries, cont_scores = \
             super(RelationContextAttentionSeparated, self)\
-            .forward(cont_q, ctx, ctx_mask=ctx_mask, values=values)
+            .forward(cont_qry, ctx, ctx_mask=ctx_mask, values=values)
         vs_prob = vs_prob.unsqueeze(1)
         alphas = rel_alphas * vs_prob + cont_alphas * (1 - vs_prob)
         values = ctx if values is None else values
@@ -1239,10 +1255,22 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
         self.y_n = None
         self.c_n = None
 
+        self.bias = bias
+
+        self.reset_parameters()
+
         # weight placeholders
         for weights in self.layer._all_weights:
             for weight in weights:
                 setattr(self, weight, None)
+
+    def reset_parameters(self):
+        for t in [param for name, param in self.layer.named_parameters() if "weight_ih" in name]:
+            torch.nn.init.xavier_uniform_(t)
+        for t in [param for name, param in self.layer.named_parameters() if "weight_hh" in name]:
+            torch.nn.init.orthogonal_(t)
+        for t in [param for name, param in self.layer.named_parameters() if "bias" in name]:
+            torch.nn.init.constant_(t, 0)
 
     def forward(self, vecs, mask=None, batsize=None, y_0=None, c_0=None, ret_states=False):
         batsize = vecs.size(0) if batsize is None else batsize
@@ -1298,7 +1326,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
 
-        y_n = y_n.transpose(1, 0)       # output states must be batch first
+        y_n = y_n.transpose(1, 0)       # output states must be batch first, ! if seq was not packed here, it must be unpacked in using class
         c_n = c_n.transpose(1, 0)
         self.y_n = y_n
         self.c_n = c_n
@@ -1347,7 +1375,7 @@ class FastestLSTMEncoder(FastLSTMEncoder):
         for layer, y0, c0 in zip(self.layers, y_0s, c_0s):
             out = layer(out, mask=imask, batsize=batsize, y_0=y0, c_0=c0)
             y_i_n, c_i_n = layer.y_n, layer.c_n
-            if order is not None:
+            if order is not None:       # overwrite layer's y_n and c_n, if sequence packing was done here
                 y_i_n = y_i_n.index_select(0, order)
                 c_i_n = c_i_n.index_select(0, order)
                 layer.y_n = y_i_n
@@ -1470,3 +1498,36 @@ class AutoMasker(torch.nn.Module):
         :return:
         """
         raise NotImplemented("use subclass")
+
+
+class FlatEncoder(torch.nn.Module):
+    def __init__(self, embdim, dims, word_dic, bidir=False, dropout_in=0., dropout_rec=0., gfrac=0., meanpoolskip=False):
+        """ embdim for embedder, dims is a list of dims for RNN"""
+        super(FlatEncoder, self).__init__()
+        self.emb = q.PartiallyPretrainedWordEmb(embdim, worddic=word_dic, gradfracs=(1., gfrac))
+        self.lstm = q.FastestLSTMEncoder(embdim, *dims, bidir=bidir, dropout_in=dropout_in, dropout_rec=dropout_rec)
+        self.meanpoolskip = meanpoolskip
+        self.adapt_lin = None
+        outdim = dims[-1] * 2
+        if meanpoolskip and outdim != embdim:
+            self.adapt_lin = torch.nn.Linear(embdim, outdim, bias=False)
+        self.debug = False
+
+    def forward(self, x):
+        embs, mask = self.emb(x)
+        if self.debug:
+            embs = torch.tensor(embs.detach().numpy())
+            embs.requires_grad = True
+        _ = self.lstm(embs, mask=mask)
+        final_state = self.lstm.y_n[-1]
+        final_state = final_state.contiguous().view(x.size(0), -1)
+        if self.meanpoolskip:
+            if self.adapt_lin is not None:
+                embs = self.adapt_lin(embs)
+            meanpool = embs.sum(1)
+            masksum = mask.float().sum(1).unsqueeze(1)
+            meanpool = meanpool / masksum
+            final_state = final_state + meanpool
+        if self.debug:
+            return final_state, embs
+        return final_state

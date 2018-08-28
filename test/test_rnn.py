@@ -247,12 +247,27 @@ class TestFastestLSTMwithMask(TestCase):
 
         y, states = lstm(x, mask=x_mask, ret_states=True)
 
-        l = states[0][0][1].sum()
-        l.backward()
+        l = states[-1][0][1].sum()
+        l.backward(retain_graph=True)
 
         self.assertTrue(x.grad[0].norm() == 0)
         self.assertTrue(x.grad[1].norm() > 0)
         self.assertTrue(x.grad[2].norm() == 0)
+        self.assertTrue(x.grad[1][0].norm() > 0)
+        self.assertTrue(x.grad[1][1].norm() == 0)
+        self.assertTrue(x.grad[1][2].norm() == 0)
+        self.assertTrue(x.grad[1][3].norm() == 0)
+
+        x.grad = None
+        l = states[-1][0][2].sum()
+        l.backward(retain_graph=True)
+        self.assertTrue(x.grad[0].norm() == 0)
+        self.assertTrue(x.grad[1].norm() == 0)
+        self.assertTrue(x.grad[2].norm() > 0)
+        self.assertTrue(x.grad[2][0].norm() > 0)
+        self.assertTrue(x.grad[2][1].norm() > 0)
+        self.assertTrue(x.grad[2][2].norm() == 0)
+        self.assertTrue(x.grad[2][3].norm() == 0)
 
         print("done")
 
@@ -530,3 +545,56 @@ class TestDecoderCell(TestCase):
 
 
 # endregion
+
+class TestFlatEncoder(TestCase):
+    def test_it(self):
+        wD = {"<MASK>": 0, "the": 1, "a": 2, ".": 3, ",": 4}
+        x = torch.tensor([
+            [1,2,0,0],
+            [2,3,4,0],
+            [4,0,0,0],
+        ])
+        enc = q.FlatEncoder(50, [9, 7], word_dic=wD, bidir=True, dropout_in=0.1, dropout_rec=0.1)
+        enc.debug = True
+        y, embs = enc(x)
+        print(y)
+        y.sum().backward(retain_graph=True)
+        print(embs.grad[:, :, 0])
+        self.assertTrue(embs.grad[0, 0].norm().item() > 0)
+        self.assertTrue(embs.grad[0, 1].norm().item() > 0)
+        self.assertTrue(embs.grad[0, 2].norm().item() == 0)
+        self.assertTrue(embs.grad[0, 3].norm().item() == 0)
+
+    def test_equivalence(self):
+        wD = {"<MASK>": 0, "the": 1, "a": 2, ".": 3, ",": 4}
+        x = torch.tensor([
+            [1,2,0,0],
+            [2,3,4,0],
+            [4,0,0,0],
+        ])
+        enc = FlatEncoder(50, [7], word_dic=wD, bidir=True, dropout_in=0.0, dropout_rec=0.)
+        enc.debug = True
+        y, embs = enc(x)
+
+        ref_enc = BetterEncoder(4, 7, 1, 50, True, 5, dropout=0.)
+        ref_enc.embedding_layer.weight = enc.emb.embedding.weight
+        ref_enc.rnn.weight_hh_l0 = enc.lstm.layers[0].layer.weight_hh_l0
+        ref_enc.rnn.weight_hh_l0_reverse = enc.lstm.layers[0].layer.weight_hh_l0_reverse
+        ref_enc.rnn.weight_ih_l0 = enc.lstm.layers[0].layer.weight_ih_l0
+        ref_enc.rnn.weight_ih_l0_reverse = enc.lstm.layers[0].layer.weight_ih_l0_reverse
+        ref_enc.rnn.bias_hh_l0 = enc.lstm.layers[0].layer.bias_hh_l0
+        ref_enc.rnn.bias_hh_l0_reverse = enc.lstm.layers[0].layer.bias_hh_l0_reverse
+        ref_enc.rnn.bias_ih_l0 = enc.lstm.layers[0].layer.bias_ih_l0
+        ref_enc.rnn.bias_ih_l0_reverse = enc.lstm.layers[0].layer.bias_ih_l0_reverse
+
+        _, y_ref, _, _, embs_ref = ref_enc(x, ref_enc.init_hidden(3))
+
+        print(embs.size(), embs_ref.size())
+        print((embs - embs_ref).norm())
+        print(y.size(), y_ref.size())
+        print((y - y_ref).norm())
+        print(y)
+        print(y_ref)
+
+        print("done")
+

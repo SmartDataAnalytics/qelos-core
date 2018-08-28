@@ -8,7 +8,8 @@ from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
     Attention, DotAttention, FwdAttention, FwdMulAttention, GeneralDotAttention, AttentionWithCoverage, DotAttentionWithCoverage, \
     Decoder, ThinDecoder, FreeDecoder, TFDecoder, DynamicOracleDecoder, \
     BasicDecoderCell, DecoderCell, LuongCell, \
-    AutoMaskedOut, AutoMasker
+    AutoMaskedOut, AutoMasker, \
+    FlatEncoder
 from qelos_core.pointernets import PointerGeneratorCell, PointerGeneratorOut, \
     PointerGeneratorOutShared, PointerGeneratorOutSharedMax, PointerGeneratorOutSeparate
 from qelos_core import gan
