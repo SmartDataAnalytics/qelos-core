@@ -1451,7 +1451,7 @@ class SimpleLSTMEncoder(torch.nn.Module):
             out, rmask = q.seq_unpack(out, order)
 
         if ret_states:
-            return out, states_to_ret
+            return out, states_to_ret[-1][0]
         else:
             return out
 

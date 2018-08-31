@@ -373,7 +373,7 @@ class TestFastestLSTMBidirMasked(TestCase):
         rf_x = torch.nn.Parameter(torch.tensor(x.detach().numpy() + 0))
         assert(rf_x is not x)
         self.rf_y, rf_yT = self.rf_lstm(rf_x, mask=mask, ret_states=True)
-        self.rf_yT = rf_yT[-1][0]
+        self.rf_yT = rf_yT
         self.rf_x = x
 
     def test_rf(self):
