@@ -328,6 +328,7 @@ class TestFastestLSTMBidir(TestCase):
         print(y_T.size())
 
 
+from qelos_core.rnn import SimpleLSTMEncoder
 class TestFastestLSTMBidirMasked(TestCase):
     def setUp(self):
         batsize = 5
@@ -343,11 +344,65 @@ class TestFastestLSTMBidirMasked(TestCase):
         mask[4, :4] = 1
         mask = torch.tensor(mask)
 
-        y = lstm(x, mask=mask)
+        y, yT = lstm(x, mask=mask, ret_states=True)
+        self.yT = lstm.y_n[-1]
         self.batsize, self.seqlen = batsize, seqlen
         self.x, self.y = x, y
         self.mask = mask
         self.lstm = lstm
+
+        # reference
+        self.rf_lstm = SimpleLSTMEncoder(20, 26, 30, bidir=True)
+        self.rf_lstm.layers[0].weight_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0.detach().numpy()+0))
+        self.rf_lstm.layers[0].weight_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[0].weight_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_hh_l0.detach().numpy()+0))
+        self.rf_lstm.layers[0].weight_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_hh_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[0].bias_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_ih_l0.detach().numpy()+0))
+        self.rf_lstm.layers[0].bias_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_ih_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[0].bias_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_hh_l0.detach().numpy()+0))
+        self.rf_lstm.layers[0].bias_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_hh_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[1].weight_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_ih_l0.detach().numpy()+0))
+        self.rf_lstm.layers[1].weight_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_ih_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[1].weight_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_hh_l0.detach().numpy()+0))
+        self.rf_lstm.layers[1].weight_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_hh_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[1].bias_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_ih_l0.detach().numpy()+0))
+        self.rf_lstm.layers[1].bias_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_ih_l0_reverse.detach().numpy()+0))
+        self.rf_lstm.layers[1].bias_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_hh_l0.detach().numpy()+0))
+        self.rf_lstm.layers[1].bias_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_hh_l0_reverse.detach().numpy()+0))
+
+        rf_x = torch.nn.Parameter(torch.tensor(x.detach().numpy() + 0))
+        assert(rf_x is not x)
+        self.rf_y, rf_yT = self.rf_lstm(rf_x, mask=mask, ret_states=True)
+        self.rf_yT = rf_yT[-1][0]
+        self.rf_x = x
+
+    def test_rf(self):
+        print((self.y - self.rf_y).norm())
+        print(self.y.size())
+        print(self.yT.size())
+        print(self.rf_yT.size())
+        print((self.yT - self.rf_yT).norm())
+        self.assertTrue(np.allclose(self.yT.detach().numpy(), self.rf_yT.detach().numpy()))
+        self.assertTrue(np.allclose(self.y.detach().numpy(), self.rf_y.detach().numpy()))
+        print("outputs match")
+
+        l = self.yT.sum()
+        l.backward()
+
+        rf_l = self.rf_yT.sum()
+        rf_l.backward()
+
+        self.assertTrue(np.allclose(self.rf_x.grad.detach().numpy(), self.x.grad.detach().numpy()))
+        print(self.x.grad[:, :, 0])
+        print("grad on inputs matches")
+
+        for i in [0, 1]:
+            for w in ["weight_ih_l0", "weight_hh_l0", "weight_ih_l0_reverse", "weight_hh_l0_reverse", "bias_ih_l0", "bias_hh_l0", "bias_ih_l0_reverse", "bias_hh_l0_reverse"]:
+                grad = getattr(self.lstm.layers[i].layer, w).grad.detach().numpy()
+                rf_grad = getattr(self.rf_lstm.layers[i], w).grad.detach().numpy()
+                self.assertTrue(np.allclose(grad, rf_grad))
+                self.assertTrue(np.linalg.norm(grad) > 0)
+                print("grad for param {} in layer {} matches and non-zero".format(w, i))
 
     def test_shapes(self):
         self.assertEqual((self.batsize, self.seqlen, 30*2), self.y.detach().numpy().shape)
@@ -572,7 +627,7 @@ class TestFlatEncoder(TestCase):
             [2,3,4,0],
             [4,0,0,0],
         ])
-        enc = FlatEncoder(50, [7], word_dic=wD, bidir=True, dropout_in=0.0, dropout_rec=0.)
+        enc = q.FlatEncoder(50, [7], word_dic=wD, bidir=True, dropout_in=0.0, dropout_rec=0.)
         enc.debug = True
         y, embs = enc(x)
 

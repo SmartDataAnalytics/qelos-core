@@ -66,4 +66,4 @@ def run(lr=0.01, epochs=10, batsize=64, momentum=0.5, cuda=False, gpu=0, seed=1)
 
 
 if __name__ == "__main__":
-    q.argprun(run)
+    q.argprun(run_sound)

@@ -1220,6 +1220,27 @@ class FastestGRUEncoder(FastGRUEncoder):        # TODO: TEST
             return out
 
 
+class LSTMOverride(torch.nn.LSTM):
+    def __init__(self, this, *args, **kwargs):
+        super(LSTMOverride, self).__init__(*args, **kwargs)
+        self.this = [this]
+
+
+    @property
+    def all_weights(self):
+        this = self.this[0]
+        acc = []
+        for weights in self._all_weights:
+            iacc = []
+            for weight in weights:
+                if hasattr(this, weight) and getattr(this, weight) is not None:
+                    iacc.append(getattr(this, weight))
+                else:
+                    iacc.append(getattr(self, weight))
+            acc.append(iacc)
+        return acc
+
+
 class FastestLSTMEncoderLayer(torch.nn.Module):
     """ Fastest LSTM encoder layer using torch's built-in fast LSTM.
         Provides a more convenient interface.
@@ -1228,24 +1249,7 @@ class FastestLSTMEncoderLayer(torch.nn.Module):
     def __init__(self, indim, dim, bidir=False, dropout_in=0., dropout_rec=0., bias=True, skipper=False, **kw):
         super(FastestLSTMEncoderLayer, self).__init__(**kw)
         self.skipper = skipper      # TODO
-        this = self
-
-        class LSTMOverride(torch.nn.LSTM):
-            @property
-            def all_weights(self):
-                acc = []
-                for weights in self._all_weights:
-                    iacc = []
-                    for weight in weights:
-                        if hasattr(this, weight) and getattr(this, weight) is not None:
-                            iacc.append(getattr(this, weight))
-                        else:
-                            iacc.append(getattr(self, weight))
-                    acc.append(iacc)
-                return acc
-                # return [[getattr(this, weight) for weight in weights] for weights in self._all_weights]
-
-        self.layer = LSTMOverride(input_size=indim, hidden_size=dim, num_layers=1,
+        self.layer = LSTMOverride(self, input_size=indim, hidden_size=dim, num_layers=1,
                                    bidirectional=bidir, bias=bias, batch_first=True)
         self.y_0 = q.val(torch.zeros((1 if not bidir else 2), dim)).v
         self.c_0 = q.val(torch.zeros((1 if not bidir else 2), dim)).v
@@ -1390,6 +1394,68 @@ class FastestLSTMEncoder(FastLSTMEncoder):
         else:
             return out
 
+
+class SimpleLSTMEncoder(torch.nn.Module):
+    def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0.):
+        super(SimpleLSTMEncoder, self).__init__()
+        if not q.issequence(dims):
+            dims = (dims,)
+        dims = (indim,) + dims
+        self.dims = dims
+        self.layers = torch.nn.ModuleList()
+        self.bidir = bidir
+        self.bias = bias
+        self.dropout_in = torch.nn.Dropout(dropout_in) if dropout_in > 0 else None
+        self.make_layers()
+
+    def make_layers(self):
+        for i in range(1, len(self.dims)):
+            layer = torch.nn.LSTM(input_size=self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
+                                  hidden_size=self.dims[i], num_layers=1,
+                                   bidirectional=self.bidir, bias=self.bias, batch_first=True)
+            self.layers.append(layer)
+
+    def forward(self, x, mask=None, batsize=None, y_0s=None, c_0s=None, ret_states=False):
+        """ top layer states return last """
+        batsize = x.size(0) if batsize is None else batsize
+        imask = mask
+        order = None
+        if mask is not None:
+            assert (not isinstance(x, torch.nn.utils.rnn.PackedSequence))
+            x, order = q.seq_pack(x, mask=mask)
+            imask = None
+        out = x
+
+        # init states
+        y_0s = [] if y_0s is None else list(y_0s)
+        assert(len(y_0s) <= len(self.layers))
+        y_0s = [None] * (len(self.layers) - len(y_0s)) + y_0s
+        c_0s = [] if c_0s is None else list(c_0s)
+        assert(len(c_0s) <= len(self.layers))
+        c_0s = [None] * (len(self.layers) - len(c_0s)) + c_0s
+
+        states_to_ret = []
+
+        for layer, y0, c0 in zip(self.layers, y_0s, c_0s):
+            if self.dropout_in is not None:
+                if self.mask is not None:
+                    pass
+                    # out = torch.nn.utils.rnn.PackedSequence() # TODO dropout
+            out, (y_i_n, c_i_n) = layer(out)
+            if order is not None:
+                y_i_n = y_i_n.transpose(1, 0).contiguous().index_select(0, order)
+                c_i_n = c_i_n.transpose(1, 0).contiguous().index_select(0, order)
+            states_to_ret.append((y_i_n, c_i_n))
+
+        if mask is not None:
+            out, rmask = q.seq_unpack(out, order)
+
+        if ret_states:
+            return out, states_to_ret
+        else:
+            return out
+
+
 # endregion
 
 
@@ -1531,3 +1597,7 @@ class FlatEncoder(torch.nn.Module):
         if self.debug:
             return final_state, embs
         return final_state
+
+
+class SimpleEncoder(torch.nn.Module):
+    pass
