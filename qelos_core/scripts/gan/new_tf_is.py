@@ -22,17 +22,26 @@ tfgan = tf.contrib.gan
 session=tf.InteractiveSession()
 
 BATCH_SIZE=64
+INCEPTION_V3_SAVE_PATH="/data/lukovnik/inception_v3"
 
 # Run images through Inception.
 inception_images=tf.placeholder(tf.float32,[BATCH_SIZE,3,None,None])
 
 
-def inception_logits(images=inception_images, num_splits=1):
+def inception_logits(images=inception_images, num_splits=1, use_v3=False):
     images=tf.transpose(images,[0,2,3,1])
     size = 299
     images = tf.image.resize_bilinear(images, [size, size])
     generated_images_list = array_ops.split(
     images, num_or_size_splits=num_splits)
+    if not use_v3:
+        _fn = functools.partial(tfgan.eval.run_inception, output_tensor='logits:0')
+    else:
+        graphfn = tfgan.eval.get_graph_def_from_url_tarball("https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz",
+                                                            "inception_v3_2016_08_28_frozen.pb",
+                                                            "INCEPTION_V3_SAVE_PATH"
+                                                            )
+        _fn = functools.partial(tfgan.eval.run_inception, graph_def=graphfn, output_tensor='logits:0')
     logits = functional_ops.map_fn(
         fn=functools.partial(tfgan.eval.run_inception, output_tensor='logits:0'),
         elems=array_ops.stack(generated_images_list),
@@ -44,7 +53,7 @@ def inception_logits(images=inception_images, num_splits=1):
     return logits
 
 
-logits=inception_logits()
+logits=inception_logits(use_v3=True)
 
 
 def get_inception_probs(inps):
