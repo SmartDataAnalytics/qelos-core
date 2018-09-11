@@ -37,6 +37,7 @@ def inception_logits(images=inception_images, num_splits=1, use_v3=False):
     if not use_v3:
         _fn = functools.partial(tfgan.eval.run_inception, output_tensor='logits:0')
     else:
+        print("using v3")
         graphfn = tfgan.eval.get_graph_def_from_url_tarball("https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz",
                                                             "inception_v3_2016_08_28_frozen.pb",
                                                             "INCEPTION_V3_SAVE_PATH"
