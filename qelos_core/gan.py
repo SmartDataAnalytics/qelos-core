@@ -656,6 +656,7 @@ class tfIS(object):
                 inception_file = "inception_v3_2016_08_28_frozen.pb"
                 inception_path = os.path.join(self.inception_path, "inception_v3.pb")
                 inception_outvar = "InceptionV3/Logits/SpatialSqueeze:0"
+                inception_invar = "input:0"
             else:
                 raise q.SumTingWongException("unknown inception version {}".format(self.inception_version))
 
@@ -663,7 +664,10 @@ class tfIS(object):
                 inception_url,
                 inception_file,
                 inception_path)
-            _fn = functools.partial(tfgan.eval.run_inception, graph_def=graphfn, output_tensor=inception_outvar)#'logits:0')
+            _fn = functools.partial(tfgan.eval.run_inception,
+                                    graph_def=graphfn,
+                                    input_tensor=inception_invar,
+                                    output_tensor=inception_outvar)#'logits:0')
 
         logits = functional_ops.map_fn(
             fn=_fn,
