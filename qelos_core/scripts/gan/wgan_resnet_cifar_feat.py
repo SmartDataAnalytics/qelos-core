@@ -471,7 +471,7 @@ def run(lr=0.0001,
     # if not test:
     #     fidandis.set_real_stats_with(validcifar_loader)
     saver = q.gan.GenDataSaver(logger, "saved.npz")
-    generator_validator = q.gan.GeneratorValidator(gen, [tfis], gen_data_valid, device=device,
+    generator_validator = q.gan.GeneratorValidator(gen, [tfis, saver], gen_data_valid, device=device,
                                          logger=logger, validinter=validinter)
 
     train_validator = q.tester(disc_model).on(dev_disc_data).loss(3).device(device)\
