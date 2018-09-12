@@ -713,8 +713,17 @@ class tfIS(object):
         :return:
         """
         # 1. get a numpy array from dataloader
+
+        x = []
+        for i, batch in enumerate(data):
+            batch = (batch,) if not q.issequence(batch) else batch
+            assert(len(batch) == 1)
+            x.append(batch[0])
+        x = np.concatenate(x, axis=0)
+        print(x.shape)
         # 2. use tf code above to get the scores
         pass    # TODO
+        return x
 
 # endregion
 

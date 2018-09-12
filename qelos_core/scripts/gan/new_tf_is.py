@@ -108,8 +108,9 @@ def run(p, splits=10):
 def run_tfis(p, splits=10):
     import qelos_core as q
     d = np.load(p)["0"]
+    dl = q.dataload(d)
     tfis = q.gan.tfIS(inception_path="/data/lukovnik/", gpu=1)
-    ret = tfis.get_inception_score(d, splits=splits)
+    ret = tfis(dl)
     print(ret)
 
 
