@@ -665,7 +665,7 @@ class tfIS(object):
             _fn = functools.partial(tfgan.eval.run_inception, graph_def=graphfn, output_tensor='logits:0')
 
         logits = functional_ops.map_fn(
-            fn=functools.partial(tfgan.eval.run_inception, output_tensor='logits:0'),
+            fn=_fn,
             elems=array_ops.stack(generated_images_list),
             parallel_iterations=1,
             back_prop=False,
