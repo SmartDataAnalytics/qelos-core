@@ -643,6 +643,7 @@ class tfIS(object):
         if self.inception_version == "default":
             _fn = functools.partial(tfgan.eval.run_inception, output_tensor='logits:0')
         else:
+            raise q.SumTingWongException("use default stuff, this stuff might not be working/working correctly")
             if self.inception_version == "v1":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v1_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v1_2016_08_28_frozen.pb"
@@ -705,6 +706,15 @@ class tfIS(object):
             kl = np.mean(np.sum(kl, 1))
             scores.append(np.exp(kl))
         return np.mean(scores), np.std(scores)
+
+    def __call__(self, data):
+        """
+        :param data:    dataloader
+        :return:
+        """
+        # 1. get a numpy array from dataloader
+        # 2. use tf code above to get the scores
+        pass    # TODO
 
 # endregion
 
