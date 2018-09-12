@@ -396,6 +396,7 @@ def run(lr=0.0001,
         vggvanilla=False,           # if True, makes trainable feature transform
         extralayers=False,          # adds a couple extra res blocks to generator to match added VGG
         pixelpenalty=False,         # if True, uses penalty based on pixel-wise interpolate
+        inceptionpath="/data/lukovnik/",
         ):
         # vggvanilla=True and pixelpenalty=True makes a normal WGAN
 
@@ -465,11 +466,12 @@ def run(lr=0.0001,
         .set_batch_transformer(lambda a, b: (disc_bt(a), b))
     gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(1).device(device)
 
-    fidandis = q.gan.FIDandIS(device=device)
-    if not test:
-        fidandis.set_real_stats_with(validcifar_loader)
+    # fidandis = q.gan.FIDandIS(device=device)
+    tfis = q.gan.tfIS(inception_path=inceptionpath, gpu=gpu)
+    # if not test:
+    #     fidandis.set_real_stats_with(validcifar_loader)
     saver = q.gan.GenDataSaver(logger, "saved.npz")
-    generator_validator = q.gan.GeneratorValidator(gen, [fidandis, saver], gen_data_valid, device=device,
+    generator_validator = q.gan.GeneratorValidator(gen, [tfis], gen_data_valid, device=device,
                                          logger=logger, validinter=validinter)
 
     train_validator = q.tester(disc_model).on(dev_disc_data).loss(3).device(device)\
