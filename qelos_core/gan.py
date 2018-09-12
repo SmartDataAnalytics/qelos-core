@@ -609,11 +609,12 @@ class tfIS(object):
         super(tfIS, self).__init__()
         self.batsize = batsize
         self.inception_path = inception_path
-        if gpu is None:
-            self.session = tf.InteractiveSession()
-        else:
-            config = tf.ConfigProto(device_count={'GPU': gpu})
-            self.session = tf.InteractiveSession(config=config)
+        self.session = tf.InteractiveSession()
+        # if gpu is None:
+        #     self.session = tf.InteractiveSession()
+        # else:
+        #     config = tf.ConfigProto(device_count={'GPU': gpu})
+        #     self.session = tf.InteractiveSession(config=config)
         self.inpvar = tf.placeholder(tf.float32, [self.batsize, 3, None, None])
         self.inception_version = inception_version
         self.image_size = image_size
