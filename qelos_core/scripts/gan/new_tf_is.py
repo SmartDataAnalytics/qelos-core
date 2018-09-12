@@ -108,7 +108,7 @@ def run(p, splits=10):
 def run_tfis(p, splits=10):
     import qelos_core as q
     d = np.load(p)["0"]
-    tfis = q.gan.tfIS()
+    tfis = q.gan.tfIS(gpu=1)
     ret = tfis.get_inception_score(d, splits=splits)
     print(ret)
 
