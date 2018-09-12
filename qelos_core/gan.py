@@ -607,7 +607,7 @@ tfgan = tf.contrib.gan
 class tfIS(object):
     def __init__(self, batsize=64, inception_path="none", inception_version="v3", image_size=299, gpu=None):
         super(tfIS, self).__init__()
-        self.batsize = batsize
+        self.batsize = 1
         self.inception_path = inception_path
         if gpu is None:
             self.session = tf.InteractiveSession()
