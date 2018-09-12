@@ -646,19 +646,22 @@ class tfIS(object):
             if self.inception_version == "v1":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v1_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v1_2016_08_28_frozen.pb"
+                inception_path = os.path.join(self.inception_path, "inception_v1.pb")
             elif self.inception_version == "v2":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v2_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v2_2016_08_28_frozen.pb"
+                inception_path = os.path.join(self.inception_path, "inception_v2.pb")
             elif self.inception_version == "v3":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v3_2016_08_28_frozen.pb"
+                inception_path = os.path.join(self.inception_path, "inception_v3.pb")
             else:
                 raise q.SumTingWongException("unknown inception version {}".format(self.inception_version))
 
             graphfn = tfgan.eval.get_graph_def_from_url_tarball(
                 inception_url,
                 inception_file,
-                self.inception_path)
+                inception_path)
             _fn = functools.partial(tfgan.eval.run_inception, graph_def=graphfn, output_tensor='logits:0')
 
         logits = functional_ops.map_fn(
