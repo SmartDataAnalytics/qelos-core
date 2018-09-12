@@ -607,7 +607,7 @@ tfgan = tf.contrib.gan
 class tfIS(object):
     def __init__(self, batsize=64, inception_path="none", inception_version="v3", image_size=299, gpu=None):
         super(tfIS, self).__init__()
-        self.batsize = 1
+        self.batsize = batsize
         self.inception_path = inception_path
         if gpu is None:
             self.session = tf.InteractiveSession()
@@ -647,10 +647,14 @@ class tfIS(object):
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v1_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v1_2016_08_28_frozen.pb"
                 inception_path = os.path.join(self.inception_path, "inception_v1.pb")
+                inception_outvar = "InceptionV1/Logits/SpatialSqueeze:0"
+                inception_invar = "input:0"
             elif self.inception_version == "v2":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v2_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v2_2016_08_28_frozen.pb"
                 inception_path = os.path.join(self.inception_path, "inception_v2.pb")
+                inception_outvar = "InceptionV2/Logits/SpatialSqueeze:0"
+                inception_invar = "input:0"
             elif self.inception_version == "v3":
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v3_2016_08_28_frozen.pb"
