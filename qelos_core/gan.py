@@ -722,8 +722,8 @@ class tfIS(object):
         x = np.concatenate(x, axis=0)
         print(x.shape)
         # 2. use tf code above to get the scores
-        pass    # TODO
-        return x
+        means, vars = self.get_inception_score(x)
+        return means, vars
 
 # endregion
 
