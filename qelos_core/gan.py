@@ -655,7 +655,7 @@ class tfIS(object):
                 inception_url = "https://storage.googleapis.com/download.tensorflow.org/models/inception_v3_2016_08_28_frozen.pb.tar.gz"
                 inception_file = "inception_v3_2016_08_28_frozen.pb"
                 inception_path = os.path.join(self.inception_path, "inception_v3.pb")
-                inception_outvar = "Logits:0"
+                inception_outvar = "InceptionV3/Logits/SpatialSqueeze:0"
             else:
                 raise q.SumTingWongException("unknown inception version {}".format(self.inception_version))
 
