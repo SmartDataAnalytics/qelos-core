@@ -14,7 +14,7 @@ def rec_reset(module):
 
 
 class RecDropout(Dropout):
-    """ Variational Dropout """
+    """ Variational Dropout for use in rec cells"""
     def __init__(self, p=.5):
         super(RecDropout, self).__init__(p=p)
         self.mask = None
@@ -130,7 +130,7 @@ class GRUCell(RecCell):
 
 
 class LSTMCell(RecCell):
-    """ wrapper around PyTorch GRUCell with extra features """
+    """ wrapper around PyTorch LSTMCell with extra features """
     def __init__(self, indim, outdim, bias=True,
                  dropout_in=None, dropout_rec=None, zoneout=None, **kw):
         super(LSTMCell, self).__init__(dropout_in=dropout_in, dropout_rec=dropout_rec, zoneout=zoneout, **kw)
@@ -138,14 +138,13 @@ class LSTMCell(RecCell):
 
         self.cell = torch.nn.LSTMCell(self.indim, self.outdim, bias=self.bias)
 
-        self.y_tm1 = None
-        self.c_tm1 = None
-        self.y_0 = q.val(torch.zeros(1, outdim)).v
-        self.c_0 = q.val(torch.zeros(1, outdim)).v
+        self.rec_reset()
 
     def rec_reset(self):
         self.y_tm1 = None
         self.c_tm1 = None
+        self.y_0 = q.val(torch.zeros(1, self.outdim)).v
+        self.c_0 = q.val(torch.zeros(1, self.outdim)).v
         super(LSTMCell, self).rec_reset()
 
     def forward(self, x_t, mask_t=None, **kw):
@@ -166,6 +165,7 @@ class LSTMCell(RecCell):
         return y_t
 
 
+# region attention
 class AttentionBase(torch.nn.Module):
     def __init__(self, **kw):
         super(AttentionBase, self).__init__()
@@ -442,8 +442,10 @@ class RelationContextAttentionSeparated(RelationContentAttention):
         summary = values * alphas.unsqueeze(2)
         summary = summary.sum(1)
         return alphas, summary
+# endregion
 
 
+# region decoder
 class Decoder(torch.nn.Module):
     """ abstract decoder """
     def __init__(self, cell, **kw):
@@ -722,8 +724,10 @@ class DynamicOracleDecoder(Decoder):
             self.tracker.update(eid, x_t_e, alt_x=gold_t_e)
 
         return x_t, gold_t
+# endregion
 
 
+# region decoder cells
 class BasicDecoderCell(torch.nn.Module):
     def __init__(self, emb, core, out):
         super(BasicDecoderCell, self).__init__()
@@ -916,6 +920,7 @@ class BahdanauCell(torch.nn.Module):
         if self.return_other:
             ret += (embs, core_out, summaries)
         return ret[0] if len(ret) == 1 else ret
+# endregion
 
 
 # region Encoders
@@ -1396,7 +1401,9 @@ class FastestLSTMEncoder(FastLSTMEncoder):
 
 
 class SimpleLSTMEncoder(torch.nn.Module):
-    def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0.):
+    """ BEWARE: dropouts and layernorm use a hack on packed sequence """
+    def __init__(self, indim, *dims, bidir=False, bias=True,
+                 dropout_in=0., dropout_in_shared=0., layer_norm=False):
         super(SimpleLSTMEncoder, self).__init__()
         if not q.issequence(dims):
             dims = (dims,)
@@ -1405,8 +1412,11 @@ class SimpleLSTMEncoder(torch.nn.Module):
         self.layers = torch.nn.ModuleList()
         self.bidir = bidir
         self.bias = bias
-        self.dropout_in = torch.nn.Dropout(dropout_in) if dropout_in > 0 else None
+        self.layer_norm = torch.nn.ModuleList() if layer_norm is True else None
+        self.dropout_in = torch.nn.Dropout(dropout_in, inplace=False) if dropout_in > 0 else None
+        self.dropout_in_shared = torch.nn.Dropout(dropout_in, inplace=False) if dropout_in_shared > 0 else None
         self.make_layers()
+        self.reset_parameters()
 
     def make_layers(self):
         for i in range(1, len(self.dims)):
@@ -1414,19 +1424,29 @@ class SimpleLSTMEncoder(torch.nn.Module):
                                   hidden_size=self.dims[i], num_layers=1,
                                    bidirectional=self.bidir, bias=self.bias, batch_first=True)
             self.layers.append(layer)
+            layernormlayer = torch.nn.LayerNorm(self.dims[i-1])
+            self.layer_norm.append(layernormlayer)
+
+    def reset_parameters(self):
+        ih = (param for name, param in self.named_parameters() if 'weight_ih' in name)
+        hh = (param for name, param in self.named_parameters() if 'weight_hh' in name)
+        b = (param for name, param in self.named_parameters() if 'bias' in name)
+        for t in ih:
+            torch.nn.init.xavier_uniform_(t)
+        for t in hh:
+            torch.nn.init.orthogonal_(t)
+        for t in b:
+            torch.nn.init.constant_(t, 0)
 
     def forward(self, x, mask=None, batsize=None, y_0s=None, c_0s=None, ret_states=False):
         """ top layer states return last """
-        batsize = x.size(0) if batsize is None else batsize
-        imask = mask
         order = None
         if mask is not None:
             assert (not isinstance(x, torch.nn.utils.rnn.PackedSequence))
             x, order = q.seq_pack(x, mask=mask)
-            imask = None
         out = x
 
-        # init states
+        # init states -- topmost layer matches latest provided states, if not enough states, bottoms get None
         y_0s = [] if y_0s is None else list(y_0s)
         assert(len(y_0s) <= len(self.layers))
         y_0s = [None] * (len(self.layers) - len(y_0s)) + y_0s
@@ -1436,17 +1456,49 @@ class SimpleLSTMEncoder(torch.nn.Module):
 
         states_to_ret = []
 
+        i = 0
         for layer, y0, c0 in zip(self.layers, y_0s, c_0s):
-            if self.dropout_in is not None:
+            # region regularization
+            if self.layer_norm is not None:
+                if mask is not None:
+                    out_normed = self.layer_norm[i](out.data)
+                    out = torch.nn.utils.rnn.PackedSequence(out_normed, out.batch_sizes)
+                else:
+                    batsize, seqlen, hdim = out.size()
+                    _out = out.view(-1, hdim)
+                    _out = self.layer_norm[i](_out)
+                    out = out.view(batsize, seqlen, hdim)
+                # TODO test layernorm
+            if self.dropout_in is not None and self.training:
+                if self.mask is not None:       # then sequence has been packed
+                    out_dropout = self.dropout_in(out.data)
+                    out = torch.nn.utils.rnn.PackedSequence(out_dropout, out.batch_sizes)
+                else:
+                    out = self.dropout_in(out)
+                # TODO: test dropouts
+            if self.dropout_in_shared is not None and self.training:
                 if self.mask is not None:
-                    pass
-                    # out = torch.nn.utils.rnn.PackedSequence() # TODO dropout
-            out, (y_i_n, c_i_n) = layer(out)
+                    dropout_mask = torch.ones_like(out.data[0:1])
+                    dropout_mask = self.dropout_in_shared(dropout_mask)
+                    out_dropout = out.data * dropout_mask
+                    out = torch.nn.utils.rnn.PackedSequence(out_dropout, out.batch_sizes)
+                else:
+                    dropout_mask = torch.ones_like(out[0:1, 0:1])
+                    dropout_mask = self.dropout_in_shared(dropout_mask)
+                    out = out * dropout_mask
+                # TODO: test dropouts
+            # endregion
+            if y0 is None:
+                assert(c0 is None)
+                out, (y_i_n, c_i_n) = layer(out)
+            else:
+                assert(y0 is not None and c0 is not None)
+                out, (y_i_n, c_i_n) = layer(out, (y0, c0))
             if order is not None:
                 y_i_n = y_i_n.transpose(1, 0).contiguous().index_select(0, order)
                 c_i_n = c_i_n.transpose(1, 0).contiguous().index_select(0, order)
             states_to_ret.append((y_i_n, c_i_n))
-
+            i += 1
         if mask is not None:
             out, rmask = q.seq_unpack(out, order)
 
@@ -1456,9 +1508,85 @@ class SimpleLSTMEncoder(torch.nn.Module):
             return out
 
 
+class FocusableLSTMEncoder(torch.nn.Module):
+    def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0., dropout_rec=0., zoneout=0., **kw):
+        super(FocusableLSTMEncoder, self).__init__(**kw)
+        if not q.issequence(dims):
+            dims = (dims,)
+        dims = (indim,) + dims
+        self.dims = dims
+        self.dropout_in, self.dropout_rec, self.zoneout = dropout_in, dropout_rec, zoneout
+        self.layers = torch.nn.ModuleList()
+        self.rev_layers = torch.nn.ModuleList() if bidir else None
+        self.bidir = bidir
+        self.bias = bias
+        self.make_layers()
+        self.reset_parameters()
+
+    def make_layers(self):
+        for i in range(1, len(self.dims)):
+            layer = LSTMCell(self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
+                             self.dims[i],
+                             dropout_in=self.dropout_in, dropout_rec=self.dropout_rec, zoneout=self.zoneout,
+                             bias=self.bias)
+            self.layers.append(layer)
+            # add reverse layer if bidir
+            if self.rev_layers is not None:
+                layer = LSTMCell(self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
+                                 self.dims[i],
+                                 dropout_in=self.dropout_in, dropout_rec=self.dropout_rec, zoneout=self.zoneout,
+                                 bias=self.bias)
+                self.rev_layers.append(layer)
+
+    def reset_parameters(self):
+        ih = (param for name, param in self.named_parameters() if 'weight_ih' in name)
+        hh = (param for name, param in self.named_parameters() if 'weight_hh' in name)
+        b = (param for name, param in self.named_parameters() if 'bias' in name)
+        for t in ih:
+            torch.nn.init.xavier_uniform_(t)
+        for t in hh:
+            torch.nn.init.orthogonal_(t)
+        for t in b:
+            torch.nn.init.constant_(t, 0)
+
+    def forward(self, x, gate, mask=None):
+        out = x
+        out = torch.split(out, 1, 1)    # split in sequence dimension
+        mask = gate if mask is None else mask.float() * gate
+
+        assert(len(self.layers) > 0)
+        i = 0
+        for layer in self.layers:
+            # go forward in time
+            acc = []
+            t = 0
+            while t < len(out):
+                y_t = layer(out[t], mask_t=mask[:, t])
+                acc.append(y_t)
+                t += 1
+            final_state = acc[-1]
+            # go backward in time
+            if self.rev_layers is not None:
+                rev_layer = self.rev_layers[i]
+                rev_acc = []
+                t = len(out)
+                while t > 0:
+                    y_t = rev_layer(out[t], mask_t=mask[:, t])
+                    rev_acc.append(y_t)
+                    t -= 1
+                final_state = torch.stack([acc[-1], rev_acc[-1]], 1)
+                rev_acc = rev_acc[::-1]     # reverse for merge
+                acc = [torch.stack([acc_i, rev_acc_i], 1) for acc_i, rev_acc_i in zip(acc, rev_acc)]    # merge
+            out = acc
+            i += 1
+
+        return final_state, torch.stack(out, 1)
+
+
 # endregion
 
 
+# region automasker
 class AutoMaskedOut(torch.nn.Module):
     def __init__(self, automasker=None, **kw):
         """
@@ -1483,6 +1611,7 @@ class AutoMaskedOut(torch.nn.Module):
         # kw["mask"] = mask
         # ret = self.baseout(*args, **kw)
         # return ret
+
 
 
 class AutoMasker(torch.nn.Module):
@@ -1564,6 +1693,7 @@ class AutoMasker(torch.nn.Module):
         :return:
         """
         raise NotImplemented("use subclass")
+# endregion
 
 
 class FlatEncoder(torch.nn.Module):
