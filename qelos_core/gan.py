@@ -7,6 +7,7 @@ from scipy import linalg
 import json
 import os
 from PIL import Image
+from qelos_core.gan_utils.swd import SlicedWassersteinDistance as SWD_np
 
 
 class SampleDataset(Dataset):
@@ -307,7 +308,8 @@ class Validator(object):
 
 class GeneratorValidator(object):
     """ Validator for generator. Runs generator on gendata and executes scorers on generated data """
-    def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None, validinter=1):
+    def __init__(self, generator, scorers, gendata, device=torch.device("cpu"), logger=None, validinter=1,
+                 name="main"):
         """
         :param generator:   the generator
         :param scorers:     scorers (FID, IS, Imagesaver)
@@ -315,12 +317,13 @@ class GeneratorValidator(object):
         :param device:      device used only for batches (generator/scorers are not set to this device)
         """
         super(GeneratorValidator, self).__init__()
+        self.name = name
         self.history = {}
         self.generator = generator
         self.scorers = scorers
         self.gendata = gendata
         self.device = device
-        self.tt = q.ticktock("validator")
+        self.tt = q.ticktock("validator-{}".format(name))
         self._iter = 0
         self.logger = logger
         self.validinter = validinter
@@ -350,13 +353,13 @@ class GeneratorValidator(object):
                 if ret is not None:
                     rets.append(ret)
             if self.logger is not None:
-                self.logger.liner_write("validator.txt", " ".join(map(str, rets)))
+                self.logger.liner_write("validator-{}.txt".format(self.name), " ".join(map(str, rets)))
             self._iter += 1
         return " ".join(map(str, rets[1:]))
 
     def post_run(self):
         if self.logger is not None:
-            self.logger.liner_close("validator")
+            self.logger.liner_close("validator-{}.txt".format(self.name))
 
 
 class GenDataSaver(object):
@@ -592,6 +595,36 @@ class IS(InceptionMetric):
         return self.get_scores_from_data(data)
 
 
+class SlicedWassersteinDistance(object):
+    """ based on Progressive GAN implementation in numpy """
+    def __init__(self, img_shape, nhood_size=7, nhoods_per_image=128, dir_repeats=4, dirs_per_repeat=128):
+        super(SlicedWassersteinDistance, self).__init__()
+        self.impl = SWD_np(img_shape, nhood_size=nhood_size,
+                           nhoods_per_image=nhoods_per_image,
+                           dir_repeats=dir_repeats,
+                           dirs_per_repeat=dirs_per_repeat)
+
+    def prepare_reals(self, reals):
+        """
+        :param reals:   dataloader of real images
+        """
+        self.impl.begin("reals")
+        for batch, in reals:
+            self.impl.feed("reals", batch.cpu().detach().numpy())
+        swds = self.impl.end("reals")
+        print("real SWD stats: {}".format(swds))
+
+    def __call__(self, data):
+        """
+        :param data:    dataloader of generated images
+        """
+        self.impl.begin("fakes")
+        for batch, in data:
+            self.impl.feed("fakes", batch.cpu().detach().numpy())
+        swds = self.impl.end("reals")
+        return swds
+
+
 # region tensorflow IS
 import tensorflow as tf
 import os, sys, functools
@@ -605,6 +638,7 @@ tfgan = tf.contrib.gan
 
 
 class tfIS(object):
+    """ Tensorflow-based Inception score"""
     def __init__(self, batsize=64, inception_path="none", inception_version="default", image_size=299, gpu=None):
         super(tfIS, self).__init__()
         self.batsize = batsize

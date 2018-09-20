@@ -1424,8 +1424,9 @@ class SimpleLSTMEncoder(torch.nn.Module):
                                   hidden_size=self.dims[i], num_layers=1,
                                    bidirectional=self.bidir, bias=self.bias, batch_first=True)
             self.layers.append(layer)
-            layernormlayer = torch.nn.LayerNorm(self.dims[i-1])
-            self.layer_norm.append(layernormlayer)
+            if self.layer_norm is not None:
+                layernormlayer = torch.nn.LayerNorm(self.dims[i-1])
+                self.layer_norm.append(layernormlayer)
 
     def reset_parameters(self):
         ih = (param for name, param in self.named_parameters() if 'weight_ih' in name)
@@ -1470,14 +1471,14 @@ class SimpleLSTMEncoder(torch.nn.Module):
                     out = out.view(batsize, seqlen, hdim)
                 # TODO test layernorm
             if self.dropout_in is not None and self.training:
-                if self.mask is not None:       # then sequence has been packed
+                if mask is not None:       # then sequence has been packed
                     out_dropout = self.dropout_in(out.data)
                     out = torch.nn.utils.rnn.PackedSequence(out_dropout, out.batch_sizes)
                 else:
                     out = self.dropout_in(out)
                 # TODO: test dropouts
             if self.dropout_in_shared is not None and self.training:
-                if self.mask is not None:
+                if mask is not None:
                     dropout_mask = torch.ones_like(out.data[0:1])
                     dropout_mask = self.dropout_in_shared(dropout_mask)
                     out_dropout = out.data * dropout_mask

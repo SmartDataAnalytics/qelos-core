@@ -432,7 +432,7 @@ def run(lr=0.0001,
     # load cifar
     tt.tick("loading data")
     traincifar, testcifar = load_cifar_dataset(train=True), load_cifar_dataset(train=False)
-    print(len(traincifar))
+    print(len(traincifar), len(testcifar))
 
     gen_data_d = q.gan.gauss_dataset(z_dim, len(traincifar))
     disc_data = q.datacat([traincifar, gen_data_d], 1)
@@ -440,10 +440,20 @@ def run(lr=0.0001,
     gen_data = q.gan.gauss_dataset(z_dim)
     gen_data_valid = q.gan.gauss_dataset(z_dim, 50000)
 
+    swd_gen_data = q.gan.gauss_dataset(z_dim, 16384)
+    swd_real_data = []
+    swd_shape = traincifar[0].size()
+    for i in range(16384):
+        swd_real_data.append(traincifar[i])
+    swd_real_data = torch.stack(swd_real_data, 0)
+
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
     gen_data = q.dataload(gen_data, batch_size=batsize, shuffle=True)
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
     validcifar_loader = q.dataload(testcifar, batch_size=batsize, shuffle=False)
+
+    swd_gen_data = q.dataload(swd_gen_data, batch_size=batsize, shuffle=False)
+    swd_real_data = q.dataload(swd_real_data, batch_size=batsize, shuffle=False)
 
     dev_data_gauss = q.gan.gauss_dataset(z_dim, len(testcifar))
     dev_disc_data = q.datacat([testcifar, dev_data_gauss], 1)
@@ -479,9 +489,17 @@ def run(lr=0.0001,
 
     train_validator.validinter = devinter
 
+    tt.tick("initializing SWD")
+    swd = q.gan.SlicedWassersteinDistance(swd_shape)
+    swd.prepare_reals(swd_real_data)
+    tt.tock("SWD initialized")
+
+    swd_validator = q.gan.GeneratorValidator(gen, [swd], swd_gen_data, device=device,
+                                             logger=logger, validinter=validinter, name="swd")
+
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer,
-                                   validators=(generator_validator, train_validator),
+                                   validators=(generator_validator, train_validator, swd_validator),
                                    lr_decay=True)
 
     gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin)
