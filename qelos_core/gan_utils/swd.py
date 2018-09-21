@@ -33,6 +33,7 @@ def batch_to_patches(x, patch_size, patches_per_image):
     patches = x.view(-1)[idx]
     return patches      # (patch_count, nchannels, patch_size, patch_size)
 
+
 def finalize_patches(patches):
     """
     Concatenate, normalize and reshape patches
