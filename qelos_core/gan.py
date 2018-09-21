@@ -613,9 +613,9 @@ class SlicedWassersteinDistance(object):
         self.impl.begin("reals")
         for batch, in reals:
             self.impl.feed("reals", batch.cpu().detach().numpy())
-        print("real SWD stats: {}".format(swds))
-        swds = self.impl.end("reals")
         self.tt.tock("prepared reals")
+        swds = self.impl.end("reals")
+        print("real SWD stats: {}".format(swds))
 
     def __call__(self, data):
         """
