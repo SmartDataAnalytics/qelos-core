@@ -603,16 +603,19 @@ class SlicedWassersteinDistance(object):
                            nhoods_per_image=nhoods_per_image,
                            dir_repeats=dir_repeats,
                            dirs_per_repeat=dirs_per_repeat)
+        self.tt = q.ticktock("SWD")
 
     def prepare_reals(self, reals):
         """
         :param reals:   dataloader of real images
         """
+        self.tt.tick("preparing reals")
         self.impl.begin("reals")
         for batch, in reals:
             self.impl.feed("reals", batch.cpu().detach().numpy())
         swds = self.impl.end("reals")
         print("real SWD stats: {}".format(swds))
+        self.tt.tock("prepared reals")
 
     def __call__(self, data):
         """
