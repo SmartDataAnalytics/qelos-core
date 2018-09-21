@@ -492,7 +492,7 @@ def run(lr=0.0001,
 
     tt.tick("initializing SWD")
     swd = q.gan.SlicedWassersteinDistance(swd_shape)
-    # swd.prepare_reals(swd_real_data)
+    swd.prepare_reals(swd_real_data)
     tt.tock("SWD initialized")
 
     swd_validator = q.gan.GeneratorValidator(gen, [swd], swd_gen_data, device=device,
@@ -500,7 +500,7 @@ def run(lr=0.0001,
 
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer,
-                                   validators=(generator_validator, train_validator),
+                                   validators=(generator_validator, train_validator, swd_validator),
                                    lr_decay=True)
 
     gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin)
