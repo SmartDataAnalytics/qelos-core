@@ -452,7 +452,7 @@ def run(lr=0.0001,
     gen_data_valid = q.dataload(gen_data_valid, batch_size=batsize, shuffle=False)
     validcifar_loader = q.dataload(testcifar, batch_size=batsize, shuffle=False)
 
-    swd_batsize = 1024
+    swd_batsize = 64
     swd_gen_data = q.dataload(swd_gen_data, batch_size=swd_batsize, shuffle=False)
     swd_real_data = q.dataload(swd_real_data, batch_size=swd_batsize, shuffle=False)
 

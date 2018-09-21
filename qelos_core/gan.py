@@ -609,11 +609,11 @@ class SlicedWassersteinDistance(object):
         """
         :param reals:   dataloader of real images
         """
-        self.tt.tick("preparing reals")
         self.impl.begin("reals")
+        self.tt.tick("feeding reals")
         for batch, in reals:
             self.impl.feed("reals", batch.cpu().detach().numpy())
-        self.tt.tock("prepared reals")
+        self.tt.tock("fed reals")
         swds = self.impl.end("reals")
         print("real SWD stats: {}".format(swds))
 
