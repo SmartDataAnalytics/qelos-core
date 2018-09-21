@@ -500,7 +500,7 @@ def run(lr=0.0001,
 
     tt.tick("training")
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer,
-                                   validators=(generator_validator, train_validator, swd_validator),
+                                   validators=(generator_validator, train_validator),
                                    lr_decay=True)
 
     gan_trainer.run(epochs, disciters=disciters, geniters=1, burnin=burnin)
