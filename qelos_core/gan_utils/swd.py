@@ -184,19 +184,21 @@ class SlicedWassersteinDistance(object):
             self.descriptors[lod].append(desc)
 
     def end(self, mode):
-        self.tt.tick("finalizing descriptors")
+        # self.tt.tick("finalizing descriptors")
         desc = [finalize_descriptors(d) for d in self.descriptors]
-        self.tt.tock("finalized descriptors")
+        # self.tt.tock("finalized descriptors")
         del self.descriptors
         if mode in ['warmup', 'reals']:
             self.desc_real = desc
-        self.tt.tick("computing swd")
-        dist = [sliced_wasserstein_(dreal, dfake, self.dir_repeats, self.dirs_per_repeat) for dreal, dfake in
-                zip(self.desc_real, desc)]
-        self.tt.tock("computed swd")
-        del desc
-        dist = [d * 1e3 for d in dist] # multiply by 10^3
-        return dist + [np.mean(dist)]
+            return [0. for _ in desc] + [0.]
+        else:
+            # self.tt.tick("computing swd")
+            dist = [sliced_wasserstein(dreal, dfake, self.dir_repeats, self.dirs_per_repeat) for dreal, dfake in
+                    zip(self.desc_real, desc)]
+            # self.tt.tock("computed swd")
+            del desc
+            dist = [d * 1e3 for d in dist] # multiply by 10^3
+            return dist + [np.mean(dist)]
 
 #----------------------------------------------------------------------------
 
