@@ -8,6 +8,7 @@
 import numpy as np
 import scipy.ndimage
 import torch
+import qelos_core as q
 
 
 # pytorch
@@ -163,6 +164,7 @@ class SlicedWassersteinDistance(object):
         while res >= 16:
             self.resolutions.append(res)
             res //= 2
+        self.tt = q.ticktock()
 
     def get_metric_names(self):
         return ['SWDx1e3_%d' % res for res in self.resolutions] + ['SWDx1e3_avg']
@@ -180,12 +182,16 @@ class SlicedWassersteinDistance(object):
             self.descriptors[lod].append(desc)
 
     def end(self, mode):
+        self.tt.tick("finalizing descriptors")
         desc = [finalize_descriptors(d) for d in self.descriptors]
+        self.tt.tock("finalized descriptors")
         del self.descriptors
         if mode in ['warmup', 'reals']:
             self.desc_real = desc
+        self.tt.tick("computing swd")
         dist = [sliced_wasserstein(dreal, dfake, self.dir_repeats, self.dirs_per_repeat) for dreal, dfake in
                 zip(self.desc_real, desc)]
+        self.tt.tock("computed swd")
         del desc
         dist = [d * 1e3 for d in dist] # multiply by 10^3
         return dist + [np.mean(dist)]
