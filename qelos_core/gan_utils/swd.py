@@ -52,6 +52,8 @@ def finalize_patches(patches):
 
 
 def sliced_wasserstein_(A, B, dir_repeats, dirs_per_repeat):
+    A = torch.tensor(A)
+    B = torch.tensor(B)
     assert(A.dim() == 2 and A.size() == B.size())
     results = []
     for repeat in range(dir_repeats):
@@ -189,7 +191,7 @@ class SlicedWassersteinDistance(object):
         if mode in ['warmup', 'reals']:
             self.desc_real = desc
         self.tt.tick("computing swd")
-        dist = [sliced_wasserstein(dreal, dfake, self.dir_repeats, self.dirs_per_repeat) for dreal, dfake in
+        dist = [sliced_wasserstein_(dreal, dfake, self.dir_repeats, self.dirs_per_repeat) for dreal, dfake in
                 zip(self.desc_real, desc)]
         self.tt.tock("computed swd")
         del desc
