@@ -194,6 +194,101 @@ class TestLSTM(TestCase):
         self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[2].detach().numpy()))
         self.assertFalse(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[1].detach().numpy()))
         self.assertTrue(np.allclose(h_tm1[0].detach().numpy(), lstm.y_tm1[4].detach().numpy()))
+
+
+class TestLSTMCellEncoder(TestCase):
+    def test_it_without_gate_or_mask(self):
+        batsize = 5
+        seqlen = 6
+        dim = 20
+        outdim = 16
+
+        lstm = q.LSTMCellEncoder(dim, outdim, outdim, bidir=True)
+
+        x = torch.randn(batsize, seqlen, dim)
+        x.requires_grad = True
+        y_final, y_all = lstm(x)
+        print(y_final.size(), y_all.size())
+        self.assertTrue(y_final.size() == (batsize, outdim * 2))
+        self.assertTrue(y_all.size() == (batsize, seqlen, outdim * 2))
+
+    def test_it_with_mask(self):
+        batsize = 5
+        seqlen = 6
+        dim = 20
+        outdim = 16
+
+        lstm = q.LSTMCellEncoder(dim, outdim, bidir=True)
+
+        x = torch.randn(batsize, seqlen, dim)
+        mask = torch.ones(batsize, seqlen)
+        mask[0, 3:] = 0
+        mask[1, 4:] = 0
+        mask[2, 1:] = 0
+        mask[3, 0:] = 0
+        print("mask: ", mask)
+        x.requires_grad = True
+        y_final, y_all = lstm(x, mask=mask)
+        # print(y_all[:, :, [0, -1]])
+
+        # tests that final state is computed correctly given forward and backward directions
+        self.assertTrue(np.allclose(y_final.cpu().detach().numpy()[0, :outdim],
+                                    y_all.cpu().detach().numpy()[0, 3, :outdim]))
+        self.assertTrue(np.allclose(y_final.cpu().detach().numpy()[0, outdim:],
+                                    y_all.cpu().detach().numpy()[0, 0, outdim:]))
+
+        self.assertTrue(np.allclose(y_final.cpu().detach().numpy()[1, :outdim],
+                                    y_all.cpu().detach().numpy()[1, 4, :outdim]))
+        self.assertTrue(np.allclose(y_final.cpu().detach().numpy()[1, outdim:],
+                                    y_all.cpu().detach().numpy()[1, 0, outdim:]))
+
+        # grad test: check that gradient is only on non-masked x vectors
+        l = y_all.sum()
+        l.backward(retain_graph=True)
+        # print(x.grad)
+        self.assertTrue(np.allclose((x.grad * mask.unsqueeze(2)).cpu().detach().numpy(),
+                                    x.grad.cpu().detach().numpy()))
+        print("total grads ok")
+
+        x.grad = None
+        # grad test: position-specific grad test
+        # check grad from backward at t=1 only depends on t>=1
+        l = y_all[0, 1, outdim:].sum()
+        l.backward(retain_graph=True)
+        # print(x.grad[0])
+        self.assertTrue(np.allclose(np.zeros_like(x.grad[0, 0].cpu().detach().numpy()),
+                                    x.grad[0, 0].cpu().detach().numpy()))
+        x.grad = None
+        l = y_all[0, 1, :outdim].sum()
+        l.backward()
+        # print(x.grad[0])
+        self.assertTrue(np.allclose(np.zeros_like(x.grad[0, 2:].cpu().detach().numpy()),
+                                    x.grad[0, 2:].cpu().detach().numpy()))
+
+        print("fine grads ok")
+
+    def test_it_with_dropout_zoneout_and_mask(self):
+        batsize = 5
+        seqlen = 6
+        dim = 20
+        outdim = 16
+
+        lstm = q.LSTMCellEncoder(dim, outdim, outdim, bidir=True, dropout_in=0.2, dropout_rec=0.2, zoneout=0.2)
+
+        x = torch.randn(batsize, seqlen, dim)
+        mask = torch.ones(batsize, seqlen)
+        mask[0, 3:] = 0
+        mask[1, 4:] = 0
+        mask[2, 1:] = 0
+        mask[3, 0:] = 0
+        print("mask: ", mask)
+        x.requires_grad = True
+        y_final, y_all = lstm(x, mask=mask)
+
+        self.assertTrue(y_final.size() == (batsize, outdim * 2))
+        self.assertTrue(y_all.size() == (batsize, seqlen, outdim * 2))
+
+
 # endregion
 
 

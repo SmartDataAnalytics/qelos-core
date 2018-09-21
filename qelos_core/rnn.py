@@ -66,13 +66,16 @@ class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
 class RecCell(torch.nn.Module):
     def __init__(self, dropout_in=None, dropout_rec=None, zoneout=None, **kw):
         super(RecCell, self).__init__(**kw)
-        self.dropout_in, self.dropout_rec, self.zoneout = dropout_in, dropout_rec, zoneout
+        self.dropout_in, self.dropout_rec, self.zoneout = \
+            dropout_in if dropout_in > 0 else None, \
+            dropout_rec if dropout_rec > 0 else None, \
+            zoneout if zoneout > 0 else None
 
-        if self.dropout_in and not isinstance(self.dropout_in, q.Dropout):
+        if self.dropout_in is not None and not isinstance(self.dropout_in, q.Dropout):
             self.dropout_in = RecDropout(p=self.dropout_in)
-        if self.dropout_rec and not isinstance(self.dropout_rec, q.Dropout):
+        if self.dropout_rec is not None and not isinstance(self.dropout_rec, q.Dropout):
             self.dropout_rec = RecDropout(p=self.dropout_rec)
-        if self.zoneout and not isinstance(self.zoneout, Zoneout):
+        if self.zoneout is not None and not isinstance(self.zoneout, Zoneout):
             self.zoneout = Zoneout(p=self.zoneout)
         assert(isinstance(self.zoneout, (Zoneout, type(None))))
         assert(isinstance(self.zoneout, (q.Dropout, type(None))))
@@ -1509,9 +1512,10 @@ class SimpleLSTMEncoder(torch.nn.Module):
             return out
 
 
-class FocusableLSTMEncoder(torch.nn.Module):
+class LSTMCellEncoder(torch.nn.Module):
+    """ Encoder that uses LSTMCell (see above) """
     def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0., dropout_rec=0., zoneout=0., **kw):
-        super(FocusableLSTMEncoder, self).__init__(**kw)
+        super(LSTMCellEncoder, self).__init__(**kw)
         if not q.issequence(dims):
             dims = (dims,)
         dims = (indim,) + dims
@@ -1550,10 +1554,14 @@ class FocusableLSTMEncoder(torch.nn.Module):
         for t in b:
             torch.nn.init.constant_(t, 0)
 
-    def forward(self, x, gate, mask=None):
+    def forward(self, x, gate=None, mask=None):
         out = x
         out = torch.split(out, 1, 1)    # split in sequence dimension
-        mask = gate if mask is None else mask.float() * gate
+        out = [out_e.squeeze(1) for out_e in out]
+
+        mask = (gate if mask is None else mask.float() * gate) \
+                if gate is not None \
+                else (mask.float() if mask is not None else None)
 
         assert(len(self.layers) > 0)
         i = 0
@@ -1562,7 +1570,7 @@ class FocusableLSTMEncoder(torch.nn.Module):
             acc = []
             t = 0
             while t < len(out):
-                y_t = layer(out[t], mask_t=mask[:, t])
+                y_t = layer(out[t], mask_t=mask[:, t] if mask is not None else None)
                 acc.append(y_t)
                 t += 1
             final_state = acc[-1]
@@ -1570,14 +1578,14 @@ class FocusableLSTMEncoder(torch.nn.Module):
             if self.rev_layers is not None:
                 rev_layer = self.rev_layers[i]
                 rev_acc = []
-                t = len(out)
-                while t > 0:
-                    y_t = rev_layer(out[t], mask_t=mask[:, t])
+                t = len(out)-1
+                while t >= 0:
+                    y_t = rev_layer(out[t], mask_t=mask[:, t] if mask is not None else None)
                     rev_acc.append(y_t)
                     t -= 1
-                final_state = torch.stack([acc[-1], rev_acc[-1]], 1)
+                final_state = torch.cat([acc[-1], rev_acc[-1]], 1)
                 rev_acc = rev_acc[::-1]     # reverse for merge
-                acc = [torch.stack([acc_i, rev_acc_i], 1) for acc_i, rev_acc_i in zip(acc, rev_acc)]    # merge
+                acc = [torch.cat([acc_i, rev_acc_i], 1) for acc_i, rev_acc_i in zip(acc, rev_acc)]    # merge
             out = acc
             i += 1
 
