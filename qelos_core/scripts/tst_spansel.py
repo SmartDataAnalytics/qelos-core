@@ -72,7 +72,7 @@ def run(lr=0.001,
     emb = q.WordEmb(embdim, worddic=sm.D)       # sm dictionary (characters)
     out = q.WordLinout(outdim, worddic=D)       # target dictionary
     # encoders:
-    enc1 = q.SimpleLSTMEncoder(embdim, encdim, bidir=True)
+    enc1 = q.LSTMEncoder(embdim, encdim, bidir=True)
     enc2 = q.LSTMCellEncoder(enc2inpdim, outdim, bidir=False)
 
     # model

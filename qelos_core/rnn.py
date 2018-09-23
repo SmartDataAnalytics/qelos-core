@@ -32,18 +32,6 @@ class RecDropout(Dropout):
         return y
 
 
-class Zoneout(RecDropout):
-    def forward(self, *x):
-        y = [xe[1] for xe in x]
-        if self.training:
-            if self.mask is None:
-                self.mask = [self.d(torch.ones_like(__xe[1]).to(__xe[1].device)).clamp(0, 1) for __xe in x]
-            y = [(1 - zoner) + h_t + zoner * h_tm1
-                 for (h_tm1, h_t), zoner in zip(x, self.mask)]
-        y = y[0] if len(y) == 1 else y
-        return y
-
-
 class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
     ''' A two-feed-forward-layer module '''
 
@@ -67,22 +55,20 @@ class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
 class RecCell(torch.nn.Module):
     celltype = None
 
-    def __init__(self, indim, outdim, bias=True, dropout_in=0., dropout_rec=0., zoneout=0., **kw):
+    def __init__(self, indim, outdim, bias=True, dropout_in=0., dropout_rec=0., **kw):
         super(RecCell, self).__init__(**kw)
         self.indim, self.outdim, self.bias = indim, outdim, bias
 
         self.cell = self.celltype(self.indim, self.outdim, bias=self.bias)
 
         # dropouts etc
-        self.dropout_in, self.dropout_rec, self.zoneout = None, None, None
+        self.dropout_in, self.dropout_rec, = None, None
         if dropout_in > 0.:
             self.dropout_in = RecDropout(p=dropout_in)
         if dropout_rec > 0.:
             self.dropout_rec = RecDropout(p=dropout_rec)
-        if zoneout > 0.:
-            self.zoneout = Zoneout(p=zoneout)
-        assert(isinstance(self.zoneout, (Zoneout, type(None))))
-        assert(isinstance(self.zoneout, (q.Dropout, type(None))))
+        assert(isinstance(self.dropout_in, (q.Dropout, type(None))))
+        assert(isinstance(self.dropout_rec, (q.Dropout, type(None))))
 
         self.rec_reset()
         self.reset_parameters()
@@ -96,8 +82,6 @@ class RecCell(torch.nn.Module):
             self.dropout_in.rec_reset()
         if isinstance(self.dropout_rec, RecDropout):
             self.dropout_rec.rec_reset()
-        if isinstance(self.zoneout, Zoneout):
-            self.zoneout.rec_reset()
 
     def reset_parameters(self):
         ih = (param for name, param in self.named_parameters() if 'weight_ih' in name)
@@ -131,7 +115,6 @@ class RecCell(torch.nn.Module):
         h_t = self.cell(x_t, h_tm1)
 
         # next state
-        h_t = self.zoneout((h_tm1, h_t)) if self.zoneout else h_t
         h_t, = self.apply_mask_t((h_tm1, h_t), mask_t=mask_t)
         self.h_tm1 = h_t
         return h_t
@@ -167,7 +150,6 @@ class LSTMCell(RecCell):
         y_t, c_t = self.cell(x_t, (y_tm1, c_tm1))
 
         # next state
-        y_t, c_t = self.zoneout((y_tm1, y_t), (c_tm1, c_t)) if self.zoneout else (y_t, c_t)
         y_t, c_t = self.apply_mask_t((y_tm1, y_t), (c_tm1, c_t), mask_t=mask_t)
         self.y_tm1, self.c_tm1 = y_t, c_t
         return y_t
@@ -933,6 +915,7 @@ class BahdanauCell(torch.nn.Module):
 
 
 # region Encoders
+# region OLD ENCODERS - DON'T USE !!!!!!!!!
 class FastLSTMEncoderLayer(torch.nn.Module):
     """ Fast LSTM encoder layer using torch's built-in fast LSTM.
         Provides a more convenient interface.
@@ -1406,6 +1389,7 @@ class FastestLSTMEncoder(FastLSTMEncoder):
             return out, states_to_ret
         else:
             return out
+# endregion
 
 
 # region RNN layer encoders
@@ -1663,13 +1647,13 @@ class LSTMEncoder(RNNLayerEncoderBase):
 class RecCellEncoder(torch.nn.Module):
     celltype = None
 
-    def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0., dropout_rec=0., zoneout=0., **kw):
+    def __init__(self, indim, *dims, bidir=False, bias=True, dropout_in=0., dropout_rec=0., **kw):
         super(RecCellEncoder, self).__init__(**kw)
         if not q.issequence(dims):
             dims = (dims,)
         dims = (indim,) + dims
         self.dims = dims
-        self.dropout_in, self.dropout_rec, self.zoneout = dropout_in, dropout_rec, zoneout
+        self.dropout_in, self.dropout_rec = dropout_in, dropout_rec
         self.layers = torch.nn.ModuleList()
         self.rev_layers = torch.nn.ModuleList() if bidir else None
         self.bidir = bidir
@@ -1680,14 +1664,14 @@ class RecCellEncoder(torch.nn.Module):
         for i in range(1, len(self.dims)):
             layer = self.celltype(self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
                              self.dims[i],
-                             dropout_in=self.dropout_in, dropout_rec=self.dropout_rec, zoneout=self.zoneout,
+                             dropout_in=self.dropout_in, dropout_rec=self.dropout_rec,
                              bias=self.bias)
             self.layers.append(layer)
             # add reverse layer if bidir
             if self.rev_layers is not None:
                 layer = self.celltype(self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
                                  self.dims[i],
-                                 dropout_in=self.dropout_in, dropout_rec=self.dropout_rec, zoneout=self.zoneout,
+                                 dropout_in=self.dropout_in, dropout_rec=self.dropout_rec,
                                  bias=self.bias)
                 self.rev_layers.append(layer)
 
