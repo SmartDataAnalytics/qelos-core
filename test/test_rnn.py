@@ -3,6 +3,7 @@ import qelos_core as q
 from unittest import TestCase
 import numpy as np
 
+from qelos_core.rnn import OverriddenLSTMLayer, OverriddenGRULayer, OverriddenRNNLayer
 
 # region TEST CELLS
 class TestGRUCell(TestCase):
@@ -197,13 +198,15 @@ class TestLSTM(TestCase):
 
 
 class TestLSTMCellEncoder(TestCase):
+    encodertype = q.LSTMCellEncoder
+
     def test_it_without_gate_or_mask(self):
         batsize = 5
         seqlen = 6
         dim = 20
         outdim = 16
 
-        lstm = q.LSTMCellEncoder(dim, outdim, outdim, bidir=True)
+        lstm = self.encodertype(dim, outdim, outdim, bidir=True)
 
         x = torch.randn(batsize, seqlen, dim)
         x.requires_grad = True
@@ -218,7 +221,7 @@ class TestLSTMCellEncoder(TestCase):
         dim = 20
         outdim = 16
 
-        lstm = q.LSTMCellEncoder(dim, outdim, bidir=True)
+        lstm = self.encodertype(dim, outdim, bidir=True)
 
         x = torch.randn(batsize, seqlen, dim)
         mask = torch.ones(batsize, seqlen)
@@ -273,7 +276,7 @@ class TestLSTMCellEncoder(TestCase):
         dim = 20
         outdim = 16
 
-        lstm = q.LSTMCellEncoder(dim, outdim, outdim, bidir=True, dropout_in=0.2, dropout_rec=0.2, zoneout=0.2)
+        lstm = self.encodertype(dim, outdim, outdim, bidir=True, dropout_in=0.2, dropout_rec=0.2, zoneout=0.2)
 
         x = torch.randn(batsize, seqlen, dim)
         mask = torch.ones(batsize, seqlen)
@@ -289,10 +292,325 @@ class TestLSTMCellEncoder(TestCase):
         self.assertTrue(y_all.size() == (batsize, seqlen, outdim * 2))
 
 
+class TestGRUCellEncoder(TestLSTMCellEncoder):
+    encodertype = q.GRUCellEncoder
+
+
+class TestRNNCellEncoder(TestLSTMCellEncoder):
+    encodertype = q.RNNCellEncoder
+
+
 # endregion
 
+# region TEST RNN LAYER ENCODERS
 
-# region TEST FASTEST LSTM
+class TestRNNEncoder(TestCase):
+    encodertype = q.RNNEncoder
+    _rnnlayertype_override = OverriddenRNNLayer
+    _rnnlayertype = torch.nn.RNN
+
+    def test_it(self):
+        batsize = 5
+        seqlen = 4
+        lstm = self.encodertype(20, 26, 30)
+
+        x = torch.randn(batsize, seqlen, 20)
+        x.requires_grad = True
+
+        y, y_T = lstm(x, ret_states=True)
+        self.assertEqual((batsize, seqlen, 30), y.detach().numpy().shape)
+
+        # test grad
+        l = y[2, :, :].sum()
+        l.backward()
+
+        xgrad = x.grad.detach().numpy()
+
+        # no gradient to examples that weren't used for loss
+        self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
+        self.assertTrue(np.allclose(xgrad[3:], np.zeros_like(xgrad[3:])))
+
+        # gradient on the example that was used for loss
+        self.assertTrue(np.linalg.norm(xgrad) > 0)
+
+        print(xgrad[:, 0, :7])
+
+        # test final state
+        self.assertTrue(np.allclose(y_T.squeeze(1).detach().numpy(), y[:, -1].detach().numpy()))
+
+    def test_with_mask(self):
+        batsize = 3
+        seqlen = 4
+        lstm = self.encodertype(8, 9, 10)
+
+        x = torch.randn(batsize, seqlen, 8)
+        x.requires_grad = True
+        x_mask = torch.tensor([[1, 1, 1, 0], [1, 0, 0, 0], [1, 1, 0, 0]], dtype=torch.int64)
+
+        y, states = lstm(x, mask=x_mask, ret_states=True)
+
+        l = states[1].sum()
+        l.backward(retain_graph=True)
+
+        self.assertTrue(x.grad[0].norm() == 0)
+        self.assertTrue(x.grad[1].norm() > 0)
+        self.assertTrue(x.grad[2].norm() == 0)
+        self.assertTrue(x.grad[1][0].norm() > 0)
+        self.assertTrue(x.grad[1][1].norm() == 0)
+        self.assertTrue(x.grad[1][2].norm() == 0)
+        self.assertTrue(x.grad[1][3].norm() == 0)
+
+        x.grad = None
+        l = states[2].sum()
+        l.backward(retain_graph=True)
+        self.assertTrue(x.grad[0].norm() == 0)
+        self.assertTrue(x.grad[1].norm() == 0)
+        self.assertTrue(x.grad[2].norm() > 0)
+        self.assertTrue(x.grad[2][0].norm() > 0)
+        self.assertTrue(x.grad[2][1].norm() > 0)
+        self.assertTrue(x.grad[2][2].norm() == 0)
+        self.assertTrue(x.grad[2][3].norm() == 0)
+
+        print("done")
+
+    def test_init_states(self):
+        batsize = 5
+        seqlen = 4
+        lstm = self.encodertype(20, 26, 30)
+        lstm.ret_all_states = True
+        lstm.train(False)
+        x = torch.randn(batsize, seqlen*2, 20)
+        y_whole = lstm(x)
+
+        y_first, states = lstm(x[:, :seqlen], ret_states=True)
+        states = list(zip(*states))
+        y_second = lstm(x[:, seqlen:], h_0s=states[0])
+
+        y_part = torch.cat([y_first, y_second], 1)
+
+        self.assertTrue(np.allclose(y_whole.detach().numpy(), y_part.detach().numpy()))
+
+    def test_bidir(self):
+        batsize = 5
+        seqlen = 4
+        lstm = self.encodertype(20, 26, 30, bidir=True)
+
+        x = torch.nn.Parameter(torch.randn(batsize, seqlen, 20))
+
+        y, y_T = lstm(x, ret_states=True)
+        self.assertEqual((batsize, seqlen, 30*2), y.detach().numpy().shape)
+
+        # test grad
+        l = y[2, :, :].sum()
+        l.backward()
+
+        xgrad = x.grad.detach().numpy()
+
+        # no gradient to examples that weren't used for loss
+        self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
+        self.assertTrue(np.allclose(xgrad[3:], np.zeros_like(xgrad[3:])))
+
+        # gradient on the example that was used for loss
+        self.assertTrue(np.linalg.norm(xgrad) > 0)
+
+        print(xgrad[:, 0, :7])
+
+        # test final state
+        self.assertTrue(np.allclose(y_T[:, 0].detach().numpy(), y[:, -1, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[:, 1].detach().numpy(), y[:, 0, 30:].detach().numpy()))
+        print(y_T.size())
+
+    def test_bidir_masked(self):
+        batsize = 5
+        seqlen = 8
+        lstm = self.encodertype(20, 26, 30, bidir=True)
+
+        x = torch.randn(batsize, seqlen, 20)
+        x.requires_grad = True
+        mask = np.zeros((batsize, seqlen)).astype("int64")
+        mask[0, :3] = 1
+        mask[1, :] = 1
+        mask[2, :5] = 1
+        mask[3, :1] = 1
+        mask[4, :4] = 1
+        mask = torch.tensor(mask)
+
+        y, y_T = lstm(x, mask=mask, ret_states=True)
+
+        self.assertEqual((batsize, seqlen, 30 * 2), y.detach().numpy().shape)
+
+        # test grad
+        l = y[2, :, :].sum()
+        l.backward(retain_graph=True)
+
+        xgrad = x.grad.detach().numpy()
+
+        # no gradient to examples that weren't used for loss
+        self.assertTrue(np.allclose(xgrad[:2], np.zeros_like(xgrad[:2])))
+        self.assertTrue(np.allclose(xgrad[3:], np.zeros_like(xgrad[3:])))
+
+        # gradient on the example that was used for loss
+        self.assertTrue(np.linalg.norm(xgrad) > 0)
+
+        print(xgrad[2, :, :3])
+
+        # test grad masked
+        l = y.sum()
+        l.backward()
+
+        xgrad = x.grad.detach().numpy()
+
+        mask = mask.detach().numpy()[:, :, np.newaxis]
+
+        self.assertTrue(np.linalg.norm(xgrad * mask) > 0)
+        self.assertTrue(np.allclose(xgrad * mask, xgrad))
+        self.assertTrue(np.allclose(xgrad * (1 - mask), np.zeros_like(xgrad)))
+
+        # test output mask
+        self.assertTrue(np.linalg.norm(y.detach().numpy() * mask) > 0)
+        self.assertTrue(np.allclose(y.detach().numpy() * (1 - mask), np.zeros_like(y.detach().numpy())))
+
+        # test final states
+        self.assertTrue(np.allclose(y_T[0, 0].detach().numpy(), y[0, 2, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[1, 0].detach().numpy(), y[1, -1, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[2, 0].detach().numpy(), y[2, 4, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[3, 0].detach().numpy(), y[3, 0, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[4, 0].detach().numpy(), y[4, 3, :30].detach().numpy()))
+        self.assertTrue(np.allclose(y_T[:, 1].detach().numpy(), y[:, 0, 30:].detach().numpy()))
+        print(y_T.size())
+
+    def test_bidir_masked_equivalence_of_overridden(self):
+        batsize = 5
+        seqlen = 8
+        self.encodertype.rnnlayertype = self._rnnlayertype_override
+        lstm = self.encodertype(20, 26, 30, bidir=True)
+
+        x = torch.randn(batsize, seqlen, 20)
+        x.requires_grad = True
+        mask = np.zeros((batsize, seqlen)).astype("int64")
+        mask[0, :3] = 1
+        mask[1, :] = 1
+        mask[2, :5] = 1
+        mask[3, :1] = 1
+        mask[4, :4] = 1
+        mask = torch.tensor(mask)
+
+        y, yT = lstm(x, mask=mask, ret_states=True)
+
+        # reference
+        self.encodertype.rnnlayertype = self._rnnlayertype
+        rf_lstm = self.encodertype(20, 26, 30, bidir=True)
+        rf_lstm.layers[0].weight_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0.detach().numpy()+0))
+        rf_lstm.layers[0].weight_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[0].weight_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_hh_l0.detach().numpy()+0))
+        rf_lstm.layers[0].weight_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_hh_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[0].bias_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_ih_l0.detach().numpy()+0))
+        rf_lstm.layers[0].bias_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_ih_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[0].bias_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_hh_l0.detach().numpy()+0))
+        rf_lstm.layers[0].bias_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.bias_hh_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[1].weight_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_ih_l0.detach().numpy()+0))
+        rf_lstm.layers[1].weight_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_ih_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[1].weight_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_hh_l0.detach().numpy()+0))
+        rf_lstm.layers[1].weight_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.weight_hh_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[1].bias_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_ih_l0.detach().numpy()+0))
+        rf_lstm.layers[1].bias_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_ih_l0_reverse.detach().numpy()+0))
+        rf_lstm.layers[1].bias_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_hh_l0.detach().numpy()+0))
+        rf_lstm.layers[1].bias_hh_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[1].layer.bias_hh_l0_reverse.detach().numpy()+0))
+
+        rf_x = torch.tensor(x.detach().numpy() + 0)
+        rf_x.requires_grad = True
+        assert(rf_x is not x)
+        rf_y, rf_yT = rf_lstm(rf_x, mask=mask, ret_states=True)
+
+        print((y - rf_y).norm())
+        print(y.size())
+        print(yT.size())
+        print(rf_yT.size())
+        print((yT - rf_yT).norm())
+        self.assertTrue(np.allclose(yT.detach().numpy(), rf_yT.detach().numpy(), atol=10e-6))
+        self.assertTrue(np.allclose(y.detach().numpy(), rf_y.detach().numpy(), atol=10e-6))
+        print("outputs match")
+
+        l = yT.sum()
+        l.backward()
+
+        rf_l = rf_yT.sum()
+        rf_l.backward()
+
+        print("input grad diff: {}".format((x.grad - rf_x.grad).norm()))
+        self.assertTrue(np.allclose(rf_x.grad.detach().numpy(), x.grad.detach().numpy(), atol=10e-6))
+        print(x.grad[:, :, 0])
+        print("grad on inputs matches")
+
+        for i in [0, 1]:
+            for w in ["weight_ih_l0", "weight_hh_l0", "weight_ih_l0_reverse", "weight_hh_l0_reverse",
+                      "bias_ih_l0", "bias_hh_l0", "bias_ih_l0_reverse", "bias_hh_l0_reverse"]:
+                grad = getattr(lstm.layers[i].layer, w).grad.detach().numpy()
+                rf_grad = getattr(rf_lstm.layers[i], w).grad.detach().numpy()
+                print("grad for param {} in layer {} diff: {}".format(w, i, np.linalg.norm(grad - rf_grad)))
+                self.assertTrue(np.allclose(grad, rf_grad, atol=10e-6))
+                self.assertTrue(np.linalg.norm(grad) > 0)
+                print("grad for param {} in layer {} matches and non-zero".format(w, i))
+
+    def test_dropout_in(self):
+        batsize = 5
+        seqlen = 8
+        lstm = self.encodertype(20, 30, bidir=False, dropout_in=0.3, dropout_rec=0.)
+
+        x = torch.randn(batsize, seqlen, 20)
+        x.requires_grad = True
+        mask = np.zeros((batsize, seqlen)).astype("int64")
+        mask[0, :3] = 1
+        mask[1, :] = 1
+        mask[2, :5] = 1
+        mask[3, :1] = 1
+        mask[4, :4] = 1
+        mask = torch.tensor(mask)
+
+        assert(lstm.training)
+
+        y = lstm(x, mask=mask)
+
+        y_t0_r0 = lstm(x, mask=mask)[:, 0, :30]
+        y_t0_r1 = lstm(x, mask=mask)[:, 0, :30]
+        y_t0_r2 = lstm(x, mask=mask)[:, 0, :30]
+
+        self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r1.detach().numpy()))
+        self.assertTrue(not np.allclose(y_t0_r1.detach().numpy(), y_t0_r2.detach().numpy()))
+        self.assertTrue(not np.allclose(y_t0_r0.detach().numpy(), y_t0_r2.detach().numpy()))
+
+
+class TestLSTMEncoder(TestRNNEncoder):
+    encodertype = q.LSTMEncoder
+    _rnnlayertype_override = OverriddenLSTMLayer
+    _rnnlayertype = torch.nn.LSTM
+
+    def test_init_states(self):
+        batsize = 5
+        seqlen = 4
+        lstm = self.encodertype(20, 26, 30)
+        lstm.ret_all_states = True
+        lstm.train(False)
+        x = torch.randn(batsize, seqlen*2, 20)
+        y_whole = lstm(x)
+
+        y_first, states = lstm(x[:, :seqlen], ret_states=True)
+        states = list(zip(*states))
+        y_second = lstm(x[:, seqlen:], y_0s=states[0], c_0s=states[1])
+
+        y_part = torch.cat([y_first, y_second], 1)
+
+        self.assertTrue(np.allclose(y_whole.detach().numpy(), y_part.detach().numpy()))
+
+
+class TestGRUEncoder(TestRNNEncoder):
+    encodertype = q.GRUEncoder
+    _rnnlayertype_override = OverriddenGRULayer
+    _rnnlayertype = torch.nn.GRU
+
+# endregion
+
+# region TEST (OLD) FASTEST LSTM
 class TestFastestLSTM(TestCase):
     def setUp(self):
         batsize = 5
@@ -423,7 +741,7 @@ class TestFastestLSTMBidir(TestCase):
         print(y_T.size())
 
 
-from qelos_core.rnn import SimpleLSTMEncoder
+from qelos_core.rnn import LSTMEncoder
 class TestFastestLSTMBidirMasked(TestCase):
     def setUp(self):
         batsize = 5
@@ -447,7 +765,7 @@ class TestFastestLSTMBidirMasked(TestCase):
         self.lstm = lstm
 
         # reference
-        self.rf_lstm = SimpleLSTMEncoder(20, 26, 30, bidir=True)
+        self.rf_lstm = LSTMEncoder(20, 26, 30, bidir=True)
         self.rf_lstm.layers[0].weight_ih_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0.detach().numpy()+0))
         self.rf_lstm.layers[0].weight_ih_l0_reverse = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_ih_l0_reverse.detach().numpy()+0))
         self.rf_lstm.layers[0].weight_hh_l0 = torch.nn.Parameter(torch.tensor(lstm.layers[0].layer.weight_hh_l0.detach().numpy()+0))

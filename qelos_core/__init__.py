@@ -9,7 +9,8 @@ from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
     Decoder, ThinDecoder, FreeDecoder, TFDecoder, DynamicOracleDecoder, \
     BasicDecoderCell, DecoderCell, LuongCell, \
     AutoMaskedOut, AutoMasker, \
-    FlatEncoder, SimpleLSTMEncoder, LSTMCellEncoder
+    FlatEncoder, \
+    LSTMCellEncoder, GRUCellEncoder, RNNCellEncoder, LSTMEncoder, GRUEncoder, RNNEncoder
 from qelos_core.pointernets import PointerGeneratorCell, PointerGeneratorOut, \
     PointerGeneratorOutShared, PointerGeneratorOutSharedMax, PointerGeneratorOutSeparate
 from qelos_core import gan
