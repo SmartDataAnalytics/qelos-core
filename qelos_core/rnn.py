@@ -175,6 +175,7 @@ class DRLSTMCell(LSTMCell):
         self.rec_reset()
         self.reset_parameters()
 
+    # def forward(self, x_t, xc_t=None, mask_t=None, **kw):
     def forward(self, x_t, mask_t=None, **kw):
         x_t, xc_t = torch.chunk(x_t, 2, 1)
         batsize = x_t.size(0)
@@ -198,8 +199,10 @@ class DRLSTMCell(LSTMCell):
         y_tp1, c_t = self.apply_mask_t((y_tm1, y_t), (c_tm1, c_t), mask_t=mask_t)
         self.y_tm1, self.c_tm1 = y_tp1, c_t
 
+        # return y_t, yc_t
+
         o = torch.cat([y_t, yc_t], 1)
-        return y_t, yc_t
+        return o
 
 # endregion
 
