@@ -153,6 +153,54 @@ class LSTMCell(RecCell):
         y_t, c_t = self.apply_mask_t((y_tm1, y_t), (c_tm1, c_t), mask_t=mask_t)
         self.y_tm1, self.c_tm1 = y_t, c_t
         return y_t
+
+
+class DRLSTMCell(LSTMCell):
+    def __init__(self, indim, outdim, bias=True, dropout_in=0., dropout_rec=0., **kw):
+        super(RecCell, self).__init__(**kw)
+        self.indim, self.outdim, self.bias = indim, outdim, bias
+        self.innerdim = self.indim + self.outdim
+
+        self.cell = self.celltype(2, self.innerdim, bias=self.bias)
+
+        # dropouts etc
+        self.dropout_in, self.dropout_rec, = None, None
+        if dropout_in > 0.:
+            self.dropout_in = RecDropout(p=dropout_in)
+        if dropout_rec > 0.:
+            self.dropout_rec = RecDropout(p=dropout_rec)
+        assert(isinstance(self.dropout_in, (q.Dropout, type(None))))
+        assert(isinstance(self.dropout_rec, (q.Dropout, type(None))))
+
+        self.rec_reset()
+        self.reset_parameters()
+
+    def forward(self, x_t, mask_t=None, **kw):
+        x_t, xc_t = torch.chunk(x_t, 2, 1)
+        batsize = x_t.size(0)
+        x_t, xc_t = self.dropout_in(x_t, xc_t) if self.dropout_in else x_t, xc_t
+
+        # previous states
+        y_tm1 = self.y_0.expand(batsize, -1) if self.y_tm1 is None else self.y_tm1
+        c_tm1 = self.c_0.expand(batsize, -1) if self.c_tm1 is None else self.c_tm1
+        y_tm1, c_tm1 = self.dropout_rec(y_tm1, c_tm1) if self.dropout_rec else (y_tm1, c_tm1)
+
+        c = torch.cat([c_tm1, xc_t], 1)
+        y = torch.cat([y_tm1, x_t], 1)
+
+        dum_x = torch.zeros_like(x_t[:, :2])
+
+        y_, c_ = self.cell(dum_x, (y, c))
+        c_t, yc_t = c_[:, :-self.indim], c_[:, -self.indim:]
+        y_tp1, y_t = y_[:, :-self.indim], y_[:, -self.indim:]
+
+        # next state
+        y_tp1, c_t = self.apply_mask_t((y_tm1, y_t), (c_tm1, c_t), mask_t=mask_t)
+        self.y_tm1, self.c_tm1 = y_tp1, c_t
+
+        o = torch.cat([y_t, yc_t], 1)
+        return y_t, yc_t
+
 # endregion
 
 
