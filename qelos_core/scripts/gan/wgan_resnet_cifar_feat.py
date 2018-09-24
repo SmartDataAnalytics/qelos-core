@@ -180,7 +180,7 @@ def tst_subvgg_with_disc():
     v = 13
     l = 8
     vgg = SubVGG(version=v, feat_layer=l)
-    d = OldDiscriminator(128, 128)
+    d = ReducedDiscriminator(128, 128)
     x = torch.rand(2, 3, 32, 32) * 2 - 1
     y = vgg(x)
     z = d(y)
@@ -322,8 +322,29 @@ class OldGenerator(torch.nn.Module):
 
 
 class OldDiscriminator(torch.nn.Module):
-    def __init__(self, inp_d, dim_d, use_bn=False, **kw):
+    def __init__(self, dim_d, use_bn=False, **kw):
         super(OldDiscriminator, self).__init__(**kw)
+        self.layers = torch.nn.ModuleList([
+            OptimizedResBlockDisc1(dim_d),
+            ResidualBlock(dim_d, dim_d, 3, resample="down", use_bn=use_bn),
+            ResidualBlock(dim_d, dim_d, 3, resample=None, use_bn=use_bn),
+            ResidualBlock(dim_d, dim_d, 3, resample=None, use_bn=use_bn),
+            torch.nn.ReLU(),
+            q.Lambda(lambda x: x.mean(3).mean(2)),
+            torch.nn.Linear(dim_d, 1),
+            q.Lambda(lambda x: x.squeeze(1))
+        ])
+
+    def forward(self, a):
+        for layer in self.layers:
+            a = layer(a)
+        return a
+
+
+class ReducedDiscriminator(torch.nn.Module):
+    """ to be used with pretrained feature layer """
+    def __init__(self, inp_d, dim_d, use_bn=False, **kw):
+        super(ReducedDiscriminator, self).__init__(**kw)
         self.layers = torch.nn.ModuleList([
             # OptimizedResBlockDisc1(dim_d),
             ResidualBlock(inp_d, dim_d, 3, resample="down", use_bn=use_bn),
@@ -397,6 +418,7 @@ def run(lr=0.0001,
         extralayers=False,          # adds a couple extra res blocks to generator to match added VGG
         pixelpenalty=False,         # if True, uses penalty based on pixel-wise interpolate
         inceptionpath="/data/lukovnik/",
+        normalwgan=False,
         ):
         # vggvanilla=True and pixelpenalty=True makes a normal WGAN
 
@@ -418,9 +440,15 @@ def run(lr=0.0001,
 
     tt.tick("creating networks")
     gen = OldGenerator(z_dim, dim_g, extra_layers=extralayers).to(device)
-    inpd = get_vgg_outdim(vggversion, vgglayer)
-    crit = OldDiscriminator(inpd, dim_d).to(device)
-    subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
+    if not normalwgan:
+        print("doing wgan-feat")
+        inpd = get_vgg_outdim(vggversion, vgglayer)
+        crit = ReducedDiscriminator(inpd, dim_d).to(device)
+        subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
+    else:
+        print("doing normal wgan")
+        crit = OldDiscriminator(dim_d).to(device)
+        subvgg = None
     tt.tock("created networks")
 
     # test
@@ -462,11 +490,15 @@ def run(lr=0.0001,
     # q.embed()
     tt.tock("loaded data")
 
-    disc_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).disc_train()
-    gen_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).gen_train()
+    if not normalwgan:
+        disc_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).disc_train()
+        gen_model = q.gan.WGAN_F(crit, gen, subvgg, lamda=lamda, pixel_penalty=pixelpenalty).gen_train()
+    else:
+        disc_model = q.gan.WGAN(crit, gen, lamda=lamda).disc_train()
+        gen_model = q.gan.WGAN(crit, gen, lamda=lamda).gen_train()
 
     disc_params = q.params_of(crit)
-    if vggvanilla:
+    if vggvanilla and not normalwgan:
         disc_params += q.params_of(subvgg)
     disc_optim = torch.optim.Adam(disc_params, lr=lr, betas=(0.5, 0.9))
     gen_optim = torch.optim.Adam(q.params_of(gen), lr=lr, betas=(0.5, 0.9))
