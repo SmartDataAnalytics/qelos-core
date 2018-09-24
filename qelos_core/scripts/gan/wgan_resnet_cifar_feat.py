@@ -309,7 +309,8 @@ class OldGenerator(torch.nn.Module):
         if extra_layers:
             self.layers.append(ResidualBlock(dim_g, dim_g, 3, resample=None, use_bn=use_bn))
             self.layers.append(ResidualBlock(dim_g, dim_g, 3, resample=None, use_bn=use_bn))
-        self.layers.extend([Normalize(dim_g),
+        self.layers.extend([
+            Normalize(dim_g),
             torch.nn.ReLU(),
             torch.nn.Conv2d(dim_g, 3, kernel_size=3, padding=1),
             torch.nn.Tanh(),
@@ -439,14 +440,15 @@ def run(lr=0.0001,
     device = torch.device("cpu") if not cuda else torch.device("cuda", gpu)
 
     tt.tick("creating networks")
-    gen = OldGenerator(z_dim, dim_g, extra_layers=extralayers).to(device)
     if not normalwgan:
         print("doing wgan-feat")
+        gen = OldGenerator(z_dim, dim_g, extra_layers=extralayers).to(device)
         inpd = get_vgg_outdim(vggversion, vgglayer)
         crit = ReducedDiscriminator(inpd, dim_d).to(device)
         subvgg = SubVGG(vggversion, vgglayer, pretrained=not vggvanilla)
     else:
         print("doing normal wgan")
+        gen = OldGenerator(z_dim, dim_g, extra_layers=False).to(device)
         crit = OldDiscriminator(dim_d).to(device)
         subvgg = None
     tt.tock("created networks")
