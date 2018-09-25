@@ -11,6 +11,7 @@ from qelos_core.rnn import FastestLSTMEncoder, GRUCell, LSTMCell, rec_reset, \
     AutoMaskedOut, AutoMasker, \
     FlatEncoder, \
     LSTMCellEncoder, GRUCellEncoder, RNNCellEncoder, LSTMEncoder, GRUEncoder, RNNEncoder
+from qelos_core import att
 from qelos_core.pointernets import PointerGeneratorCell, PointerGeneratorOut, \
     PointerGeneratorOutShared, PointerGeneratorOutSharedMax, PointerGeneratorOutSeparate
 from qelos_core import gan

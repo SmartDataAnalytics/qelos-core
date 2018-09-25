@@ -208,6 +208,8 @@ class DRLSTMCell(LSTMCell):
 
 
 # region attention
+
+
 class AttentionBase(torch.nn.Module):
     def __init__(self, **kw):
         super(AttentionBase, self).__init__()
@@ -363,6 +365,7 @@ class _FwdAttention(AttentionBase):
         qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
         x = torch.cat([ctx, qry], 2)
         y = self.linear(x)      # (batsize, seqlen, attdim)
+        y = self.nonlin(y)
         scores = self.afterlinear(y).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
         alphas = self.sm(scores)
@@ -387,6 +390,7 @@ class _FwdMulAttention(AttentionBase):
         qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
         x = torch.cat([ctx, qry, ctx * qry], 2)
         y = self.linear(x)      # (batsize, seqlen, attdim)
+        y = self.nonlin(y)
         scores = self.afterlinear(y).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
         alphas = self.sm(scores)
@@ -398,6 +402,15 @@ class _FwdMulAttention(AttentionBase):
 
 class FwdMulAttention(Attention, _FwdMulAttention):
     pass
+
+
+class _SigmoidAttention(AttentionBase):
+    def __init__(self, **kw):
+        super(_SigmoidAttention, self).__init__(**kw)
+        self.sm = torch.nn.Sigmoid()
+
+    def forward(self, qry, ctx, ctx_mask=None, values=None):
+        return self._forward(qry, ctx, ctx_mask=ctx_mask, values=values)
 
 
 class RelationContentAttention(Attention):
@@ -1652,13 +1665,13 @@ class RNNLayerEncoderBase(torch.nn.Module):
                 for h0_e in h0[1:]:
                     assert(h0_e is None)
                 out, h_i_n = layer(out)
-                if not q.issequence(h_i_n):
-                    h_i_n = (h_i_n,)
             else:
                 for h0_e in h0:
                     assert(h0_e is not None)
                 statearg = tuple(h0) if len(h0) > 1 else h0[0]
                 out, h_i_n = layer(out, statearg)
+            if not q.issequence(h_i_n):
+                h_i_n = (h_i_n,)
             h_i_n = [h_i_n_e.transpose(1, 0).contiguous() for h_i_n_e in h_i_n]
             if order is not None:
                 h_i_n = [h_i_n_e.index_select(0, order) for h_i_n_e in h_i_n]
@@ -1710,6 +1723,7 @@ class RecCellEncoder(torch.nn.Module):
         self.bidir = bidir
         self.bias = bias
         self.make_layers()
+        self.ret_all_states = False
 
     def make_layers(self):
         for i in range(1, len(self.dims)):
@@ -1726,7 +1740,7 @@ class RecCellEncoder(torch.nn.Module):
                                  bias=self.bias)
                 self.rev_layers.append(layer)
 
-    def forward(self, x, gate=None, mask=None):
+    def forward(self, x, gate=None, mask=None, ret_states=False):
         out = x
         out = torch.split(out, 1, 1)    # split in sequence dimension
         out = [out_e.squeeze(1) for out_e in out]
@@ -1745,7 +1759,7 @@ class RecCellEncoder(torch.nn.Module):
                 y_t = layer(out[t], mask_t=mask[:, t] if mask is not None else None)
                 acc.append(y_t)
                 t += 1
-            final_state = acc[-1]
+            final_state = acc[-1].unsqueeze(1)
             # go backward in time
             if self.rev_layers is not None:
                 rev_layer = self.rev_layers[i]
@@ -1755,13 +1769,20 @@ class RecCellEncoder(torch.nn.Module):
                     y_t = rev_layer(out[t], mask_t=mask[:, t] if mask is not None else None)
                     rev_acc.append(y_t)
                     t -= 1
-                final_state = torch.cat([acc[-1], rev_acc[-1]], 1)
+                final_state = torch.cat([acc[-1].unsqueeze(1),
+                                         rev_acc[-1].unsqueeze(1)], 1)
                 rev_acc = rev_acc[::-1]     # reverse for merge
                 acc = [torch.cat([acc_i, rev_acc_i], 1) for acc_i, rev_acc_i in zip(acc, rev_acc)]    # merge
             out = acc
             i += 1
 
-        return final_state, torch.stack(out, 1)
+        if ret_states:
+            if self.ret_all_states:
+                raise NotImplemented("ret_all_states is not implemented, use states on the individual cells instead")
+            stateret = final_state
+            return torch.stack(out, 1), stateret
+        else:
+            return torch.stack(out, 1)
 
 
 class RNNCellEncoder(RecCellEncoder):
