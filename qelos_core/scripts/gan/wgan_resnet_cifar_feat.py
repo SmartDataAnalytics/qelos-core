@@ -470,11 +470,11 @@ def run(lr=0.0001,
     gen_data = q.gan.gauss_dataset(z_dim)
     gen_data_valid = q.gan.gauss_dataset(z_dim, 50000)
 
-    swd_gen_data = q.gan.gauss_dataset(z_dim, 16384)
+    swd_gen_data = q.gan.gauss_dataset(z_dim, 10000)
     swd_real_data = []
     swd_shape = traincifar[0].size()
-    for i in range(16384):
-        swd_real_data.append(traincifar[i])
+    for i in range(10000):
+        swd_real_data.append(testcifar[i])
     swd_real_data = torch.stack(swd_real_data, 0)
 
     disc_data = q.dataload(disc_data, batch_size=batsize, shuffle=True)
