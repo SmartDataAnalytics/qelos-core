@@ -42,6 +42,11 @@ def get_train_dump_path(p, logname=None):
 
 
 class Logger(object):
+    """
+    settings = locals().copy()
+    logger = q.log.Logger(prefix="name")
+    logger.save_settings(**settings)
+    """
     def __init__(self, p=None, prefix=None, **kw):
         super(Logger, self).__init__()
         assert(p is None or prefix is None)

@@ -25,12 +25,12 @@ class Attention(torch.nn.Module):
 
 
 class AttentionScoreComputer(object):
-    def compute_score(self, qry, ctx, ctx_mask=None):
+    def compute_scores(self, qry, ctx, ctx_mask=None):
         raise NotImplemented("use subclass")
 
 
 class DotScoreComputer(AttentionScoreComputer):
-    def compute_score(self, qry, ctx, ctx_mask=None):
+    def compute_scores(self, qry, ctx, ctx_mask=None):
         scores = torch.bmm(ctx, qry.unsqueeze(2)).squeeze(2)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
         return scores
@@ -45,7 +45,7 @@ class GeneralDotScoreComputer(AttentionScoreComputer):
     def reset_parameters(self):
         torch.nn.init.xavier_normal_(self.W)
 
-    def compute_score(self, qry, ctx, ctx_mask=None):
+    def compute_scores(self, qry, ctx, ctx_mask=None):
         scores = torch.einsum("bi,ij,bkj->bk", qry, self.W, ctx)
         scores = scores + (torch.log(ctx_mask.float()) if ctx_mask is not None else 0)
         return scores
@@ -58,7 +58,7 @@ class FeedForwardScoreComputer(AttentionScoreComputer):
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
 
-    def compute_score(self, qry, ctx, ctx_mask=None):
+    def compute_scores(self, qry, ctx, ctx_mask=None):
         qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
         x = torch.cat([ctx, qry], 2)
         y = self.linear(x)  # (batsize, seqlen, attdim)
@@ -75,7 +75,7 @@ class FeedForwardMultScoreComputer(AttentionScoreComputer):
         self.nonlin = nonlin
         self.afterlinear = torch.nn.Linear(attdim, 1)
 
-    def compute_score(self, qry, ctx, ctx_mask=None):
+    def compute_scores(self, qry, ctx, ctx_mask=None):
         qry = qry.unsqueeze(1).repeat(1, ctx.size(1), 1)
         x = torch.cat([ctx, qry, ctx * qry], 2)
         y = self.linear(x)  # (batsize, seqlen, attdim)

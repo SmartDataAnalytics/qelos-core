@@ -282,12 +282,12 @@ def tensor_dataset(*x):
     return ret
 
 
-def dataload(*tensors, **kw):
+def dataload(*tensors, batch_size=1, shuffle=False, **kw):
     if len(tensors) == 1 and isinstance(tensors[0], Dataset):
         tensordataset = tensors[0]
     else:
         tensordataset = tensor_dataset(*tensors)
-    dataloader = torch.utils.data.DataLoader(tensordataset, **kw)
+    dataloader = torch.utils.data.DataLoader(tensordataset, batch_size=batch_size, shuffle=shuffle, **kw)
     return dataloader
 
 
