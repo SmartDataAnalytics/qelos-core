@@ -259,27 +259,41 @@ class NLLLoss(DiscreteLoss):
         return logprobs, ignoremask
 
 
+def logsumexp(x, axis=-1):
+    xmax, _ = torch.max(x, axis, keepdim=True)
+    _x = x - xmax
+    _x = torch.exp(_x)
+    _x = torch.sum(_x, axis, keepdim=True)
+    lse = xmax + torch.log(_x)
+    return lse.squeeze(-1)
+
+
 class SeqKLLoss(DiscreteLoss):
     """ Straight implementation of cross-entropy loss for sequence prediction.
         Same as Sequence cross-entropy if no label smoothing.
         To be used after torch.nn.Softmax() """
-    def __init__(self, time_agg="sum", weight=None, size_average=True, ignore_index=None,
-                 label_smoothing=0., smooth_mix=0., **kw):
+    def __init__(self, time_average=False, time_agg=None, weight=None, size_average=True, ignore_index=None,
+                 label_smoothing=0., smooth_mix=0., mode="probs", **kw):
         """
 
-        :param time_agg:        aggregation over time: if "avg", then averages, "sum" sums
+        :param time_agg:        aggregation over time: if "avg", then averages, "sum" sums. Takes priority over time_average
+        :param time_average:    averages over time if True. Default False.
         :param weight:          ?
         :param size_average:    average over batch (True) or sum (False)
         :param ignore_index:    which tokens in gold to ignore (mask)
         :param label_smoothing: how much uniform label smoothing to perform (between 0 and 1) to get target distribution
         :param smooth_mix:      how much to mix predictive distribution with target distribution
+        :param mode:            "probs" (probs must be normalized by Softmax()), "logits" (probs are logits), "logprobs" (probs are log probs, produced by LogSoftmax())
         :param kw:
         """
         super(SeqKLLoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
+        if time_agg is None:
+            time_agg = "avg" if time_average else "sum"
         assert(time_agg in "sum avg".split())
         self.time_agg = time_agg
         self.label_smoothing = label_smoothing
         self.smooth_mix = smooth_mix
+        self.mode = mode
 
     def _forward(self, probs, gold, mask=None):
         if q.v(self.label_smoothing) > 0. or q.v(self.smooth_mix) > 0.:
@@ -288,6 +302,9 @@ class SeqKLLoss(DiscreteLoss):
             return self._forward_normal(probs, gold, mask=mask)
 
     def _forward_smooth(self, probs, gold, mask=None):
+        if self.mode != "probs":
+            raise NotImplemented("'logits' and 'logprobs' mode not implemented with softened targets (TODO)")
+
         if probs.size(1) > gold.size():
             probs = probs[:, :gold.size(1)]
         batsize, seqlen, vocsize = probs.size()
@@ -342,12 +359,23 @@ class SeqKLLoss(DiscreteLoss):
         outignoremask = None
 
         if mask is not None:
-            probs = probs * mask
+            if self.mode == "probs":
+                probs = probs * mask
+            elif self.mode == "logits":
+                probs = probs + torch.log(mask.float())
+            elif self.mode == "logprobs":
+                raise NotImplemented("mask in logprobs not implemented")
 
         gold_probs = probs.gather(2, gold.unsqueeze(2))
         assert(gold_probs.size(2) == 1)
         gold_probs = gold_probs.squeeze(2)
-        gold_log_probs = - torch.log(gold_probs.clamp(min=1e-9))
+
+        if self.mode == "probs":
+            gold_log_probs = - torch.log(gold_probs.clamp(min=1e-9))
+        elif self.mode == "logprobs":
+            gold_log_probs = - gold_probs
+        elif self.mode == "logits":
+            gold_log_probs = - gold_probs + logsumexp(probs)
 
         seqlens = torch.tensor(seqlen).float()
 
@@ -361,6 +389,12 @@ class SeqKLLoss(DiscreteLoss):
             gold_log_probs = gold_log_probs / seqlens.clamp(min=EPS)
 
         return gold_log_probs, outignoremask
+
+
+class SeqPPL_Loss(SeqKLLoss):
+    def _forward_normal(self, probs, gold, mask=None):
+        log_probs, outignoremask = super(SeqPPL_Loss, self)._forward_normal(probs, gold, mask=mask)
+        return torch.exp(log_probs), outignoremask
 
 
 class SeqNLLLoss(SeqLoss, NLLLoss):
