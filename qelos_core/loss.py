@@ -376,7 +376,7 @@ class SeqKLLoss(DiscreteLoss):
         elif self.mode == "logits":
             gold_log_probs = - gold_probs + logsumexp(probs)
 
-        seqlens = torch.tensor(seqlen).float().device(gold.device)
+        seqlens = torch.tensor(seqlen).float().to(gold.device)
 
         if ignoremask is not None:
             gold_log_probs = gold_log_probs * ignoremask.float()        # should work because normal softmax was used --> no infs
