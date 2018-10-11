@@ -162,7 +162,7 @@ class RNNLayer_LM(LMModel):
         return out
 
 
-def run(lr=0.001,
+def run(lr=0.1,
         dropout=0.2,
         dropconnect=0.2,
         gradnorm=0.25,
@@ -201,7 +201,7 @@ def run(lr=0.001,
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
     ppl_loss = q.SeqPPL_Loss(time_average=True, size_average=True, mode="logits")
 
-    optim = torch.optim.Adam(q.params_of(m), lr=lr)
+    optim = torch.optim.SGD(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
