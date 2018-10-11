@@ -99,7 +99,7 @@ class _LMLoaderIter(object):
         return 1 + (len(self.lml.data)-1 // self.lml.seqlen)
 
     def __next__(self):
-        if self.i < self.lml.seqlen:
+        if self.i < len(self.lml.data):
             seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
             batch = self.lml.data[self.i: self.i + seqlen]
             batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
