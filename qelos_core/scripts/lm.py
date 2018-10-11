@@ -96,7 +96,7 @@ class _LMLoaderIter(object):
         return self
 
     def __len__(self):
-        return 1 + (len(self.lml.data)-1 // self.lml.seqlen)
+        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen)
 
     def __next__(self):
         if self.i < len(self.lml.data)-1:
@@ -161,18 +161,18 @@ class RNNLayer_LM(LMModel):
 
 
 def run(lr=0.001,
-        dropout=0.1,
+        dropout=0.2,
         gradnorm=5.,
-        epochs=50,
-        embdim = 100,
-        encdim = 500,
-        numlayers = 1,
+        epochs=25,
+        embdim = 200,
+        encdim = 200,
+        numlayers = 2,
         seqlen=35,
-        batsize=100,
+        batsize=20,
         eval_batsize=10,
         cuda=False,
         gpu=0,
-        test=True
+        test=False
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
