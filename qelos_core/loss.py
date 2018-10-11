@@ -285,8 +285,6 @@ class SeqKLLoss(DiscreteLoss):
         :param mode:            "probs" (probs must be normalized by Softmax()), "logits" (probs are logits), "logprobs" (probs are log probs, produced by LogSoftmax())
         :param kw:
         """
-        print(kw)
-        print(time_average)
         super(SeqKLLoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
         if time_agg is None:
             time_agg = "avg" if time_average else "sum"
@@ -378,7 +376,7 @@ class SeqKLLoss(DiscreteLoss):
         elif self.mode == "logits":
             gold_log_probs = - gold_probs + logsumexp(probs)
 
-        seqlens = torch.tensor(seqlen).float()
+        seqlens = torch.tensor(seqlen).float().device(gold.device)
 
         if ignoremask is not None:
             gold_log_probs = gold_log_probs * ignoremask.float()        # should work because normal softmax was used --> no infs
