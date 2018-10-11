@@ -19,7 +19,7 @@ class NewRNNModel(nn.Module):
         # make layers
         self.emb = q.WordEmb(dims[0], worddic=self.D)
         self.out = q.WordLinout(dims[-1], worddic=self.D)
-        self.rnn = self.encodertype(*dims, bidir=False, bias=True, dropout_in=dropout)
+        self.rnn = self.encodertype(*dims, bidir=False, bias=True, dropout_in=dropout, dropout_pt=dropout)
         self.rnn.ret_all_states = True
 
     def forward(self, x, states):   # (seqlen, batsize) and (numlayers, batsize, dim)
@@ -99,5 +99,6 @@ class Old_RNNModel(nn.Module):
             return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
 
-class RNNModel(Old_RNNModel):
+# class RNNModel(Old_RNNModel):
+class RNNModel(NewRNNModel):
     pass
