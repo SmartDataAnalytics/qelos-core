@@ -15,8 +15,6 @@ def run(lr=0.001):
 
     m[1].weight.requires_grad = False
 
-    losses = q.lossarray(torch.nn.CrossEntropyLoss())
-
     params = m.parameters()
     for param in params:
         print(param.requires_grad)
@@ -25,12 +23,12 @@ def run(lr=0.001):
 
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
 
-    trainer = q.trainer(m).on(trainloader).loss(losses).optimizer(optim).epochs(100)
+    trainer = q.trainer(m).on(trainloader).loss(torch.nn.CrossEntropyLoss()).optimizer(optim).epochs(100)
 
     # for b, (i, e) in trainer.inf_batches():
     #     print(i, e)
 
-    validator = q.tester(m).on(validloader).loss(losses)
+    validator = q.tester(m).on(validloader).loss(torch.nn.CrossEntropyLoss())
 
     q.train(trainer, validator).run()
 

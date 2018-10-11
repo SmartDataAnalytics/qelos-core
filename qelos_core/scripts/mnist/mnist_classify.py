@@ -59,9 +59,6 @@ def run(lr=0.01, epochs=10, batsize=64, momentum=0.5, cuda=False, gpu=0, seed=1)
         .loss(torch.nn.NLLLoss(), q.Accuracy())\
         .cuda(cuda)
 
-    logger.loglosses(trainer, "train.losses")
-    logger.loglosses(validator, "valid.losses")
-
     q.train(trainer, validator).run(epochs)
 
 

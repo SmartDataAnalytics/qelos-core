@@ -60,8 +60,10 @@ def run(lr=0.001):
     disc_optim = torch.optim.Adam(q.params_of(discriminator), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(generator), lr=lr)
 
-    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(q.no_losses(1))
-    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(q.no_losses(1))
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim)\
+        .loss(*q.no_losses(1))
+    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim)\
+        .loss(*q.no_losses(1))
 
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 

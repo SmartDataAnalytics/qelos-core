@@ -447,8 +447,10 @@ def run_cond_toy(lr=0.001,
     disc_optim = torch.optim.Adam(q.params_of(discr), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(decoder), lr=lr)
 
-    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(q.no_losses(2))
-    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(q.no_losses(2))
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim)\
+        .loss(*q.no_losses(2))
+    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim)\
+        .loss(*q.no_losses(2))
 
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 
@@ -510,8 +512,10 @@ def run_words(lr=0.001,
     disc_optim = torch.optim.Adam(q.params_of(discriminator), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(generator), lr=lr)
 
-    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(q.no_losses(2))
-    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(q.no_losses(2))
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim)\
+        .loss(*q.no_losses(2))
+    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim)\
+        .loss(*q.no_losses(2))
 
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 
@@ -570,8 +574,10 @@ def run_toy(lr=0.001,
     disc_optim = torch.optim.Adam(q.params_of(discriminator), lr=lr)
     gen_optim = torch.optim.Adam(q.params_of(generator), lr=lr)
 
-    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim).loss(q.no_losses(2))
-    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim).loss(q.no_losses(2))
+    disc_trainer = q.trainer(disc_model).on(disc_data).optimizer(disc_optim)\
+        .loss(*q.no_losses(2))
+    gen_trainer = q.trainer(gen_model).on(gen_data).optimizer(gen_optim)\
+        .loss(*q.no_losses(2))
 
     gan_trainer = q.gan.GANTrainer(disc_trainer, gen_trainer)
 

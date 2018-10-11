@@ -202,9 +202,8 @@ class lossarray(EventEmitter):
             loss._reset()
 
 
-class no_losses(lossarray):
-    def __init__(self, n):
-        super(no_losses, self).__init__(*[q.SelectedLinearLoss(i) for i in range(n)])
+def no_losses(n):
+    return tuple([q.SelectedLinearLoss(i) for i in range(n)])
 
 
 class LossWrapper(EventEmitter):
@@ -416,7 +415,7 @@ class BasicRunner(LoopRunner, EventEmitter):
                 .format(
                 self.trainer.current_epoch,
                 self.trainer.max_epochs,
-                self.trainer.losses.pp()
+                pp_epoch_losses(*self.trainer.losses)
             )
             self.do_callbacks(self.END_TRAIN)
             validepoch = False
@@ -425,7 +424,7 @@ class BasicRunner(LoopRunner, EventEmitter):
                 if isinstance(self.validator, tester):
                     self.validator.do_epoch(self.trainer.current_epoch, self.trainer.max_epochs)
                     ttmsg += " -- {}" \
-                        .format(self.validator.losses.pp())
+                        .format(pp_epoch_losses(*self.validator.losses))
                 else:
                     toprint = self.validator()
                     ttmsg += " -- {}".format(toprint)
@@ -450,6 +449,12 @@ def batch_reset(module):        # performs all resetting operations on module be
     for modu in module.modules():
         if hasattr(modu, "batch_reset"):
             modu.batch_reset()
+
+
+def pp_epoch_losses(*losses:LossWrapper):
+    values = [loss.get_epoch_error() for loss in losses]
+    ret = " :: ".join("{:.4f}".format(value) for value in values)
+    return ret
 
 
 class trainer(EventEmitter, AutoHooker):
@@ -503,7 +508,8 @@ class trainer(EventEmitter, AutoHooker):
 
     def initialize(self):
         print("WARNING: setting device of model and loss ! (beware: instance might change)")
-        self.losses.device(self._device)
+        for loss in self.losses:
+            loss.device(self._device)
         self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
@@ -514,18 +520,16 @@ class trainer(EventEmitter, AutoHooker):
     def loss(self, *args):      # TODO: supports normal PyTorch losses too ???
         # can be unspecified
         if len(args) == 1 and isinstance(args[0], int):
-            self.losses = q.no_losses(args[0])
-        elif len(args) == 1 and isinstance(args[0], lossarray):
-            self.losses = args[0]
-        else:
-            self.losses = q.lossarray(*args)
+            args = q.no_losses(args[0])
+
+        self.losses = [LossWrapper(loss) if not isinstance(loss, LossWrapper) else loss for loss in args]
         return self
 
     @property
     def no_gold(self):
         all_linear = True
         some_linear = False
-        for loss in self.losses.losses:
+        for loss in self.losses:
             if isinstance(loss.loss, (q.LinearLoss, q.SelectedLinearLoss)):
                 some_linear = True
             else:
@@ -596,7 +600,8 @@ class trainer(EventEmitter, AutoHooker):
 
         if self.transform_batch_gold is not None:
             gold = self.transform_batch_gold(gold)
-        trainlosses = self.losses(modelout2loss, gold)
+
+        trainlosses = [loss_obj(modelout2loss, gold) for loss_obj in self.losses]
 
         # TODO: put in penalty mechanism
 
@@ -628,7 +633,7 @@ class trainer(EventEmitter, AutoHooker):
                     self.max_epochs,
                     i+1,
                     len(self.dataloader),
-                    self.losses.pp(),
+                    pp_epoch_losses(*self.losses),
                     )
         if len(penalty_values) > 0:
             ttmsg += " " + " ".join(["+{}={:.4f}".format(k.__pp_name__, v) for k, v in penalty_values.items()])
@@ -637,7 +642,9 @@ class trainer(EventEmitter, AutoHooker):
 
     def do_epoch(self, tt=q.ticktock("-")):
         self.stop_training = self.current_epoch + 1 == self.max_epochs
-        self.losses.push_and_reset(epoch=self.current_epoch-1)
+        for loss in self.losses:
+            loss.push_epoch_to_history(epoch=self.current_epoch-1)
+            loss.reset_agg()
         # tt.tick()
         self.do_callbacks(self.START_EPOCH)
         self.do_callbacks(self.START_TRAIN)
@@ -652,7 +659,7 @@ class trainer(EventEmitter, AutoHooker):
             .format(
                 self.current_epoch+1,
                 self.max_epochs,
-                self.losses.pp()
+                pp_epoch_losses(*self.losses)
             )
         # tt.tock(ttmsg)
         self.do_callbacks(self.END_EPOCH)
@@ -675,7 +682,8 @@ class trainer(EventEmitter, AutoHooker):
 
     def reset(self):
         self.current_epoch = 0
-        self.losses.reset()
+        for loss in self.losses:
+            loss._reset()
         self.do_callbacks(self.RESET)
         return self
 
@@ -683,7 +691,8 @@ class trainer(EventEmitter, AutoHooker):
         self.reset()
         self.initialize()
         self.do_callbacks(self.START)
-        self.losses.reset()
+        for loss in self.losses:
+            loss._reset()
 
     def post_run(self):
         self.do_callbacks(self.END)
@@ -742,7 +751,8 @@ class tester(EventEmitter, AutoHooker):
 
     def initialize(self):
         print("WARNING: setting device of model and loss ! (beware: instance might change)")
-        self.losses.device(self._device)
+        for loss in self.losses:
+            loss.device(self._device)
         self.model.to(self._device)
         self.do_callbacks(self.INIT)
 
@@ -753,18 +763,16 @@ class tester(EventEmitter, AutoHooker):
     def loss(self, *args):
         # can be unspecified
         if len(args) == 1 and isinstance(args[0], int):
-            self.losses = q.no_losses(args[0])
-        elif len(args) == 1 and isinstance(args[0], lossarray):
-            self.losses = args[0]
-        else:
-            self.losses = q.lossarray(*args)
+            args = q.no_losses(args[0])
+
+            self.losses = [LossWrapper(loss) if not isinstance(loss, LossWrapper) else loss for loss in args]
         return self
 
     @property
     def no_gold(self):
         all_linear = True
         some_linear = False
-        for loss in self.losses.losses:
+        for loss in self.losses:
             if isinstance(loss.loss, (q.LinearLoss, q.SelectedLinearLoss)):
                 some_linear = True
             else:
@@ -780,7 +788,8 @@ class tester(EventEmitter, AutoHooker):
 
     def reset(self):
         if self.losses is not None:
-            self.losses.reset()
+            for loss in self.losses:
+                loss._reset()
         self.do_callbacks(self.RESET)
         return self
 
@@ -788,7 +797,8 @@ class tester(EventEmitter, AutoHooker):
         self.reset()
         self.initialize()
         self.do_callbacks(self.START)
-        self.losses.reset()
+        for loss in self.losses:
+            loss._reset()
 
     def post_run(self):
         self.do_callbacks(self.END)
@@ -809,7 +819,9 @@ class tester(EventEmitter, AutoHooker):
         tt = ticktock("-")
         self.model.eval()
         self.do_callbacks(self.START_TEST)
-        self.losses.push_and_reset()
+        for loss_obj in self.losses:
+            loss_obj.push_epoch_to_history()
+            loss_obj.reset_agg()
         totalbats = len(self.dataloader)
         for i, _batch in enumerate(self.dataloader):
             self.do_callbacks(self.START_BATCH)
@@ -838,7 +850,7 @@ class tester(EventEmitter, AutoHooker):
             if self.transform_batch_gold is not None:
                 gold = self.transform_batch_gold(gold)
 
-            losses = self.losses(modelout2loss, gold)
+            losses = [loss_obj(modelout2loss, gold) for loss_obj in self.losses]
 
             epochmsg = ""
             if epoch is not None:
@@ -851,7 +863,7 @@ class tester(EventEmitter, AutoHooker):
                 epochmsg,
                 i + 1,
                 totalbats,
-                self.losses.pp()
+                pp_epoch_losses(*self.losses)
             )
             )
             self.do_callbacks(self.END_BATCH)
@@ -860,7 +872,7 @@ class tester(EventEmitter, AutoHooker):
         ttmsg = "{}: {}" \
             .format(
             self._name,
-            self.losses.pp()
+            pp_epoch_losses(*self.losses)
         )
         self.do_callbacks(self.END_TEST)
         if epoch is None:

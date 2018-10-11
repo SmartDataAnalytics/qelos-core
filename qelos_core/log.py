@@ -85,16 +85,6 @@ class Logger(object):
                 for line in lines:
                     f.write("{}\n".format(line))
 
-    def logc(self, x, looper, logfilename):
-        """ keep logging state of "x" based on "eventemitter"'s events and store in "logfilename"
-            smart method --> dispatches according to type of x
-        """
-        raise q.SumTingWongException()
-
-    def loglosses(self, looper, logfilename):
-        sublogger = LossesWriter(looper, self.p + "/" + logfilename)
-        sublogger.start()
-
     def liner_write(self, p, msg):
         """
         :param p:   path under this logger's path (filename)
@@ -139,7 +129,6 @@ def find_experiments(*args, **kw):
                     break
             if incl:
                 yield subdir
-
 
 
 class LossesWriter(q.AutoHooker):
