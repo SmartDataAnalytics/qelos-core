@@ -175,6 +175,12 @@ class WordEmb(WordEmbBase):
         self.outdim = dim
         self.vecdim = dim
 
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        initrange = 0.1
+        self.embedding.weight.data.uniform_(-initrange, initrange)
+
     def forward(self, x):
         ret = self.embedding(x)
         mask = None
@@ -580,8 +586,8 @@ class WordLinout(WordLinoutBase):
             bias = False
 
         self.lin = nn.Linear(indim, outdim, bias=bias)
-        if self.lin.bias is not None:
-            self.lin.bias.data.zero_()
+
+        self.reset_parameters()
 
         if weight is not None:
             self.lin.weight = nn.Parameter(torch.from_numpy(weight))
@@ -591,6 +597,12 @@ class WordLinout(WordLinoutBase):
             self.lin.weight.requires_grad = False
             if bias is True:
                 self.lin.bias.requires_grad = False
+
+    def reset_parameters(self):
+        initrange = 0.1
+        if self.lin.bias is not None:
+            self.lin.bias.data.zero_()
+        self.lin.weight.data.uniform_(-initrange, initrange)
 
     def _getvector(self, wordid):
         vec = self.lin.weight.index_select(0, wordid)
