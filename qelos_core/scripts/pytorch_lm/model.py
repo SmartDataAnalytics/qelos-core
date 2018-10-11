@@ -21,6 +21,7 @@ class NewRNNModel(nn.Module):
         self.out = q.WordLinout(dims[-1], worddic=self.D)
         self.rnn = self.encodertype(*dims, bidir=False, bias=True, dropout_in=dropout, dropout_pt=dropout)
         self.rnn.ret_all_states = True
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x, states):   # (seqlen, batsize) and (numlayers, batsize, dim)
         x = x.transpose(1, 0)
@@ -29,6 +30,7 @@ class NewRNNModel(nn.Module):
         out, all_states = self.rnn._forward(emb, mask=xmask, states_0=states, ret_states=True)
         ret_states = zip(*all_states)
         # output
+        out = self.dropout(out)
         out = self.out(out)
         out = out.transpose(1, 0).contiguous()
         return out, ret_states          # (seqlen, batsize, ntoken) and (numlayers, batsize, dim)
