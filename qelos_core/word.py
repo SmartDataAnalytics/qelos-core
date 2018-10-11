@@ -548,7 +548,7 @@ class ZeroWordLinout(WordLinoutBase):
 
 
 class WordLinout(WordLinoutBase):
-    def __init__(self, indim, worddic=None, weight=None, set_bias=None, bias=False, fixed=False, cosnorm=False):
+    def __init__(self, indim, worddic=None, weight=None, set_bias=None, bias=True, fixed=False, cosnorm=False):
         """
         Linear block to be used at the output for computing scores over a vocabulary of tokens. Usually followed by Softmax.
 
@@ -580,7 +580,8 @@ class WordLinout(WordLinoutBase):
             bias = False
 
         self.lin = nn.Linear(indim, outdim, bias=bias)
-        self.lin.bias.data.zero_()
+        if self.lin.bias is not None:
+            self.lin.bias.data.zero_()
 
         if weight is not None:
             self.lin.weight = nn.Parameter(torch.from_numpy(weight))
