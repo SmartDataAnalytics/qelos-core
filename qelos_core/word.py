@@ -580,6 +580,7 @@ class WordLinout(WordLinoutBase):
             bias = False
 
         self.lin = nn.Linear(indim, outdim, bias=bias)
+        self.lin.bias.data.zero_()
 
         if weight is not None:
             self.lin.weight = nn.Parameter(torch.from_numpy(weight))
