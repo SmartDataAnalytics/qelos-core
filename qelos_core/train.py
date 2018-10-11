@@ -483,7 +483,7 @@ class trainer(EventEmitter, AutoHooker):
         self.do_callbacks(self.START_BATCH)
         self.optim.zero_grad()
         self.model.train()
-        params = q.params_of(self.model)
+        # params = q.params_of(self.model)
 
         _batch = (_batch,) if not q.issequence(_batch) else _batch
         _batch = [batch_e.to(self._device) for batch_e in _batch]

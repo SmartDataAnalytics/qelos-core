@@ -767,7 +767,7 @@ def remove_l2(x):
 
 
 # SEQUENCE PACKING AND UNPACKING
-def seq_pack(x, mask):  # mask: (batsize, seqlen)
+def seq_pack(x, mask, ret_sorter=False):  # mask: (batsize, seqlen)
     """ given N-dim sequence "x" (N>=2), and 2D mask (batsize, seqlen)
         returns packed sequence (sorted) and indexes to un-sort (also used by seq_unpack) """
     x = x.float()
@@ -781,14 +781,19 @@ def seq_pack(x, mask):  # mask: (batsize, seqlen)
     # print ("test unsorter")
     # print (unsorter)
     unsorter.scatter_(0, sortidxs,
-                           torch.arange(0, len(unsorter), dtype=torch.int64, device=sortidxs.device))
+           torch.arange(0, len(unsorter), dtype=torch.int64, device=sortidxs.device))
     # 3. pack
     sortedseq = torch.index_select(x, 0, sortidxs)
     sortedmsk = torch.index_select(mask, 0, sortidxs)
     sortedlens = sortedmsk.long().sum(1)
     sortedlens = list(sortedlens.cpu().detach().numpy())
     packedseq = torch.nn.utils.rnn.pack_padded_sequence(sortedseq, sortedlens, batch_first=True)
-    return packedseq, unsorter
+
+    # 4. return
+    if ret_sorter:
+        return packedseq, unsorter, sortidxs
+    else:
+        return packedseq, unsorter
 
 
 def seq_unpack(x, order, padding_value=0):

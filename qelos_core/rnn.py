@@ -1617,9 +1617,11 @@ class RNNLayerEncoderBase(torch.nn.Module):
     def _forward(self, x, mask=None, states_0=None, ret_states=False):
         """ top layer states return last """
         order = None
+        packsorter = None
         if mask is not None:
             assert (not isinstance(x, torch.nn.utils.rnn.PackedSequence))
-            x, order = q.seq_pack(x, mask=mask)
+            x, order, packsorter = q.seq_pack(x, mask=mask, ret_sorter=True)
+            # TODO: if packing here, also reorder the states
         out = x
 
         # init states -- topmost layer matches latest provided states, if not enough states, bottoms get None
@@ -1628,6 +1630,8 @@ class RNNLayerEncoderBase(torch.nn.Module):
         for state_0 in states_0:
             h_0s_e = [] if state_0 is None else state_0     # one element of h_0s contains a list of states for a certain state of this rnn
             assert(len(h_0s_e) <= len(self.layers))
+            if order is not None:
+                h_0s_e =  [h_0s_e_e.index_select(0, packsorter) for h_0s_e_e in h_0s_e]
             h_0s_e = [h_0s_e_e.transpose(1, 0) for h_0s_e_e in h_0s_e]      # transpose incoming states (they are batch-first while layers expect direction*numlayers first)
             h_0s_e = [None] * (len(self.layers) - len(h_0s_e)) + h_0s_e
             h_0s.append(h_0s_e)
