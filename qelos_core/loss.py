@@ -272,8 +272,7 @@ class SeqKLLoss(DiscreteLoss):
     """ Straight implementation of cross-entropy loss for sequence prediction.
         Same as Sequence cross-entropy if no label smoothing.
         To be used after torch.nn.Softmax() """
-    def __init__(self, time_average=False, time_agg=None, weight=None, size_average=True, ignore_index=None,
-                 label_smoothing=0., smooth_mix=0., mode="probs", **kw):
+    def __init__(self, time_average=False, time_agg=None, weight=None, size_average=True, ignore_index=None, label_smoothing=0., smooth_mix=0., mode="probs", **kw):
         """
 
         :param time_agg:        aggregation over time: if "avg", then averages, "sum" sums. Takes priority over time_average
@@ -286,6 +285,8 @@ class SeqKLLoss(DiscreteLoss):
         :param mode:            "probs" (probs must be normalized by Softmax()), "logits" (probs are logits), "logprobs" (probs are log probs, produced by LogSoftmax())
         :param kw:
         """
+        print(kw)
+        print(time_average)
         super(SeqKLLoss, self).__init__(size_average=size_average, ignore_index=ignore_index, **kw)
         if time_agg is None:
             time_agg = "avg" if time_average else "sum"
