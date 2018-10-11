@@ -1533,7 +1533,7 @@ class OverriddenRNNLayerBase(torch.nn.Module):
                 new_weight_hh = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_hh)
         if self.dropconnect is not None:
-            for weight in [name for name, param in self.layer.named_parameters()]:
+            for weight in [name for name, param in self.layer.named_parameters() if "weight_hh" in name]:
                 layer_weight = getattr(self.layer, weight)
                 new_weight = self.dropconnect(layer_weight)
                 setattr(self, weight, new_weight)
