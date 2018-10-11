@@ -6,7 +6,7 @@ class NewRNNModel(nn.Module):
     encodertype = q.LSTMEncoder
 
     def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers,
-                 dropout=0.5, tie_weights=False):
+                 dropout=0.5, dropconnect=0., tie_weights=False):
         super(NewRNNModel, self).__init__()
         worddic = dict(zip([str(x) for x in range(ntoken)], range(ntoken)))
         dims = [ninp] + [nhid] * nlayers
@@ -19,7 +19,7 @@ class NewRNNModel(nn.Module):
         # make layers
         self.emb = q.WordEmb(dims[0], worddic=self.D)
         self.out = q.WordLinout(dims[-1], worddic=self.D)
-        self.rnn = self.encodertype(*dims, bidir=False, bias=True, dropout_in=dropout, dropout_pt=dropout)
+        self.rnn = self.encodertype(*dims, bidir=False, bias=True, dropout_in=dropout, dropconnect=dropconnect)
         self.rnn.ret_all_states = True
         self.dropout = nn.Dropout(p=dropout)
 
@@ -47,7 +47,7 @@ class NewRNNModel(nn.Module):
 class Old_RNNModel(nn.Module):
     """Container module with an encoder, a recurrent module, and a decoder."""
 
-    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, tie_weights=False):
+    def __init__(self, rnn_type, ntoken, ninp, nhid, nlayers, dropout=0.5, dropconnect=None, tie_weights=False):
         super(Old_RNNModel, self).__init__()
         self.drop = nn.Dropout(dropout)
         self.encoder = nn.Embedding(ntoken, ninp)

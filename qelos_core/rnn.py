@@ -1498,14 +1498,15 @@ class OverriddenRNNLayerBase(torch.nn.Module):
     rnnlayertype = None
 
     def __init__(self, input_size=None, hidden_size=None, num_layers=1, bidirectional=False,
-                 bias=True, batch_first=False, dropout_rec=0., dropout_pt=0., **kw):
+                 bias=True, batch_first=False, dropout_rec=0., dropconnect=0., **kw):
         super(OverriddenRNNLayerBase, self).__init__(**kw)
         assert(batch_first == True)
         assert(num_layers == 1)
-        self.layer = self.rnnlayertype(self, input_size=input_size, dropout=dropout_pt,
+        self.layer = self.rnnlayertype(self, input_size=input_size,
                                        hidden_size=hidden_size, num_layers=num_layers,
                                        bidirectional=bidirectional, bias=bias, batch_first=True)
         self.dropout_rec = torch.nn.Dropout(dropout_rec) if dropout_rec > 0 else None
+        self.dropconnect = torch.nn.Dropout(dropconnect) if dropconnect > 0 else None
         self.reset_parameters()
 
         # weight placeholders
@@ -1531,6 +1532,12 @@ class OverriddenRNNLayerBase(torch.nn.Module):
                 dropoutmask = self.dropout_rec(dropoutmask)
                 new_weight_hh = getattr(self.layer, weight) * dropoutmask.unsqueeze(0)
                 setattr(self, weight, new_weight_hh)
+        if self.dropconnect is not None:
+            weights = self.layer.named_parameters().keys()
+            for weight in weights:
+                layer_weight = getattr(self.layer, weight)
+                new_weight = self.dropconnect(layer_weight)
+                setattr(self, weight, new_weight)
         if h_0 is None:
             out, h_n = self.layer(vecs)
         else:
@@ -1557,9 +1564,9 @@ class RNNLayerEncoderBase(torch.nn.Module):
     rnnlayertype_dropout_rec = None         # this one is used if dropout_rec > 0
 
     def __init__(self, indim, *dims, bidir=False, bias=True,
-                 dropout_in=0., dropout_in_shared=0., dropout_rec=0., dropout_pt=0., layer_norm=False):
+                 dropout_in=0., dropout_in_shared=0., dropout_rec=0., dropconnect=0., layer_norm=False):
         super(RNNLayerEncoderBase, self).__init__()
-        if dropout_rec > 0:
+        if dropout_rec > 0 or dropconnect > 0:
             print("WARNING: using hacky batch-shared and time-shared dropout on recurrent connection")
             self.rnnlayertype = self.rnnlayertype_dropout_rec
         if not q.issequence(dims):
@@ -1572,21 +1579,21 @@ class RNNLayerEncoderBase(torch.nn.Module):
         self.layer_norm = torch.nn.ModuleList() if layer_norm is True else None
         self.dropout_in = torch.nn.Dropout(dropout_in, inplace=False) if dropout_in > 0 else None
         self.dropout_in_shared = torch.nn.Dropout(dropout_in, inplace=False) if dropout_in_shared > 0 else None
+        self.dropconnect = dropconnect
         self.dropout_rec = dropout_rec
-        self.dropout_pt = dropout_pt
         self.make_layers()
         self.reset_parameters()
         self.ret_all_states = False     # set to True to return all states, instead of return state of last layer
 
     def make_layers(self):
         for i in range(1, len(self.dims)):
-            if self.dropout_rec > 0:        # uses overridden rnn layers --> support dropout_rec in constructor
+            if self.dropout_rec > 0 or self.dropconnect:        # uses overridden rnn layers --> support dropout_rec in constructor
                 layer = self.rnnlayertype(input_size=self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
-                                          hidden_size=self.dims[i], num_layers=1, dropout_rec=self.dropout_rec, dropout_pt=self.dropout_pt,
+                                          hidden_size=self.dims[i], num_layers=1, dropout_rec=self.dropout_rec, dropconnect=self.dropconnect,
                                           bidirectional=self.bidir, bias=self.bias, batch_first=True)
             else:
                 layer = self.rnnlayertype(input_size=self.dims[i - 1] * (1 if not self.bidir or i == 1 else 2),
-                                          hidden_size=self.dims[i], num_layers=1, dropout=self.dropout_pt,
+                                          hidden_size=self.dims[i], num_layers=1,
                                           bidirectional=self.bidir, bias=self.bias, batch_first=True)
             self.layers.append(layer)
             if self.layer_norm is not None:
