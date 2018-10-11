@@ -767,27 +767,17 @@ class _ReduceLROnPlateauAutoHooker(AutoHooker):
 
 
 class ClipGradNorm(AutoHooker):
-    def __init__(self, norm, **kw):
+    def __init__(self, norm, normtype=2, **kw):
         super(ClipGradNorm, self).__init__(**kw)
         self._norm = norm
+        self._normtype = normtype
 
     def get_hooks(self, ee):
         return {trainer.BEFORE_OPTIM_STEP: self.on_before_optim_step}
 
     def on_before_optim_step(self, trainer, **kw):
-        model = trainer.model
-        tgn0 = None
         if self._norm is not None:
-            tgn0 = nn.utils.clip_grad_norm(model.parameters(), self._norm)
-        if tgn0 is not None:
-            tgn = tgn0
-        else:
-            tgn = 0
-            for param in model.parameters():
-                tgn += param.grad.pow(2).sum() if param.grad is not None else 0
-            tgn = tgn.pow(1./2)
-            tgn = tgn[0].item()
-        return tgn
+            nn.utils.clip_grad_norm_(trainer.model.parameters(), self._norm, norm_type=self._normtype)
 
 
 class TrainerChainer(AutoHooker):
