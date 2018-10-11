@@ -78,18 +78,27 @@ class LMLoader(object):
         super(LMLoader, self).__init__()
         self.data = data
         self.seqlen = seqlen
+
+    def __iter__(self):
+        return _LMLoaderIter(self)
+
+
+class _LMLoaderIter(object):
+    def __init__(self, lmloader):
+        super(_LMLoaderIter, self).__init__()
+        self.lml = lmloader
         self.i = 0
 
     def __iter__(self):
         return self
 
     def __len__(self):
-        return 1 + (len(self.data)-1 // self.seqlen)
+        return 1 + (len(self.lml.data)-1 // self.lml.seqlen)
 
     def __next__(self):
-        seqlen = min(self.seqlen, len(self.data) - self.i - 1)
-        batch = self.data[self.i: self.i + seqlen]
-        batch_g = self.data[self.i+1: self.i+1 + seqlen]
+        seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
+        batch = self.lml.data[self.i: self.i + seqlen]
+        batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
         return batch.transpose(1, 0), batch_g.transpose(1, 0)
 
 
