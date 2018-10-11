@@ -392,9 +392,9 @@ class SeqKLLoss(DiscreteLoss):
 
 
 class SeqPPL_Loss(SeqKLLoss):
-    def _forward_normal(self, probs, gold, mask=None):
-        log_probs, outignoremask = super(SeqPPL_Loss, self)._forward_normal(probs, gold, mask=mask)
-        return torch.exp(log_probs), outignoremask
+    def forward(self, x, gold, mask=None, _noagg=False, **kw):
+        a = super(SeqPPL_Loss, self).forward(x, gold, mask=mask, _noagg=_noagg, **kw)
+        return torch.exp(a)
 
 
 class SeqNLLLoss(SeqLoss, NLLLoss):
