@@ -82,6 +82,9 @@ class LMLoader(object):
     def __iter__(self):
         return _LMLoaderIter(self)
 
+    def __len__(self):
+        return 1 + (len(self.data)-1 // self.seqlen)
+
 
 class _LMLoaderIter(object):
     def __init__(self, lmloader):
