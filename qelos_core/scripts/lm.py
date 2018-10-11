@@ -142,6 +142,7 @@ class RNNLayer_LM(LMModel):
         self.out = q.WordLinout(dims[-1], worddic=self.D)
         self.rnn = self.encodertype(*dims, bidir=False, bias=bias, dropout_in=dropout)
         self.rnn.ret_all_states = True
+        self.dropout = torch.nn.Dropout(p=dropout)
 
     def reset_backup_states(self, _, **kw):
         self.states = None
@@ -156,12 +157,14 @@ class RNNLayer_LM(LMModel):
         all_states = [[all_state_e.detach() for all_state_e in all_state] for all_state in all_states]
         self.states = zip(*all_states)
         # output
+        out = self.dropout(out)
         out = self.out(out)
         return out
 
 
 def run(lr=0.001,
         dropout=0.2,
+        dropconnect=0.2,
         gradnorm=0.25,
         epochs=25,
         embdim = 200,
