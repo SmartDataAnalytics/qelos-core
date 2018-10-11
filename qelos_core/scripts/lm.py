@@ -99,10 +99,15 @@ class _LMLoaderIter(object):
         return 1 + (len(self.lml.data)-1 // self.lml.seqlen)
 
     def __next__(self):
-        seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
-        batch = self.lml.data[self.i: self.i + seqlen]
-        batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
-        return batch.transpose(1, 0), batch_g.transpose(1, 0)
+        if self.i >= self.lml.seqlen:
+            seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
+            batch = self.lml.data[self.i: self.i + seqlen]
+            batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
+            self.i += seqlen
+            return batch.transpose(1, 0), batch_g.transpose(1, 0)
+        else:
+            self.i = 0
+            raise StopIteration()
 
 
 class LMModel(torch.nn.Module, q.AutoHooker):
