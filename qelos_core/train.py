@@ -40,7 +40,12 @@ class Aggregator(object):
             if self.current_agg_norma == 0.:
                 return 0.
             return self.current_agg_error / max(self.current_agg_norma, 1e-6)
-        return self.current_agg_error
+        ret = self.current_agg_error
+        ret = self.post_agg_epoch(ret)
+        return ret
+
+    def post_agg_epoch(self, x):
+        return x
 
     def push_agg_to_history(self, epoch=None):
         self.agg_history.append(self.get_agg_error())
@@ -84,6 +89,12 @@ class LossAndAgg(Aggregator):
             lp = l
         self.update_agg(lp, numex)
         return l
+
+    def post_agg_epoch(self, x):
+        if hasattr(self.loss, "post_agg_epoch"):
+            x = self.loss.post_agg_epoch(x)
+        else:
+            return x
 
     def device(self, device):
         self.loss.to(device)

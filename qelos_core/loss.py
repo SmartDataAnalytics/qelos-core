@@ -3,6 +3,7 @@ import qelos_core as q
 from torch import nn
 import numpy as np
 import re
+import math
 
 EPS = 1e-6
 
@@ -392,9 +393,9 @@ class SeqKLLoss(DiscreteLoss):
 
 
 class SeqPPL_Loss(SeqKLLoss):
-    def forward(self, x, gold, mask=None, _noagg=False, **kw):
-        a = super(SeqPPL_Loss, self).forward(x, gold, mask=mask, _noagg=_noagg, **kw)
-        return torch.exp(a)
+    def post_agg_epoch(self, x):
+        """ function applied after aggregation (avg/sum) over whole epoch (so far) """
+        return math.exp(x)
 
 
 class SeqNLLLoss(SeqLoss, NLLLoss):
