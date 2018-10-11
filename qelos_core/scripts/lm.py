@@ -162,11 +162,11 @@ class RNNLayer_LM(LMModel):
 
 def run(lr=0.001,
         dropout=0.2,
-        gradnorm=5.,
+        gradnorm=0.25,
         epochs=25,
         embdim = 200,
         encdim = 200,
-        numlayers = 2,
+        numlayers = 3,
         seqlen=35,
         batsize=20,
         eval_batsize=10,
