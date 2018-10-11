@@ -210,6 +210,8 @@ class no_losses(lossarray):
 class LossWrapper(EventEmitter):
     """ Wraps a normal loss with aggregating and other functionality
         TODO: refactor to work with this only, instead of lossarray """
+    BEFORE_PUSH = 1
+    AFTER_PUSH = 2
 
     def __init__(self, loss, name=None, mode="mean", **kw):
         """
@@ -225,20 +227,28 @@ class LossWrapper(EventEmitter):
         self.agg_history = []
         self.agg_epochs = []
 
-        self.epoch_agg_value = 0.
-        self.epoch_agg_size = 0.
+        self.epoch_agg_values = []
+        self.epoch_agg_sizes = []
 
     def get_epoch_error(self):
         """ returns the aggregated error for this epoch so far """
         if self.aggmode == "mean":
-            if self.epoch_agg_sizes == 0:
+            if len(self.epoch_agg_sizes) == 0:
                 ret = 0.
             else:
-                ret = self.epoch_agg_value / max(self.epoch_agg_size, 1e-6)
+                total = sum(self.epoch_agg_sizes)
+                fractions = [x/total for x in self.epoch_agg_sizes]
+                parts = [x * y for x, y in zip(self.epoch_agg_values, fractions)]
+                ret = sum(parts)
         else:
-            ret = self.epoch_agg_value
+            ret = sum(self.epoch_agg_values)
         ret = self.post_agg_epoch(ret)
         return ret
+
+    def push_epoch_to_history(self, epoch=None):
+        self.agg_history.append(self.get_epoch_error())
+        if epoch is not None:
+            self.agg_epochs.append(epoch)
 
     def __call__(self, pred, gold, **kw):
         l = self.loss(pred, gold, **kw)
@@ -251,7 +261,8 @@ class LossWrapper(EventEmitter):
             lp = l.item()
         else:
             lp = l
-        self.update_agg(lp, numex)
+        self.epoch_agg_values.append(lp)
+        self.epoch_agg_sizes.append(numex)
         return l
 
     def post_agg_epoch(self, x):
@@ -261,6 +272,15 @@ class LossWrapper(EventEmitter):
 
     def device(self, device):
         self.loss.to(device)
+
+    def _reset(self):   # full reset
+        self.reset_agg()
+        self.agg_history = []
+        self.agg_epochs = []
+
+    def reset_agg(self):    # reset epoch stats
+        self.epoch_agg_values = []
+        self.epoch_agg_sizes = []
 
 
 class eval(object):
