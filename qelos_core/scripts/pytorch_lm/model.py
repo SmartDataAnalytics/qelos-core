@@ -99,5 +99,5 @@ class Old_RNNModel(nn.Module):
             return weight.new_zeros(self.nlayers, bsz, self.nhid)
 
 
-class RNNModel(NewRNNModel):
+class RNNModel(Old_RNNModel):
     pass
