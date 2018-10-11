@@ -38,9 +38,11 @@ class Aggregator(object):
     def get_agg_error(self):
         if self.aggmode == "mean":
             if self.current_agg_norma == 0.:
-                return 0.
-            return self.current_agg_error / max(self.current_agg_norma, 1e-6)
-        ret = self.current_agg_error
+                ret = 0.
+            else:
+                ret = self.current_agg_error / max(self.current_agg_norma, 1e-6)
+        else:
+            ret = self.current_agg_error
         ret = self.post_agg_epoch(ret)
         return ret
 
@@ -210,12 +212,55 @@ class LossWrapper(EventEmitter):
         TODO: refactor to work with this only, instead of lossarray """
 
     def __init__(self, loss, name=None, mode="mean", **kw):
+        """
+        :param loss:    actual loss class
+        :param name:    name for this loss (class name by default)
+        :param mode:    "mean" or "sum"
+        :param kw:
+        """
         super(LossWrapper, self).__init__()
-        self.loss, self.mode = loss, mode
+        self.loss, self.aggmode = loss, mode
         self.name = name if name is not None else loss.__class__.__name__
 
-    def __call__(self, pred, gold):
-        pass
+        self.agg_history = []
+        self.agg_epochs = []
+
+        self.epoch_agg_value = 0.
+        self.epoch_agg_size = 0.
+
+    def get_epoch_error(self):
+        """ returns the aggregated error for this epoch so far """
+        if self.aggmode == "mean":
+            if self.epoch_agg_sizes == 0:
+                ret = 0.
+            else:
+                ret = self.epoch_agg_value / max(self.epoch_agg_size, 1e-6)
+        else:
+            ret = self.epoch_agg_value
+        ret = self.post_agg_epoch(ret)
+        return ret
+
+    def __call__(self, pred, gold, **kw):
+        l = self.loss(pred, gold, **kw)
+
+        numex = pred.size(0) if not q.issequence(pred) else pred[0].size(0)
+        if isinstance(l, tuple) and len(l) == 2:     # loss returns numex too
+            numex = l[1]
+            l = l[0]
+        if isinstance(l, torch.Tensor):
+            lp = l.item()
+        else:
+            lp = l
+        self.update_agg(lp, numex)
+        return l
+
+    def post_agg_epoch(self, x):
+        if hasattr(self.loss, "post_agg_epoch"):
+            x = self.loss.post_agg_epoch(x)
+        return x
+
+    def device(self, device):
+        self.loss.to(device)
 
 
 class eval(object):
