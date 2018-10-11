@@ -162,7 +162,7 @@ class RNNLayer_LM(LMModel):
         return out
 
 
-def run(lr=0.1,
+def run(lr=20.,
         dropout=0.2,
         dropconnect=0.2,
         gradnorm=0.25,
