@@ -93,8 +93,7 @@ class LossAndAgg(Aggregator):
     def post_agg_epoch(self, x):
         if hasattr(self.loss, "post_agg_epoch"):
             x = self.loss.post_agg_epoch(x)
-        else:
-            return x
+        return x
 
     def device(self, device):
         self.loss.to(device)
@@ -204,6 +203,19 @@ class lossarray(EventEmitter):
 class no_losses(lossarray):
     def __init__(self, n):
         super(no_losses, self).__init__(*[q.SelectedLinearLoss(i) for i in range(n)])
+
+
+class LossWrapper(EventEmitter):
+    """ Wraps a normal loss with aggregating and other functionality
+        TODO: refactor to work with this only, instead of lossarray """
+
+    def __init__(self, loss, name=None, mode="mean", **kw):
+        super(LossWrapper, self).__init__()
+        self.loss, self.mode = loss, mode
+        self.name = name if name is not None else loss.__class__.__name__
+
+    def __call__(self, pred, gold):
+        pass
 
 
 class eval(object):
