@@ -167,6 +167,7 @@ def run(lr=0.001,
     tt.tock("data loaded")
     print("{} batches in train".format(len(train_batches)))
 
+    tt.tick("creating model")
     dims = [embdim] + ([encdim] * numlayers)
     m = RNNLayer_LM(*dims, worddic=D, dropout=dropout)
 
@@ -186,7 +187,10 @@ def run(lr=0.001,
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
     tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
 
+    tt.tock("created model")
+    tt.tick("training")
     q.train(trainer, tester).run(epochs=epochs)
+    tt.tock("trained")
 
 
 if __name__ == '__main__':

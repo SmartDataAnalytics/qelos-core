@@ -305,7 +305,7 @@ class SeqKLLoss(DiscreteLoss):
         if self.mode != "probs":
             raise NotImplemented("'logits' and 'logprobs' mode not implemented with softened targets (TODO)")
 
-        if probs.size(1) > gold.size():
+        if probs.size(1) > gold.size(1):
             probs = probs[:, :gold.size(1)]
         batsize, seqlen, vocsize = probs.size()
 
@@ -351,7 +351,7 @@ class SeqKLLoss(DiscreteLoss):
         return gold_log_probs, outignoremask
 
     def _forward_normal(self, probs, gold, mask=None):
-        if probs.size(1) > gold.size():
+        if probs.size(1) > gold.size(1):        # if probs is longer than gold seq
             probs = probs[:, :gold.size(1)]
         batsize, seqlen, vocsize = probs.size()
 
