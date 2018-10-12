@@ -34,8 +34,6 @@ class EventEmitter(object):
     def hook(self, f, *es, **kw):
         """ f to be called when e happens. Returns deleter for bound f
             can also pass pytorch's lr schedulers
-            if passing a ReduceLROnPlateau, must also pass a function that can be called without arguments
-                and that returns the metric for Reducer
         """
         if isinstance(f, AutoHooker):
             if len(es) > 0:
@@ -59,6 +57,27 @@ class EventEmitter(object):
             return
         for f in self._event_callbacks[e]:
             f(self)
+
+
+class TrainEventEmitter(EventEmitter):
+    def hook(self, f, *es, **kw):
+        """
+        Same as EventEmitter with some sugar for LR schedulers:
+        if "f" is a torch _LRScheduler (superclass of all schedulers),
+            wraps the scheduler in a special autohooker that executes at the beginning of ever epoch.
+        if "f" is a torch ReduceLROnPlateau, expects a function or LossWrapper as second argument,
+            wraps both in an autohooker that at the end of every epoch evaluates provided function
+            or average loss over whole epoch of the LossWrapper and lets the ReduceLROnPlateau to reduce LR.
+        """
+        # special hooker wrappers
+        if isinstance(f, torch.optim.lr_scheduler.ReduceLROnPlateau):
+            assert (len(es) == 1)
+            return super(trainer, self).hook(_ReduceLROnPlateauAutoHooker(f, es[0]))
+        elif isinstance(f, torch.optim.lr_scheduler._LRScheduler):
+            return super(trainer, self).hook(_LRSchedulerAutoHooker(f, **kw))
+        # normal hooking
+        else:
+            return super(trainer, self).hook(f, *es, **kw)
 
 
 def no_losses(n):
@@ -225,7 +244,7 @@ class LoopRunner(object):
 
 
 # region basic training loop
-class BasicRunner(LoopRunner, EventEmitter):
+class BasicRunner(LoopRunner, TrainEventEmitter):
     START = 0
     END = 1
     START_EPOCH = 2
@@ -243,6 +262,10 @@ class BasicRunner(LoopRunner, EventEmitter):
         self.trainer = trainer
         self.validator = validator
         self._logger = None
+
+    @property
+    def current_epoch(self):
+        return self.trainer.current_epoch
 
     def log(self, logger):
         self._logger = logger
@@ -316,7 +339,7 @@ def pp_epoch_losses(*losses:LossWrapper):
     return ret
 
 
-class Modelholder(EventEmitter, AutoHooker):
+class Modelholder(TrainEventEmitter, AutoHooker):
     def __init__(self, model, **kw):
         super(Modelholder, self).__init__(**kw)
         self.model = model
@@ -410,25 +433,6 @@ class trainer(Modelholder):
         self.current_epoch = 0
         self.stop_training = None
         self.tt = ticktock("trainer")
-
-    def hook(self, f, *es, **kw):
-        """
-        Same as EventEmitter with some sugar for LR schedulers:
-        if "f" is a torch _LRScheduler (superclass of all schedulers),
-            wraps the scheduler in a special autohooker that executes at the beginning of ever epoch.
-        if "f" is a torch ReduceLROnPlateau, expects a function or LossWrapper as second argument,
-            wraps both in an autohooker that at the end of every epoch evaluates provided function
-            or average loss over whole epoch of the LossWrapper and lets the ReduceLROnPlateau to reduce LR.
-        """
-        # special hooker wrappers
-        if isinstance(f, torch.optim.lr_scheduler.ReduceLROnPlateau):
-            assert(len(es) == 1)
-            return super(trainer, self).hook(_ReduceLROnPlateauAutoHooker(f, es[0]))
-        elif isinstance(f, torch.optim.lr_scheduler._LRScheduler):
-            return super(trainer, self).hook(_LRSchedulerAutoHooker(f, **kw))
-        # normal hooking
-        else:
-            return super(trainer, self).hook(f, *es, **kw)
 
     def optimizer(self, optimizer):
         self.optim = optimizer
@@ -753,10 +757,10 @@ class _LRSchedulerAutoHooker(AutoHooker):
         self.verbose = verbose
 
     def get_hooks(self, ee):
-        return {trainer.START_EPOCH: self.on_start_epoch}
+        return {ee.START_EPOCH: self.on_start_epoch}
 
-    def on_start_epoch(self, model, **kw):
-        self.s.step(epoch=model.current_epoch)
+    def on_start_epoch(self, ee, **kw):
+        self.s.step(epoch=ee.current_epoch)
         if self.verbose:
             print("first group lr decayed to: {}".format(self.s.optimizer.param_groups[0]["lr"]))
 
@@ -773,10 +777,11 @@ class _ReduceLROnPlateauAutoHooker(AutoHooker):
             self.critf = critf
 
     def get_hooks(self, ee):
-        return {trainer.END_EPOCH: self.on_end_epoch}
+        return {ee.END_EPOCH: self.on_end_epoch}
 
-    def on_end_epoch(self, model, **kw):
-        self.s.step(self.critf(), epoch=model.current_epoch)
+    def on_end_epoch(self, ee, **kw):
+        current_epoch = ee.current_epoch if hasattr(ee, "current_epoch") else None
+        self.s.step(self.critf(), epoch=current_epoch)
 
 
 class ClipGradNorm(AutoHooker):
