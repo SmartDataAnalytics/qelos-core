@@ -412,12 +412,20 @@ class trainer(Modelholder):
         self.tt = ticktock("trainer")
 
     def hook(self, f, *es, **kw):
+        """
+        Same as EventEmitter with some sugar for LR schedulers:
+        if "f" is a torch _LRScheduler (superclass of all schedulers),
+            wraps the scheduler in a special autohooker that executes at the beginning of ever epoch.
+        if "f" is a torch ReduceLROnPlateau, expects a function or LossWrapper as second argument,
+            wraps both in an autohooker that at the end of every epoch evaluates provided function
+            or average loss over whole epoch of the LossWrapper and lets the ReduceLROnPlateau to reduce LR.
+        """
         # special hooker wrappers
-        if isinstance(f, torch.optim.lr_scheduler._LRScheduler):
-            return super(trainer, self).hook(_LRSchedulerAutoHooker(f, **kw))
-        elif isinstance(f, torch.optim.lr_scheduler.ReduceLROnPlateau):
+        if isinstance(f, torch.optim.lr_scheduler.ReduceLROnPlateau):
             assert(len(es) == 1)
             return super(trainer, self).hook(_ReduceLROnPlateauAutoHooker(f, es[0]))
+        elif isinstance(f, torch.optim.lr_scheduler._LRScheduler):
+            return super(trainer, self).hook(_LRSchedulerAutoHooker(f, **kw))
         # normal hooking
         else:
             return super(trainer, self).hook(f, *es, **kw)
@@ -754,12 +762,15 @@ class _LRSchedulerAutoHooker(AutoHooker):
 
 
 class _ReduceLROnPlateauAutoHooker(AutoHooker):
+    """ Don't use this, just hook torch.optim.lr_scheduler.ReduceLROnPlateau into trainer,
+        and provide LossWrapper or lambda function as second argument"""
     def __init__(self, s, critf, **kw):
         super(_ReduceLROnPlateauAutoHooker, self).__init__(**kw)
         self.s = s
         if isinstance(critf, LossWrapper):
-            critf = lambda: critf.get_epoch_error()
-        self.critf = critf
+            self.critf = lambda: critf.get_epoch_error()
+        else:
+            self.critf = critf
 
     def get_hooks(self, ee):
         return {trainer.END_EPOCH: self.on_end_epoch}
