@@ -154,8 +154,8 @@ class RNNLayer_LM(LMModel):
             if self.states is None else self.states
         out, all_states = self.rnn._forward(emb, mask=xmask, states_0=states_0, ret_states=True)
         # backup states
-        all_states = [[all_state_e.detach() for all_state_e in all_state] for all_state in all_states]
-        self.states = zip(*all_states)
+        # all_states = [[all_state_e.detach() for all_state_e in all_state] for all_state in all_states]
+        # self.states = zip(*all_states)
         # output
         out = self.dropout(out)
         out = self.out(out)
@@ -211,6 +211,11 @@ def run(lr=20.,
     tt.tick("training")
     q.train(trainer, tester).run(epochs=epochs)
     tt.tock("trained")
+
+    tt.tick("testing")
+    finaltester = q.tester(m).on(test_batches).loss(loss, ppl_loss).device(device).hook(m)
+    finaltester.run()
+    tt.tock("tested")
 
 
 if __name__ == '__main__':
