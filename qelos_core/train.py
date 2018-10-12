@@ -757,6 +757,8 @@ class _ReduceLROnPlateauAutoHooker(AutoHooker):
     def __init__(self, s, critf, **kw):
         super(_ReduceLROnPlateauAutoHooker, self).__init__(**kw)
         self.s = s
+        if isinstance(critf, LossWrapper):
+            critf = lambda: critf.get_epoch_error()
         self.critf = critf
 
     def get_hooks(self, ee):

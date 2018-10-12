@@ -155,7 +155,7 @@ class RNNLayer_LM(LMModel):
         out, all_states = self.rnn._forward(emb, mask=xmask, states_0=states_0, ret_states=True)
         # backup states
         all_states = [[all_state_e.detach() for all_state_e in all_state] for all_state in all_states]
-        self.states = list(zip(*all_states)).reverse()
+        self.states = list(zip(*all_states))
 
         # output
         out = self.dropout(out)
@@ -207,6 +207,9 @@ def run(lr=20.,
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
     tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
+
+    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/4, patience=2)
+    trainer.hook(lrp, tester.losses[1])
 
     tt.tock("created model")
     tt.tick("training")
