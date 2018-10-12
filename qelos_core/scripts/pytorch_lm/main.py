@@ -34,7 +34,7 @@ parser.add_argument('--bptt', type=int, default=35,
                     help='sequence length')
 parser.add_argument('--dropout', type=float, default=0.2,
                     help='dropout applied to layers (0 = no dropout)')
-parser.add_argument('--dropconnect', type=float, default=0.2,
+parser.add_argument('--dropconnect', type=float, default=0.,
                     help='dropconnect applied to recurrent layers (0 = no dropout)')
 parser.add_argument('--tied', action='store_true',
                     help='tie the word embedding and softmax weights')
@@ -150,7 +150,7 @@ def evaluate(data_source):
 
 def train():
     # Turn on training mode which enables dropout.
-    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    # optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     model.train()
     total_loss = 0.
     start_time = time.time()
