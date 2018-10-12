@@ -150,7 +150,7 @@ def evaluate(data_source):
 
 def train():
     # Turn on training mode which enables dropout.
-    # optimizer = torch.optim.SGD(model.parameters(), lr=lr)
+    optimizer = torch.optim.SGD(model.parameters(), lr=lr)
     model.train()
     total_loss = 0.
     start_time = time.time()
@@ -170,9 +170,9 @@ def train():
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
         torch.nn.utils.clip_grad_norm_(model.parameters(), args.clip)
-        # optimizer.step()
-        for p in model.parameters():
-            p.data.add_(-lr, p.grad.data)
+        optimizer.step()
+        # for p in model.parameters():
+        #     p.data.add_(-lr, p.grad.data)
 
         total_loss += loss.item()
 
