@@ -72,12 +72,12 @@ class TrainEventEmitter(EventEmitter):
         # special hooker wrappers
         if isinstance(f, torch.optim.lr_scheduler.ReduceLROnPlateau):
             assert (len(es) == 1)
-            return super(trainer, self).hook(_ReduceLROnPlateauAutoHooker(f, es[0]))
+            return super(TrainEventEmitter, self).hook(_ReduceLROnPlateauAutoHooker(f, es[0]))
         elif isinstance(f, torch.optim.lr_scheduler._LRScheduler):
-            return super(trainer, self).hook(_LRSchedulerAutoHooker(f, **kw))
+            return super(TrainEventEmitter, self).hook(_LRSchedulerAutoHooker(f, **kw))
         # normal hooking
         else:
-            return super(trainer, self).hook(f, *es, **kw)
+            return super(TrainEventEmitter, self).hook(f, *es, **kw)
 
 
 def no_losses(n):
