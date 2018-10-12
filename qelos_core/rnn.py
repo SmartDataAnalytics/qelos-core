@@ -1634,8 +1634,9 @@ class RNNLayerEncoderBase(torch.nn.Module):
             h_0s_e = [h_0s_e_e.transpose(1, 0) for h_0s_e_e in h_0s_e]      # transpose incoming states (they are batch-first while layers expect direction*numlayers first)
             h_0s_e = [None] * (len(self.layers) - len(h_0s_e)) + h_0s_e
             h_0s.append(h_0s_e)
-        h_0s = zip(*h_0s)       # --> make a list of state tuples, per layer, then per state slot (from per state slot then per layer)
-                                # e.g. LSTM: [(y^0, y^1, y^2), (c^0, c^1, c^2)] => [(y^0, c^0), (y^1, c^1), (y^2, c^2)]
+        h_0s = list(zip(*h_0s))
+        # --> make a list of state tuples, per layer, then per state slot (from per state slot then per layer)
+        # e.g. LSTM: [(y^0, y^1, y^2), (c^0, c^1, c^2)] => [(y^0, c^0), (y^1, c^1), (y^2, c^2)]
 
         states_to_ret = []
 

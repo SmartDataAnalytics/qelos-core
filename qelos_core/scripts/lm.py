@@ -155,7 +155,8 @@ class RNNLayer_LM(LMModel):
         out, all_states = self.rnn._forward(emb, mask=xmask, states_0=states_0, ret_states=True)
         # backup states
         all_states = [[all_state_e.detach() for all_state_e in all_state] for all_state in all_states]
-        self.states = zip(*all_states)
+        self.states = list(zip(*all_states)).reverse()
+
         # output
         out = self.dropout(out)
         out = self.out(out)
