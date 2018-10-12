@@ -6,6 +6,7 @@ import os
 import torch
 import torch.nn as nn
 import torch.onnx
+import qelos_core as q
 
 import qelos_core.scripts.pytorch_lm.data as data
 import qelos_core.scripts.pytorch_lm.model as model
@@ -96,7 +97,8 @@ test_data = batchify(corpus.test, eval_batch_size)
 ntokens = len(corpus.dictionary)
 model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.dropconnect, args.tied).to(device)
 
-criterion = nn.CrossEntropyLoss()
+# criterion = nn.CrossEntropyLoss()
+criterion = q.SeqKLLoss(time_average=True)
 
 ###############################################################################
 # Training code
@@ -137,7 +139,8 @@ def evaluate(data_source):
         for i in range(0, data_source.size(0) - 1, args.bptt):
             data, targets = get_batch(data_source, i)
             output, hidden = model(data, hidden)
-            output_flat = output.view(-1, ntokens)
+            # output_flat = output.view(-1, ntokens)
+            output_flat = output
             total_loss += len(data) * criterion(output_flat, targets).item()
             hidden = repackage_hidden(hidden)
     return total_loss / len(data_source)
@@ -158,7 +161,9 @@ def train():
         hidden = repackage_hidden(hidden)
         model.zero_grad()
         output, hidden = model(data, hidden)
-        loss = criterion(output.view(-1, ntokens), targets)
+        # output_flat = output.view(-1, ntokens)
+        output_flat = output
+        loss = criterion(output_flat, targets)
         loss.backward()
 
         # `clip_grad_norm` helps prevent the exploding gradient problem in RNNs / LSTMs.
