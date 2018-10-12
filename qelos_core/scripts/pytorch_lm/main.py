@@ -98,7 +98,7 @@ ntokens = len(corpus.dictionary)
 model = model.RNNModel(args.model, ntokens, args.emsize, args.nhid, args.nlayers, args.dropout, args.dropconnect, args.tied).to(device)
 
 # criterion = nn.CrossEntropyLoss()
-criterion = q.SeqKLLoss(time_average=True)
+criterion = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
 
 ###############################################################################
 # Training code
