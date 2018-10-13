@@ -8,6 +8,30 @@ import qelos_core as q
 from qelos_core.util import isnumber, isstring, ticktock, issequence
 
 
+def recmap(x, mapf):      # datastructure, mapping function for elements
+    if isinstance(x, dict):
+        for k in x:
+            x[k] = recmap(x[k], mapf)
+        return x
+    elif isinstance(x, list):
+        for i in range(len(x)):
+            x[i] = recmap(x[i], mapf)
+        return x
+    elif isinstance(x, tuple):
+        newtup = []
+        for i in range(len(x)):
+            newtup.append(recmap(x[i], mapf))
+        newtup = tuple(newtup)
+        return newtup
+    elif isinstance(x, set):
+        newset = set()
+        for k in x:
+            newset.add(recmap(k, mapf))
+        return newset
+    else:
+        return mapf(x)
+
+
 class TensorDataset(PytorchTensorDataset):
     def __init__(self, *x):
         """
@@ -469,7 +493,8 @@ class trainer(Modelholder):
         # params = q.params_of(self.model)
 
         _batch = (_batch,) if not q.issequence(_batch) else _batch
-        _batch = [batch_e.to(self._device) for batch_e in _batch]
+        _batch = recmap(_batch, lambda x: x.to(self.device) if isinstance(x, torch.Tensor) else x)
+        # _batch = [batch_e.to(self._device) for batch_e in _batch]
         if self.transform_batch_inp is not None:
             batch = self.transform_batch_inp(*_batch)
         else:
@@ -640,7 +665,8 @@ class tester(Modelholder):
             self.do_callbacks(self.START_BATCH)
 
             _batch = (_batch,) if not q.issequence(_batch) else _batch
-            _batch = [batch_e.to(self._device) for batch_e in _batch]
+            _batch = recmap(_batch, lambda x: x.to(self.device) if isinstance(x, torch.Tensor) else x)
+            # _batch = [batch_e.to(self._device) for batch_e in _batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*_batch)
             else:

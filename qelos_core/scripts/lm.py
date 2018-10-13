@@ -200,7 +200,7 @@ def run(lr=20.,
         print(y.size())
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
-    ppl_loss = q.SeqPPL_Loss(time_average=True, size_average=True, mode="logits")
+    ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
 
     optim = torch.optim.SGD(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
