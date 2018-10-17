@@ -12,7 +12,7 @@ import csv
 DATA_PREFIX = "../../../datasets/simpledbpediaqa/"
 
 
-def tocsv(which="test"):
+def tocsv(which="train"):
     inpp = os.path.join(DATA_PREFIX, which + ".json")
     outp = os.path.join(DATA_PREFIX, which + ".csv")
     oneoutp = os.path.join(DATA_PREFIX, which + "one.csv")
@@ -27,7 +27,7 @@ def tocsv(which="test"):
             firstrel = None
             allrels = set()
             for pred in question["PredicateList"]:
-                qrel = pred["Predicate"]
+                qrel = ("-" if pred["Direction"] == "backward" else "") + pred["Predicate"]
                 if firstrel is None:
                     firstrel = qrel
                 allrels.add(qrel)
@@ -186,11 +186,11 @@ class Encoder(torch.nn.Module):
 
     def forward(self, x):
         xemb, mask = self.emb(x)
-        xenc = self.enc(xemb, mask=mask)
+        xenc = self.encqreldir(xemb, mask=mask)
         return xenc
 
 
-class LSTMEncoder(q.SimpleLSTMEncoder):
+class LSTMEncoder(q.LSTMEncoder):
     def forward(self, x, mask=None):
         out, state = super(LSTMEncoder, self).forward(x, mask=mask, ret_states=True)
         state = state.view(state.size(0), -1)
@@ -269,4 +269,4 @@ def run(lr=0.001,
 
 if __name__ == '__main__':
     # q.argprun(run)
-    q.argprun(tocsv)
+    q.argprun(make_data)

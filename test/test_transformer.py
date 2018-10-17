@@ -2,6 +2,7 @@ from unittest import TestCase
 import torch
 from qelos_core.transformer import *
 from qelos_core.transformer_huggingface import Attention as HF_Attention
+import numpy as np
 
 
 class TestConv1D(TestCase):
@@ -47,14 +48,29 @@ class TestAttention(TestCase):
         # print((w_a - _w_a).norm())
         # print((w_b - _w_b).norm())
         print((y - y_ref).norm())
-        self.assertTrue((y - y_ref).norm().item() == 0)
+        self.assertTrue((np.allclose(y.detach().numpy(), y_ref.detach().numpy())))
         print("outputs good")
 
         y.sum().backward()
         y_ref.sum().backward()
 
         print((x.grad - x_ref.grad).norm())
-        self.assertTrue((x.grad - x_ref.grad).norm().item() == 0)
+        self.assertTrue((np.allclose(x.grad.detach().numpy(), x_ref.grad.detach().numpy())))
         print("grads good")
+
+    def test_mask(self):
+        x = torch.randn(4, 4, 12)
+        x.requires_grad = True
+        numheads = 6
+        m = MultiHeadAttention(12, numheads=numheads)
+        # mask = None
+        mask = torch.tensor([[1,1,1,0],[1,0,0,0],[1,1,1,1],[1,0,1,0]])
+
+        y = m(x, mask=mask)
+        print(y.size())
+        l = y.sum()
+        l.backward()
+        print(x.grad[0, :, :].norm(1, dim=1))
+        print(x.grad.norm(1, dim=2))
 
 

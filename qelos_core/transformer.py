@@ -3,6 +3,7 @@ from torch import nn
 from torch.nn import Parameter
 import math
 import copy
+import qelos_core as q
 
 
 # region from huggingface github transformer
@@ -30,9 +31,9 @@ class LayerNorm(nn.Module):
         self.b = nn.Parameter(torch.zeros(dim))
         self.e = e
 
-    def forward(self, x):
-        u = x.mean(-1, keepdim=True)
-        s = (x - u).pow(2).mean(-1, keepdim=True)
+    def forward(self, x, mask=None):
+        u = q.masked_mean(x, -1, mask=mask, keepdim=True)
+        s = q.masked_mean((x - u).pow(2), -1, mask=mask, keepdim=True)
         x = (x - u) / torch.sqrt(s + self.e)
         return self.g * x + self.b
 
@@ -80,14 +81,18 @@ class MultiHeadAttention(nn.Module):
         v = qkv[:, :, 2]  # (batsize, seqlen, numheads, dim_per_head)
         if self.scale:
             w = w / math.sqrt(v.size(-1))  # scale attention weights by dimension of values
+        wholemask = None
         if mask is not None:
-            w = w + torch.log(mask.float().view(mask.size(0), 1, mask.size(1), 1))
-            w = w + torch.log(mask.float().view(mask.size(0), 1, 1, mask.size(1)))
+            # w = w + torch.log(mask.float().view(mask.size(0), 1, mask.size(1), 1))
+            wholemask = mask.float().view(mask.size(0), 1, 1, mask.size(1))
         if self.bidir is False:
             seqlen = w.size(-1)
-            causality_mask = torch.tril(torch.ones(seqlen, seqlen)).view(1, 1, seqlen, seqlen)
-            w = w + torch.log(causality_mask)
+            causality_mask = torch.tril(torch.ones(seqlen, seqlen, device=x.device))\
+                .view(1, 1, seqlen, seqlen)
+            wholemask = wholemask * causality_mask if wholemask is not None else causality_mask
             # * self.mask + -1e9 * (1 - self.mask)  # TF implem method: mask_attn_weights
+        if wholemask is not None:
+            w = w + torch.log(wholemask)
         w = nn.Softmax(dim=-1)(w)
         w = self.attn_dropout(w)
         vw = torch.einsum("bhsz,bzhd->bshd", (w, v))  # (batsize, seqlen, numheads, dim_per_head)
@@ -125,34 +130,38 @@ class Block(nn.Module):
         self.mlp = MLP(indim, 4 * indim, activation=activation, dropout=residual_dropout)
         self.ln_2 = LayerNorm(indim)
 
-    def forward(self, x):
-        a = self.attn(x)
-        n = self.ln_1(x + a)
+    def forward(self, x, mask=None):
+        if mask is not None:
+            x = x * mask.float().unsqueeze(-1)
+        a = self.attn(x, mask=mask)
+        n = self.ln_1(x + a, mask=mask)
         m = self.mlp(n)
-        h = self.ln_2(n + m)
+        h = self.ln_2(n + m, mask=mask)
         return h
 
 
-class TransformerModel(nn.Module):
+class Transformer(nn.Module):
     """ Transformer model """
 
-    def __init__(self, cfg, vocab=40990, n_ctx=512):
-        super(TransformerModel, self).__init__()
-        self.vocab = vocab
-        self.embed = nn.Embedding(vocab, cfg.n_embd)
-        self.drop = nn.Dropout(cfg.embd_pdrop)
-        block = Block(n_ctx, cfg, scale=True)
-        self.h = nn.ModuleList([copy.deepcopy(block) for _ in range(cfg.n_layer)])
+    def __init__(self, dim=512, worddic=None, numlayers=1, numheads=None, activation="relu",
+                 bidir=False, embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=False):
+        super(Transformer, self).__init__()
+        self.embed = q.WordEmb(dim, worddic=worddic)
+        self.drop = nn.Dropout(p=embedding_dropout)
+        self.h = nn.ModuleList([Block(dim, bidir=bidir, numheads=numheads, activation=activation,
+                                attention_dropout=attention_dropout, residual_dropout=residual_dropout,
+                                scale=scale) for _ in range(numlayers)])
 
         nn.init.normal_(self.embed.weight, std=0.02)
 
-    def forward(self, x):
+    def forward(self, x, mask=None):
         x = x.view(-1, x.size(-2), x.size(-1))
-        e = self.embed(x)
+        e, xmask = self.embed(x)
+        mask = xmask & mask if (mask is not None and xmask is not None) else (mask if mask is not None else xmask)
         # Add the position information to the input embeddings
         h = e.sum(dim=2)
         for block in self.h:
-            h = block(h)
+            h = block(h, mask=mask)
         return h
 
 # endregion

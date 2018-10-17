@@ -818,4 +818,25 @@ def intercat(tensors, axis=-1):
         t = t.transpose(axis, -1)
     return t
 
-
+def masked_mean(x, dim=None, mask=None, keepdim=False):
+    """
+    Computes masked mean.
+    :param x:           input tensor
+    :param mask:        mask
+    :param dim:
+    :param keepdim:
+    :return:
+    """
+    EPS = 1e-6
+    if mask is None:
+        return torch.mean(x, dim, keepdim=keepdim)
+    else:
+        mask = mask.float()
+        x = x * mask
+        x_sum = torch.sum(x, dim, keepdim=keepdim)
+        mask_sum = torch.sum(mask, dim, keepdim=keepdim)
+        ret = x_sum / (mask_sum + EPS)
+        if mask.size(dim) != x.size(dim):
+            assert(mask.size(dim) == 1)
+            ret = ret / x.size(dim)
+        return ret
