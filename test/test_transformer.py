@@ -30,9 +30,18 @@ class TestAttention(TestCase):
         m_ref = HF_Attention(12, 3, cfg_n_head=numheads)
         # m.qkv_proj = m_ref.c_attn
         # m.vw_proj = m_ref.c_proj
-        m_ref.c_attn.w = torch.nn.Parameter(m.qkv_proj.layer.weight.t())
+        # TODO finish this test (parameter transfer to HF reference model)
+        m_ref.c_attn.w = torch.nn.Parameter(
+            torch.cat([m.q_proj.weight,
+                       m.k_proj.weight,
+                       m.vw_proj.weight], 1)
+        )
         m_ref.c_proj.w = torch.nn.Parameter(m.vw_proj.layer.weight.t())
-        m_ref.c_attn.b = m.qkv_proj.layer.bias
+        m_ref.c_attn.b = torch.nn.Parameter(
+            torch.cat([m.qkv_proj.bias,
+                       m.k_proj.bias,
+                       m.vw_proj.bias], 1)
+        )
         m_ref.c_proj.b = m.vw_proj.layer.bias
 
         y = m(x)
