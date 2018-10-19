@@ -1,26 +1,21 @@
+import math
+
+import numpy as np
 import torch
 from torch import nn
-from torch.nn import Parameter
-import math
-import copy
+
 import qelos_core as q
-import numpy as np
 
 
 # region from huggingface github transformer
-def gelu(x):
-    return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
+class GeLU(nn.Module):
+    def forward(self, x):
+        return 0.5 * x * (1 + torch.tanh(math.sqrt(2 / math.pi) * (x + 0.044715 * torch.pow(x, 3))))
 
 
-def swish(x):
-    return x * torch.sigmoid(x)
-
-
-ACT_FNS = {
-    'relu': nn.ReLU,
-    'swish': swish,
-    'gelu': gelu
-}
+class Swish(nn.Module):
+    def forward(self, x):
+        return x * torch.sigmoid(x)
 
 
 class LayerNorm(nn.Module):
@@ -28,40 +23,20 @@ class LayerNorm(nn.Module):
 
     def __init__(self, dim, e=1e-5):
         super(LayerNorm, self).__init__()
-        self.g = nn.Parameter(torch.ones(dim))
-        self.b = nn.Parameter(torch.zeros(dim))
+        self.g = nn.Parameter(torch.ones(1, 1, dim))
+        self.b = nn.Parameter(torch.zeros(1, 1, dim))
         self.e = e
 
-    def forward(self, x, mask=None):
-        u = q.masked_mean(x, -1, mask=mask, keepdim=True)
-        s = q.masked_mean((x - u).pow(2), -1, mask=mask, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.e)
+    def forward(self, x):
+        u = torch.mean(x, -1, keepdim=True)
+        s = torch.mean((x - u).pow(2), -1, keepdim=True)
+        x = (x - u) / (torch.sqrt(s + self.e))
         return self.g * x + self.b
 
 
-class Conv1D(nn.Module):       # adapted from Conv1D
-    """
-    1D convolution with window size 1 = multiple every vector in input with matrix
-    """
-    def __init__(self, indim, outdim, window=1):     # indim, outdim
-        super(Conv1D, self).__init__()
-        self.indim = indim
-        self.outdim = outdim
-        self.window = window
-        if window != 1:
-            raise NotImplemented()
-        self.layer = torch.nn.Linear(indim, outdim, bias=True)
-        nn.init.normal_(self.layer.weight, std=0.002)
-        nn.init.zeros_(self.layer.bias)
-
-    def forward(self, x):       # (batsize, [seqlen, ...], indim)
-        return self.layer(x)
-
-
 class MultiHeadAttention(nn.Module):
-    ''' Multi-Head Attention module '''
-
-    def __init__(self, indim, kdim=None, vdim=None, bidir=True, numheads=None, attention_dropout=0., residual_dropout=0., scale=False):    # indim):
+    def __init__(self, indim, kdim=None, vdim=None, bidir=True, numheads=None,
+                 attention_dropout=0., residual_dropout=0., scale=True):
         super(MultiHeadAttention, self).__init__()
 
         self.numheads, self.indim = numheads, indim
@@ -69,7 +44,7 @@ class MultiHeadAttention(nn.Module):
         vdim = indim if vdim is None else vdim
         kdim = indim if kdim is None else kdim
 
-        self.d_k = kdim // numheads
+        self.d_k = kdim // numheads     # dim per head in key and query
         self.d_v = vdim // numheads
 
         self.q_proj = nn.Linear(indim, numheads * self.d_k)
@@ -89,24 +64,33 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout = nn.Dropout(attention_dropout)
         self.resid_dropout = nn.Dropout(residual_dropout)
 
+    def update_prev(self, k, v):
+        return k, v
 
     def forward(self, x, k=None, v=None, mask=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
+        """
+        :param x:   is input    (batsize, seqlen, indim)
+        :param k:   if None, x is used for k proj, otherwise provided k
+        :param v:   if None, k is used for v proj, otherwise provided v
+        :param mask:    mask on keys (batsize, seqlen)
+        :return:    (batsize, seqlen, indim)
+        """
         batsize = x.size(0)
         q = x
-        if k is None:
-            k = q
-        if v is None:
-            v = k
+        k = q if k is None else k
+        v = k if v is None else v
 
-        q = self.w_qs(q).view(batsize, q.size(1), self.numheads, self.d_k)
-        k = self.w_ks(k).view(batsize, k.size(1), self.numheads, self.d_k)
-        v = self.w_vs(v).view(batsize, v.size(1), self.numheads, self.d_v)
+        q = self.q_proj(q).view(batsize, q.size(1), self.numheads, self.d_k)
+        k = self.k_proj(k).view(batsize, k.size(1), self.numheads, self.d_k)
+        v = self.v_proj(v).view(batsize, v.size(1), self.numheads, self.d_v)
+
+        k, v = self.update_prev(k, v)
 
         # compute attention weights
         w = torch.einsum("bshd,bzhd->bhsz", (q, k))     # (batsize, numheads, q_seqlen, k_seqlen)
         # scale attention weights
         if self.scale:
-            w = w / math.sqrt(v.size(-1))  # scale attention weights by dimension of values
+            w = w / math.sqrt(self.d_k)  # scale attention weights by dimension of keys
 
         # compute mask
         wholemask = None
@@ -115,8 +99,8 @@ class MultiHeadAttention(nn.Module):
             wholemask = mask.float().view(mask.size(0), 1, 1, mask.size(1))
         if self.bidir is False:
             seqlen = w.size(-1)
-            causality_mask = torch.tril(torch.ones(seqlen, seqlen, device=x.device)) \
-                .view(1, 1, seqlen, seqlen)
+            causality_mask = torch.tril(torch.ones(seqlen, seqlen, device=x.device)).unsqueeze(0).unsqueeze(0)
+                # .view(1, 1, seqlen, seqlen)
             wholemask = wholemask * causality_mask if wholemask is not None else causality_mask
             # * self.mask + -1e9 * (1 - self.mask)  # TF implem method: mask_attn_weights
         # apply mask on attention weights
@@ -129,102 +113,74 @@ class MultiHeadAttention(nn.Module):
 
         # compute summaries based on attention weights w and values v
         vw = torch.einsum("bhsz,bzhd->bshd", (w, v))  # (batsize, seqlen, numheads, dim_per_head)
-
+        ret_vw = vw
         # compute output
         new_shape = vw.size()[:-2] + (vw.size(-2) * vw.size(-1),)
         vw = vw.contiguous().view(*new_shape)
         _vw = self.vw_proj(vw)
         _vw = self.resid_dropout(_vw)
-        return _vw
+        return _vw #, torch.cat([_i.view(_i.size(0), _i.size(1), _i.size(2)*_i.size(3)) for _i in [q, k, v]], 2), \
+               # ret_vw.transpose(2, 1)
 
 
-class OldMultiHeadAttention(nn.Module):
-    """ Multi-head self-attention: the same input is used to generate queries, keys and values. """
-    def __init__(self, indim, window=1, bidir=False, numheads=None, attention_dropout=0., residual_dropout=0., scale=False):    # indim
-        super(OldMultiHeadAttention, self).__init__()
-        outdim = indim  # in Attention: n_state=768 (nx=n_embd)
-        # [switch nx => n_state from Block to Attention to keep identical to TF implem]
-        assert outdim % numheads == 0    # ensure that indim supports the number of heads
-        # self.register_buffer('mask', torch.tril(torch.ones(n_ctx, n_ctx)).view(1, 1, n_ctx, n_ctx))
-        self.numheads = numheads
-        self.scale = scale
-        self.bidir = bidir
-        self.qkv_proj = Conv1D(indim, outdim * 3)     # projects input to query, key and value
-        self.vw_proj = Conv1D(indim, outdim)          # projects after-attention summaries
-        self.attn_dropout = nn.Dropout(attention_dropout)
-        self.resid_dropout = nn.Dropout(residual_dropout)
+class MultiHeadAttentionCell(nn.Module):
+    """
+    For incrementally predicting a next output given a single time step input and previous timestep values
+    """
+    def __init__(self, core:MultiHeadAttention, horizon:int=100, **kw):
+        super(MultiHeadAttentionCell, self).__init__(**kw)
+        self.core = core
+        assert(self.core.bidir is False)     # ensure it was trained in decoder mode
+        self.bidir = True
+        self.horizon = horizon
+        # patch subclass attributes on object in parent class
+        self._prev_k = None      # (batsize, seqlen, numheads, dim)
+        self._prev_v = None
+        # TODO: finish: copy necesary attributes
 
-    def get_qkv(self, x):
-        new_x_shape = x.size()[:-1] + (3, self.numheads, x.size(-1) // self.numheads)
-        qkv = self.qkv_proj(x).view(*new_x_shape)  # in Tensorflow implem: fct split_states
-        # (batsize, seqlen, 3, numheads, dim_per_head)
-        return qkv
+    def rec_reset(self):
+        self._prev_k = None
+        self._prev_v = None
 
-    def _forward(self, q, k, v, mask=None):     # (batsize, seqlen, numheads, dim_per_head)
-        # for every vector in the sequence for every head for every batch, multiply it with every head in the same sequence
-        w = torch.einsum("bshd,bzhd->bhsz", (q, k))
-        # (batsize, numheads, seqlen, seqlen)
-        if self.scale:
-            w = w / math.sqrt(v.size(-1))  # scale attention weights by dimension of values
-        wholemask = None
-        if mask is not None:
-            # w = w + torch.log(mask.float().view(mask.size(0), 1, mask.size(1), 1))
-            wholemask = mask.float().view(mask.size(0), 1, 1, mask.size(1))
-        if self.bidir is False:
-            seqlen = w.size(-1)
-            causality_mask = torch.tril(torch.ones(seqlen, seqlen, device=x.device)) \
-                .view(1, 1, seqlen, seqlen)
-            wholemask = wholemask * causality_mask if wholemask is not None else causality_mask
-            # * self.mask + -1e9 * (1 - self.mask)  # TF implem method: mask_attn_weights
-        if wholemask is not None:
-            w = w + torch.log(wholemask)
-        w = nn.Softmax(dim=-1)(w)
-        w = self.attn_dropout(w)
+    def update_prev(self, k, v):
+        """
+        :param k:   (batsize, 1, numheads, dim_per_head)
+        :param v:   (batsize, 1, numheads, dim_per_head)
+        :return:
+        """
+        if self._prev_k is None:
+            assert(self._prev_v is None)
+            self._prev_k, self._prev_v = k, v
+        else:
+            self._prev_k = torch.cat([self._prev_k, k], 1)
+            self._prev_v = torch.cat([self._prev_v, v], 1)
+        assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
+        if self._prev_k.size(1) > self._horizon:
+            self._prev_k = self._prev_k[:, :-self._horizon]
+            self._prev_v = self._prev_v[:, :-self._horizon]
+        return self._prev_k, self._prev_v
 
-        vw = torch.einsum("bhsz,bzhd->bshd", (w, v))  # (batsize, seqlen, numheads, dim_per_head)
-        # end attention
-
-        new_shape = vw.size()[:-2] + (vw.size(-2) * vw.size(-1),)
-        vw = vw.contiguous().view(*new_shape)
-        _vw = self.vw_proj(vw)
-        _vw = self.resid_dropout(_vw)
-        return _vw
-
-    def forward(self, x, mask=None):   # (batsize, seqlen, indim), (batsize, seqlen)
-        qkv = self.get_qkv(x)
-        q, k, v = qkv[:, :, 0], qkv[:, :, 1], qkv[:, :, 2]
-        ret = self._forward(q, k, v, mask=mask)
+    def forward(self, x, k=None, v=None):
+        """
+        :param x:       (batsize, 1, indim)
+        :param k:       (batsize, 1, kdim)
+        :param v:       (batsize, 1, vdim)
+        :return:        (batsize, 1, indim)
+        """
+        ret = MultiHeadAttention.forward(self, x, k=k, v=v, mask=None)
         return ret
-    
-    
-class CrossMultiHeadAttention(MultiHeadAttention):
-    """ Multi-head attention to be used between encoder and decoder.
-        The difference with default impl. is that input for queries is different from input for keys and values """
-    def __init__(self, indim, window=1, numheads=None, attention_dropout=0., residual_dropout=0., scale=False, **kw):    # indim
-        super(CrossMultiHeadAttention, self).__init__(indim, window=window, bidir=True, numheads=numheads,
-                                                      attention_dropout=attention_dropout,
-                                                      residual_dropout=residual_dropout, scale=scale, **kw)
-        outdim = indim
-        self.qkv_proj = nn.Linear(indim, outdim * 2)     # projects input to query, key and value
-        self.q_proj = nn.Linear(indim, outdim)
-
-    def get_qkv(self, qx, kvx):
-        qshape = qx.size()[:, -1] + (1, self.numheads, qx.size(-1) // self.numheads)
-        q = self.q_proj(qx).view(*qshape)
-        kv_shape = kvx.size()[:, -1] + (2, self.numheads, kvx.size(-1) // self.numheads)
-        kv = self.qkv_proj(kvx).view(*kv_shape)
-        return q, kv
-
-    def forward(self, x, ctx, mask=None):
-        pass
 
 
 class MLP(nn.Module):
-    def __init__(self, indim, dim, window=1, activation=None, dropout=0.):  # in MLP: n_state=3072 (4 * n_embd)
+    def __init__(self, indim, dim, activation=nn.ReLU, dropout=0.):  # in MLP: n_state=3072 (4 * n_embd)
         super(MLP, self).__init__()
-        self.projA = Conv1D(indim, dim, window=window)
-        self.projB = Conv1D(dim, indim, window=window)
-        self.act = ACT_FNS[activation]
+        self.projA = nn.Linear(indim, dim)
+        self.projB = nn.Linear(dim, indim)
+        nn.init.normal_(self.projA.weight, mean=0, std=np.sqrt(2.0 / (indim + dim)))
+        nn.init.normal_(self.projB.weight, mean=0, std=np.sqrt(2.0 / (indim + dim)))
+        nn.init.zeros_(self.projA.bias)
+        nn.init.zeros_(self.projB.bias)
+        self.act = activation()
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
@@ -233,87 +189,274 @@ class MLP(nn.Module):
         return self.dropout(h2)
 
 
-class Block(nn.Module):
+class EncoderBlock(nn.Module):
     """ Normal self-attention block. Used in encoders. """
-    def __init__(self, indim, window=1, bidir=False, numheads=None, activation="relu",
-                 attention_dropout=0., residual_dropout=0., scale=False, **kw):
-        super(Block, self).__init__()
-        self.attn = MultiHeadAttention(indim, window=window, bidir=bidir, numheads=numheads,
-           attention_dropout=attention_dropout, residual_dropout=residual_dropout,
-           scale=scale)
-        self.ln_1 = LayerNorm(indim)
-        self.mlp = MLP(indim, 4 * indim, window=window, activation=activation, dropout=residual_dropout)
-        self.ln_2 = LayerNorm(indim)
+    def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
+                 attention_dropout=0., residual_dropout=0., scale=True, **kw):
+        """
+        :param indim:       dimension of the input vectors
+        :param kdim:        total dimension for the query and key projections
+        :param vdim:        total dimension for the value projection
+        :param bidir:       whether to run this in bidirectional (default) or uni-directional mode.
+                            if uni-directional, this becomes a left-to-right LM-usable block by using triu mask
+        :param numheads:    number of self-attention heads
+        :param activation:  activation function to use
+        :param attention_dropout:   dropout on attention
+        :param residual_dropout:    dropout on residual
+        :param scale:       whether to scale attention weights by dimension of value vectors
+        :param kw:
+        """
+        super(EncoderBlock, self).__init__()
+        self.slf_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=True, numheads=numheads,
+           attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+        self.ln_slf = nn.LayerNorm(indim)
+        self.mlp = MLP(indim, 4 * indim, activation=activation, dropout=residual_dropout)
+        self.ln_ff = nn.LayerNorm(indim)
 
     def forward(self, x, mask=None):
         if mask is not None:
             x = x * mask.float().unsqueeze(-1)
-        a = self.attn(x, mask=mask)
-        n = self.ln_1(x + a, mask=mask)
+        # a = self.slf_attn(x, mask=mask)
+        # h = self.mlp(a+x) + x
+        #
+        a = self.slf_attn(x, mask=mask)
+        n = self.ln_slf(x + a)
         m = self.mlp(n)
-        h = self.ln_2(n + m, mask=mask)
+        h = self.ln_ff(n + m)
+        # h = m + n
         return h
 
 
-class EncoderBlock(Block):
-    def __init__(self, indim, window=1, numheads=None, activation="relu",
-                 attention_dropout=0., residual_dropout=0., scale=False, **kw):
-        super(DecoderBlock, self).__init__(indim, window=window, bidir=True, numheads=numheads,
+class DecoderBlock(EncoderBlock):
+    def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
+                 attention_dropout=0., residual_dropout=0., scale=True, noctx=False, **kw):
+        super(DecoderBlock, self).__init__(indim, kdim=kdim, vdim=vdim, bidir=False, numheads=numheads,
                 activation=activation, attention_dropout=attention_dropout, residual_dropout=residual_dropout,
                 scale=scale, **kw)
+        # additional modules for attention to ctx
+        self.noctx = noctx
+        if not noctx:
+            self.ctx_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=True, numheads=numheads,
+               attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+            self.ln_ctx = LayerNorm(indim)
 
-
-class DecoderBlock(Block):
-    def __init__(self, indim, window=1, numheads=None, activation="relu",
-                 attention_dropout=0., residual_dropout=0., scale=False, **kw):
-        super(DecoderBlock, self).__init__(indim, window=window, bidir=False, numheads=numheads,
-                activation=activation, attention_dropout=attention_dropout, residual_dropout=residual_dropout,
-                scale=scale, **kw)
-
-    def forward(self, x, ctx, mask=None):
+    def forward(self, x, ctx, mask=None, ctxmask=None):
+        """
+        :param x:       decoder input sequence of vectors   (batsize, seqlen_dec, dim)
+        :param ctx:     encoded sequence of vectors         (batsize, seqlen_enc, dim)
+        :param mask:    mask on the dec sequence   (batsize, seqlen_dec)
+        :param ctxmask:    mask on the ctx (instead of mask on x) !!!     (batsize, seqlen_enc)
+        :return:
+        """
         if mask is not None:
             x = x * mask.float().unsqueeze(-1)
-        a = self.attn(x, mask=mask)
-        n = self.ln_1(x + a, mask=mask)
-        m = self.mlp(n)
-        h = self.ln_2(n + m, mask=mask)
+        # if ctxmask is not None:
+        #     ctx = ctx * ctxmask.float().unsqueeze(-1)     # do we need this? no
+        # self attention
+        a = self.slf_attn(x, mask=mask)
+        na = self.ln_slf(x + a, mask=mask)
+        if self.noctx is False:
+            # ctx attention
+            b = self.ctx_attn(na, k=ctx, mask=ctxmask)
+            nb = self.ln_ctx(na + b)
+        else:   # skip the context part
+            nb = na
+        # ff
+        m = self.mlp(nb)
+        h = self.ln_ff(nb + m, mask=mask)
         return h
 
 
-class Transformer(nn.Module):
-    """ Transformer model """
+class DecoderBlockCell(nn.Module):
+    def __init__(self, block:DecoderBlock, horizon:int=100, **kw):
+        super(DecoderBlockCell, self).__init__(**kw)
+        self.core = block
+        self.horizon = horizon
+        self.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
+        # self.ln_slf, self.mlp, self.ln_ff, self.ctx_attn \
+        #     = self.core.ln_slf, self.core.mlp, self.core.ln_ff, self.core.ctx_attn
 
-    def __init__(self, dim=512, worddic=None, numlayers=1, window=1, numheads=None, activation="relu",
-                 bidir=False, embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=False):
-        super(Transformer, self).__init__()
-        self.embed = q.WordEmb(dim, worddic=worddic)
-        self.drop = nn.Dropout(p=embedding_dropout)
-        self.h = nn.ModuleList([Block(dim, window=window, bidir=bidir, numheads=numheads, activation=activation,
-                                attention_dropout=attention_dropout, residual_dropout=residual_dropout,
-                                scale=scale) for _ in range(numlayers)])
+        # TODO: finish: copy necesary attributes
 
-        nn.init.normal_(self.embed.weight, std=0.02)
+    def forward(self, x, ctx, ctxmask=None):
+        """
+        :param x:       (batsize, 1, dim)
+        :param ctx:     (batsize, seqlen, dim)
+        :param ctxmask: (batsize, seqlen)
+        :return:
+        """
+        ret = DecoderBlock.forward(self, x, ctx, ctxmask=ctxmask)
+        return ret
+
+
+class TransformerEncoder(nn.Module):
+    def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8, activation=nn.ReLU,
+                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, **kw):
+        super(TransformerEncoder, self).__init__(**kw)
+        self.maxlen = maxlen
+        posembD = {str(k): k for k in range(maxlen)}
+        self.posemb = q.WordEmb(dim, worddic=posembD) if maxlen > -1 else None
+        self.embdrop = nn.Dropout(p=embedding_dropout)
+        self.layers = nn.ModuleList([
+            EncoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
+                         attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+            for _ in range(numlayers)
+        ])
 
     def forward(self, x, mask=None):
-        x = x.view(-1, x.size(-2), x.size(-1))
-        e, xmask = self.embed(x)
-        mask = xmask.byte() & mask.byte() if (mask is not None and xmask is not None) else (mask if mask is not None else xmask)
-        # Add the position information to the input embeddings
-        h = e.sum(dim=2)
-        for block in self.h:
-            h = block(h, mask=mask)
+        """
+        :param x:       (batsize, seqlen, dim)
+        :param mask:    optional mask (batsize, seqlen)
+        :return:        (batsize, seqlen, outdim)
+        """
+        x = self.embdrop(x)     # TODO: or after adding position embeddings?
+
+        emb = x
+        if self.posemb is not None:
+            assert(x.size(1) < self.maxlen)
+            xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0)
+            posemb = self.posemb(xpos)
+            emb = x + posemb
+
+        h = emb
+
+        for layer in self.layers:
+            h = layer(h, mask=mask)
         return h
 
 
-class EncoderLayer(Block):
-    def __init__(self, indim, window=1, bidir=False, numheads=None, activation="relu",
-                 attention_dropout=0., residual_dropout=0., scale=False, **kw):
-        super(EncoderLayer, self).__init__(indim, window=window, bidir=bidir, numheads=numheads,
-                        activation=activation, attention_dropout=attention_dropout,
-                        residual_dropout=residual_dropout, scale=scale, **kw)
+class TransformerDecoder(TransformerEncoder):
+    def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8, activation=nn.ReLU,
+                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, noctx=False, **kw):
+        super(TransformerDecoder, self).__init__(**kw)
+        self.maxlen = maxlen
+        self.noctx = noctx
+        posembD = {str(k): k for k in range(maxlen)}
+        self.posemb = q.WordEmb(dim, worddic=posembD) if maxlen > -1 else None
+        self.embdrop = nn.Dropout(p=embedding_dropout)
+        self.layers = nn.ModuleList([
+            DecoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
+                         attention_dropout=attention_dropout, residual_dropout=residual_dropout,
+                         scale=scale, noctx=noctx)
+            for _ in range(numlayers)
+        ])
+
+    def forward(self, x, ctx, mask=None, ctxmask=None, _posoffset:int=0):
+        """
+        :param x:       same is Encoder
+        :param ctx:     (batsize, seqlen_ctx, encdim)
+        :param mask:    (batsize, seqlen_out)
+        :param ctxmask:     (batsize, seqlen_ctx)
+        :return:
+        """
+        x = self.embdrop(x)       # TODO: or after adding position embeddings?
+
+        emb = x
+        if self.posemb is not None:
+            assert(x.size(1) <= self.maxlen - _posoffset)
+            xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0) + _posoffset
+            posemb = self.posemb(xpos)
+            emb = emb + posemb
+
+        h = emb
+
+        for layer in self.layers:
+            h = layer(h, ctx, mask=mask, ctxmask=ctxmask)
+        return h
 
 
+class TransformerDecoderCell(nn.Module):
+    def __init__(self, core:TransformerDecoder, horizon:int=100, **kw):
+        super(TransformerDecoderCell, self).__init__(**kw)
+        self.core = core
+        self.horizon = horizon
+        self.layers = nn.ModuleList([
+            DecoderBlockCell(decoderblock, horizon=horizon)
+            for decoderblock in self.core.layers
+        ])
+        self._posoffset = 0
+
+        # TODO: finish: copy necesary attributes
+
+    def rec_reset(self):
+        self._posoffset = 0
+
+    def forward(self, x, ctx, mask=None, ctxmask=None):
+        """
+        :param x:       (batsize, 1, dim)
+        :param ctx:     (batsize, seqlen, dim)
+        :param ctxmask: (batsize, seqlen)
+        :return:
+        """
+        ret = TransformerDecoder.forward(self, x, ctx, mask=None, ctxmask=None, _posoffset=self._posoffset)
+        self._posoffset += 1
+        return ret
 
 
+class TS2S(nn.Module):
+    def __init__(self, encoder:TransformerEncoder, decoder:TransformerDecoder, **kw):
+        super(TS2S, self).__init__(**kw)
+        self.encoder, self.decoder = encoder, decoder
 
+    def forward(self, x, y, xmask=None, ymask=None):
+        """
+        :param x:       (batsize, inpseqlen)
+        :param y:       (batsize, outseqlen)
+        :return:
+        """
+        xemb = self.encoder(x, mask=xmask)
+        out = self.decoder(y, xemb, mask=ymask, ctxmask=xmask)
+        return out
+
+
+class TS2SCell(nn.Module):
+    def __init__(self, core:TS2S, horizon:int=100, **kw):
+        super(TS2SCell, self).__init__(**kw)
+        self.core = core
+        self.horizon = horizon
+        self.encoder = core.encoder
+        self.decoder = TransformerDecoderCell(core.decoder, horizon=horizon)
+        # TODO: avoid computing ctx every time
+        self._x = None
+        self._ctx = None
+        self._ctxmask = None
+
+    def rec_reset(self):
+        self._x, self._ctx, self._ctxmask = None, None, None
+
+    def forward(self, x, y, xmask=None, ymask=None):
+        """
+        :param x:       (batsize, seqlen_enc)
+        :param y:       (batsize, 1)
+        :param xmask:
+        :param ymask:
+        :return:
+        """
+        if self._ctx is None:
+            self._ctx = self.encoder(x, mask=xmask)
+            self._ctxmask = xmask
+        else:
+            assert(x == self._x)
+            assert(xmask == self._ctxmask)
+
+        out = self.decoder(y, self._ctx, mask=ymask, ctxmask=self._ctxmask)
+        return out
+
+
+class TS2S_arg(TS2S):
+    def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8,
+                 activation=nn.ReLU, embedding_dropout=0., attention_dropout=0., residual_dropout=0.,
+                 scale=False, **kw):
+        encoder = TransformerEncoder(dim=dim, kdim=kdim, vdim=vdim, maxlen=maxlen, numlayers=numlayers,
+                                     numheads=numheads, activation=activation,
+                                     embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
+                                     residual_dropout=residual_dropout, scale=scale)
+        decoder = TransformerDecoder(dim=dim, kdim=kdim, vdim=vdim, maxlen=maxlen, numlayers=numlayers,
+                                     numheads=numheads, activation=activation,
+                                     embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
+                                     residual_dropout=residual_dropout, scale=scale, noctx=False)
+        super(TS2S_arg, self).__init__(encoder, decoder, **kw)
+
+
+# TODO: what happens with position embeddings when cells are used?
 # endregion

@@ -109,11 +109,11 @@ class Attention(nn.Module):
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
-        a = self._attn(query, key, value)
-        a = self.merge_heads(a)
+        vw = self._attn(query, key, value)
+        a = self.merge_heads(vw)
         a = self.c_proj(a)
         a = self.resid_dropout(a)
-        return a
+        return a, x, vw
 
 
 class MLP(nn.Module):
