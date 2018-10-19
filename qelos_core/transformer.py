@@ -3,6 +3,7 @@ import math
 import numpy as np
 import torch
 from torch import nn
+from copy import copy
 
 import qelos_core as q
 
@@ -35,9 +36,9 @@ class LayerNorm(nn.Module):
 
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, indim, kdim=None, vdim=None, bidir=True, numheads=None,
-                 attention_dropout=0., residual_dropout=0., scale=True):
-        super(MultiHeadAttention, self).__init__()
+    def __init__(self, indim=None, kdim=None, vdim=None, bidir=True, numheads=None,
+                 attention_dropout=0., residual_dropout=0., scale=True, **kw):
+        super(MultiHeadAttention, self).__init__(**kw)
 
         self.numheads, self.indim = numheads, indim
         self.bidir, self.scale = bidir, scale
@@ -64,8 +65,7 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout = nn.Dropout(attention_dropout)
         self.resid_dropout = nn.Dropout(residual_dropout)
 
-    def update_prev(self, k, v):
-        return k, v
+    def update_prev(self, k, v): return k, v
 
     def forward(self, x, k=None, v=None, mask=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
         """
@@ -129,14 +129,13 @@ class MultiHeadAttentionCell(nn.Module):
     """
     def __init__(self, core:MultiHeadAttention, horizon:int=100, **kw):
         super(MultiHeadAttentionCell, self).__init__(**kw)
-        self.core = core
-        assert(self.core.bidir is False)     # ensure it was trained in decoder mode
-        self.bidir = True
-        self.horizon = horizon
-        # patch subclass attributes on object in parent class
+        self.core = copy(core)
+        self.core.bidir = True
+        self.core.update_prev = lambda k, v: self.update_prev(k, v)
+        assert(core.bidir is False)     # ensure it was trained in decoder mode
+        self._horizon = horizon
         self._prev_k = None      # (batsize, seqlen, numheads, dim)
         self._prev_v = None
-        # TODO: finish: copy necesary attributes
 
     def rec_reset(self):
         self._prev_k = None
@@ -156,18 +155,20 @@ class MultiHeadAttentionCell(nn.Module):
             self._prev_v = torch.cat([self._prev_v, v], 1)
         assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
         if self._prev_k.size(1) > self._horizon:
-            self._prev_k = self._prev_k[:, :-self._horizon]
-            self._prev_v = self._prev_v[:, :-self._horizon]
+            self._prev_k = self._prev_k[:, -self._horizon:]
+            self._prev_v = self._prev_v[:, -self._horizon:]
         return self._prev_k, self._prev_v
 
-    def forward(self, x, k=None, v=None):
+    def forward(self, x, k=None, v=None, mask=None):    # TODO: also accumulate mask
         """
         :param x:       (batsize, 1, indim)
         :param k:       (batsize, 1, kdim)
         :param v:       (batsize, 1, vdim)
         :return:        (batsize, 1, indim)
         """
-        ret = MultiHeadAttention.forward(self, x, k=k, v=v, mask=None)
+        if mask is not None:
+            raise NotImplemented("TODO: implement mask accumulation in MultiHeadAttention and its cell")
+        ret = self.core(x, k=k, v=v, mask=mask)
         return ret
 
 
@@ -192,7 +193,7 @@ class MLP(nn.Module):
 class EncoderBlock(nn.Module):
     """ Normal self-attention block. Used in encoders. """
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
-                 attention_dropout=0., residual_dropout=0., scale=True, **kw):
+                 attention_dropout=0., residual_dropout=0., scale=True, _bidir=True, **kw):
         """
         :param indim:       dimension of the input vectors
         :param kdim:        total dimension for the query and key projections
@@ -207,7 +208,7 @@ class EncoderBlock(nn.Module):
         :param kw:
         """
         super(EncoderBlock, self).__init__()
-        self.slf_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=True, numheads=numheads,
+        self.slf_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=_bidir, numheads=numheads,
            attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
         self.ln_slf = nn.LayerNorm(indim)
         self.mlp = MLP(indim, 4 * indim, activation=activation, dropout=residual_dropout)
@@ -230,7 +231,7 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(EncoderBlock):
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
                  attention_dropout=0., residual_dropout=0., scale=True, noctx=False, **kw):
-        super(DecoderBlock, self).__init__(indim, kdim=kdim, vdim=vdim, bidir=False, numheads=numheads,
+        super(DecoderBlock, self).__init__(indim, kdim=kdim, vdim=vdim, _bidir=False, numheads=numheads,
                 activation=activation, attention_dropout=attention_dropout, residual_dropout=residual_dropout,
                 scale=scale, **kw)
         # additional modules for attention to ctx
@@ -254,7 +255,7 @@ class DecoderBlock(EncoderBlock):
         #     ctx = ctx * ctxmask.float().unsqueeze(-1)     # do we need this? no
         # self attention
         a = self.slf_attn(x, mask=mask)
-        na = self.ln_slf(x + a, mask=mask)
+        na = self.ln_slf(x + a)
         if self.noctx is False:
             # ctx attention
             b = self.ctx_attn(na, k=ctx, mask=ctxmask)
@@ -263,29 +264,25 @@ class DecoderBlock(EncoderBlock):
             nb = na
         # ff
         m = self.mlp(nb)
-        h = self.ln_ff(nb + m, mask=mask)
+        h = self.ln_ff(nb + m)
         return h
 
 
 class DecoderBlockCell(nn.Module):
-    def __init__(self, block:DecoderBlock, horizon:int=100, **kw):
+    def __init__(self, core:DecoderBlock, horizon:int=100, **kw):
         super(DecoderBlockCell, self).__init__(**kw)
-        self.core = block
+        self.core = copy(core)
         self.horizon = horizon
-        self.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
-        # self.ln_slf, self.mlp, self.ln_ff, self.ctx_attn \
-        #     = self.core.ln_slf, self.core.mlp, self.core.ln_ff, self.core.ctx_attn
+        self.core.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
 
-        # TODO: finish: copy necesary attributes
-
-    def forward(self, x, ctx, ctxmask=None):
+    def forward(self, x, ctx, mask=None, ctxmask=None):
         """
         :param x:       (batsize, 1, dim)
         :param ctx:     (batsize, seqlen, dim)
         :param ctxmask: (batsize, seqlen)
         :return:
         """
-        ret = DecoderBlock.forward(self, x, ctx, ctxmask=ctxmask)
+        ret = self.core(x, ctx, mask=mask, ctxmask=ctxmask)
         return ret
 
 
@@ -315,7 +312,7 @@ class TransformerEncoder(nn.Module):
         if self.posemb is not None:
             assert(x.size(1) < self.maxlen)
             xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0)
-            posemb = self.posemb(xpos)
+            posemb, *_ = self.posemb(xpos)
             emb = x + posemb
 
         h = emb
@@ -355,7 +352,7 @@ class TransformerDecoder(TransformerEncoder):
         if self.posemb is not None:
             assert(x.size(1) <= self.maxlen - _posoffset)
             xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0) + _posoffset
-            posemb = self.posemb(xpos)
+            posemb, *_ = self.posemb(xpos)
             emb = emb + posemb
 
         h = emb
@@ -368,9 +365,9 @@ class TransformerDecoder(TransformerEncoder):
 class TransformerDecoderCell(nn.Module):
     def __init__(self, core:TransformerDecoder, horizon:int=100, **kw):
         super(TransformerDecoderCell, self).__init__(**kw)
-        self.core = core
+        self.core = copy(core)
         self.horizon = horizon
-        self.layers = nn.ModuleList([
+        self.core.layers = nn.ModuleList([
             DecoderBlockCell(decoderblock, horizon=horizon)
             for decoderblock in self.core.layers
         ])
@@ -388,7 +385,7 @@ class TransformerDecoderCell(nn.Module):
         :param ctxmask: (batsize, seqlen)
         :return:
         """
-        ret = TransformerDecoder.forward(self, x, ctx, mask=None, ctxmask=None, _posoffset=self._posoffset)
+        ret = self.core(x, ctx, mask=None, ctxmask=None, _posoffset=self._posoffset)
         self._posoffset += 1
         return ret
 
@@ -416,7 +413,6 @@ class TS2SCell(nn.Module):
         self.horizon = horizon
         self.encoder = core.encoder
         self.decoder = TransformerDecoderCell(core.decoder, horizon=horizon)
-        # TODO: avoid computing ctx every time
         self._x = None
         self._ctx = None
         self._ctxmask = None
@@ -436,8 +432,9 @@ class TS2SCell(nn.Module):
             self._ctx = self.encoder(x, mask=xmask)
             self._ctxmask = xmask
         else:
-            assert(x == self._x)
-            assert(xmask == self._ctxmask)
+            pass
+            # assert(x == self._x)
+            # assert(xmask == self._ctxmask)
 
         out = self.decoder(y, self._ctx, mask=ymask, ctxmask=self._ctxmask)
         return out
@@ -446,7 +443,7 @@ class TS2SCell(nn.Module):
 class TS2S_arg(TS2S):
     def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8,
                  activation=nn.ReLU, embedding_dropout=0., attention_dropout=0., residual_dropout=0.,
-                 scale=False, **kw):
+                 scale=True, **kw):
         encoder = TransformerEncoder(dim=dim, kdim=kdim, vdim=vdim, maxlen=maxlen, numlayers=numlayers,
                                      numheads=numheads, activation=activation,
                                      embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
@@ -457,6 +454,4 @@ class TS2S_arg(TS2S):
                                      residual_dropout=residual_dropout, scale=scale, noctx=False)
         super(TS2S_arg, self).__init__(encoder, decoder, **kw)
 
-
-# TODO: what happens with position embeddings when cells are used?
 # endregion

@@ -81,13 +81,66 @@ class TestAttentionCell(TestCase):
         x.requires_grad = True
         numheads = 6
         m = MultiHeadAttention(12, numheads=numheads, bidir=False)
+        mc = MultiHeadAttentionCell(m, 5)
+
+        ys = []
+        for i in range(x.size(1)):
+            y = mc(x[:, i].unsqueeze(1))
+            print(y.size())
+            ys.append(y)
+
+        ys = torch.cat(ys, 1)
+        l = ys.sum()
+        l.backward()
+        xgrad = x.grad
+        print(xgrad.norm(1, 2))
+        m.zero_grad()
+        mc.zero_grad()
+
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+        ys_ref = m(x)
+        l = ys_ref.sum()
+        l.backward()
+        print(x.grad.norm(1, 2))
+
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy()))
+
+    def test_it_window(self):
+        x = torch.randn(4, 5, 12)
+        x.requires_grad = True
+        numheads = 6
+        m = MultiHeadAttention(12, numheads=numheads, bidir=False)
         mc = MultiHeadAttentionCell(m, 3)
 
         ys = []
         for i in range(x.size(1)):
-            y = mc(x[:, i:i+1])
+            y = mc(x[:, i].unsqueeze(1))
             print(y.size())
             ys.append(y)
+
+        l = y.sum()
+        l.backward(retain_graph=True)
+        # TODO: check that outside window, grad on x is zero
+        x.grad = None
+
+        ys = torch.cat(ys, 1)
+        l = ys[:, 2].sum()
+        l.backward()
+        xgrad = x.grad
+        print(xgrad.norm(1, 2))
+
+        m.zero_grad()
+        mc.zero_grad()
+
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+        ys_ref = m(x)
+        l = ys_ref[:, 2].sum()
+        l.backward()
+        print(x.grad.norm(1, 2))
+
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy()))
 
 
 
@@ -120,5 +173,44 @@ class TestEncoderBlock(TestCase):
         l.backward()
 
         print(x.grad.norm(1, 2))
+
+
+class TestTS2S(TestCase):
+    def test_it(self):
+        x = torch.randn(4, 5, 12)
+        y = torch.randn(4, 5, 12)
+        x.requires_grad = True
+        y.requires_grad = True
+        numheads = 6
+        m = TS2S_arg(dim=12, numlayers=2, numheads=numheads)
+        z = m(x, y)
+        print(z.size())
+        z[:, -1].norm().backward()
+        xgrad = x.grad
+        ygrad = y.grad
+        print(xgrad.norm(1, 2))
+        print(ygrad.norm(1, 2))
+
+        mc = TS2SCell(m, 6)
+
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+        y = torch.tensor(y.detach().numpy() + 0.)
+        y.requires_grad = True
+        print("y size: ", y.size())
+
+        zs = []
+        for i in range(y.size(1)):
+            z = mc(x, y[:, i].unsqueeze(1))
+            print(z.size())
+            zs.append(z)
+
+        z = torch.cat(zs, 1)
+        z[:, -1].norm().backward()
+        print(x.grad.norm(1, 2))
+        print(y.grad.norm(1, 2))
+
+        self.assertTrue(np.allclose(ygrad.detach().numpy(), y.grad.detach().numpy()))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy()))
 
 
