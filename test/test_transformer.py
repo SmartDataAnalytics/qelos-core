@@ -104,7 +104,7 @@ class TestAttentionCell(TestCase):
         l.backward()
         print(x.grad.norm(1, 2))
 
-        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy()))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy(), atol=1e-6))
 
     def test_it_window(self):
         x = torch.randn(4, 5, 12)
@@ -175,6 +175,101 @@ class TestEncoderBlock(TestCase):
         print(x.grad.norm(1, 2))
 
 
+class TestDecoderBlock(TestCase):
+    def test_it(self):
+        x = torch.randn(3, 4, 12)
+        x.requires_grad = True
+
+        m = DecoderBlock(12, numheads=4, noctx=True)
+        mc = DecoderBlockCell(m, 5)
+
+        y = m(x)
+        y.norm(1).backward()
+
+        xgrad = x.grad
+        print(y.norm(1, 2))
+        print(xgrad.norm(1, 2))
+
+        # x = torch.randn(3, 4, 12)
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+
+        ys = []
+        for i in range(x.size(1)):
+            ys.append(mc(x[:, i].unsqueeze(1)))
+        ys = torch.cat(ys, 1)
+        print(ys.norm(1, 2))
+        ys.norm(1).backward()
+
+        xsgrad = x.grad
+        print(xsgrad.norm(1, 2))
+        self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
+
+
+class TestDecoderTransformer(TestCase):
+    def test_it(self):
+        x = torch.randn(3, 4, 12)
+        x.requires_grad = True
+
+        m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=True)
+        mc = TransformerDecoderCell(m, 5)
+
+        y = m(x)
+        y.norm(1).backward()
+
+        xgrad = x.grad
+        print(y.norm(1, 2))
+        print(xgrad.norm(1, 2))
+
+        # x = torch.randn(3, 4, 12)
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+
+        ys = []
+        for i in range(x.size(1)):
+            ys.append(mc(x[:, i].unsqueeze(1)))
+        ys = torch.cat(ys, 1)
+        print(ys.norm(1, 2))
+        ys.norm(1).backward()
+
+        xsgrad = x.grad
+        print(xsgrad.norm(1, 2))
+        self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
+
+    def test_it_with_ctx(self):
+        x = torch.randn(3, 4, 12)
+        ctx = torch.randn(3, 5, 12)
+        x.requires_grad = True
+
+        m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=False)
+        mc = TransformerDecoderCell(m, 5)
+
+        y = m(x, ctx)
+        y.norm(1).backward()
+
+        xgrad = x.grad
+        print(y.norm(1, 2))
+        print(xgrad.norm(1, 2))
+
+        # x = torch.randn(3, 4, 12)
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+
+        ys = []
+        for i in range(x.size(1)):
+            ys.append(mc(x[:, i].unsqueeze(1), ctx))
+        ys = torch.cat(ys, 1)
+        print(ys.norm(1, 2))
+        ys.norm(1).backward()
+
+        xsgrad = x.grad
+        print(xsgrad.norm(1, 2))
+        self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
+
+
 class TestTS2S(TestCase):
     def test_it(self):
         x = torch.randn(4, 5, 12)
@@ -185,13 +280,14 @@ class TestTS2S(TestCase):
         m = TS2S_arg(dim=12, numlayers=2, numheads=numheads)
         z = m(x, y)
         print(z.size())
-        z[:, -1].norm().backward()
+        z[:, -1].norm(1).backward()
         xgrad = x.grad
         ygrad = y.grad
         print(xgrad.norm(1, 2))
         print(ygrad.norm(1, 2))
+        zref = z
 
-        mc = TS2SCell(m, 6)
+        mc = TS2SCell(m, 5)
 
         x = torch.tensor(x.detach().numpy() + 0.)
         x.requires_grad = True
@@ -206,11 +302,15 @@ class TestTS2S(TestCase):
             zs.append(z)
 
         z = torch.cat(zs, 1)
-        z[:, -1].norm().backward()
+        z[:, -1].norm(1).backward()
         print(x.grad.norm(1, 2))
         print(y.grad.norm(1, 2))
 
-        self.assertTrue(np.allclose(ygrad.detach().numpy(), y.grad.detach().numpy()))
-        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy()))
+        print(z.norm(1, 2), zref.norm(1, 2))
+        print((z-zref).norm())
+        self.assertTrue(np.allclose(z.detach().numpy(), zref.detach().numpy(), atol=1e-6))
+
+        self.assertTrue(np.allclose(ygrad.detach().numpy(), y.grad.detach().numpy(), atol=1e-6))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), x.grad.detach().numpy(), atol=1e-6))
 
 

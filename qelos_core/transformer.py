@@ -3,7 +3,7 @@ import math
 import numpy as np
 import torch
 from torch import nn
-from copy import copy
+from copy import copy, deepcopy
 
 import qelos_core as q
 
@@ -65,9 +65,7 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout = nn.Dropout(attention_dropout)
         self.resid_dropout = nn.Dropout(residual_dropout)
 
-    def update_prev(self, k, v): return k, v
-
-    def forward(self, x, k=None, v=None, mask=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
+    def forward(self, x, k=None, v=None, mask=None, _update_prev_f=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
         """
         :param x:   is input    (batsize, seqlen, indim)
         :param k:   if None, x is used for k proj, otherwise provided k
@@ -84,7 +82,8 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(k).view(batsize, k.size(1), self.numheads, self.d_k)
         v = self.v_proj(v).view(batsize, v.size(1), self.numheads, self.d_v)
 
-        k, v = self.update_prev(k, v)
+        if _update_prev_f is not None:
+            k, v = _update_prev_f(k, v)
 
         # compute attention weights
         w = torch.einsum("bshd,bzhd->bhsz", (q, k))     # (batsize, numheads, q_seqlen, k_seqlen)
@@ -129,9 +128,9 @@ class MultiHeadAttentionCell(nn.Module):
     """
     def __init__(self, core:MultiHeadAttention, horizon:int=100, **kw):
         super(MultiHeadAttentionCell, self).__init__(**kw)
-        self.core = copy(core)
+        self.core = deepcopy(core)
         self.core.bidir = True
-        self.core.update_prev = lambda k, v: self.update_prev(k, v)
+        # self.core.update_prev = lambda k, v: self.update_prev(k, v)
         assert(core.bidir is False)     # ensure it was trained in decoder mode
         self._horizon = horizon
         self._prev_k = None      # (batsize, seqlen, numheads, dim)
@@ -147,6 +146,8 @@ class MultiHeadAttentionCell(nn.Module):
         :param v:   (batsize, 1, numheads, dim_per_head)
         :return:
         """
+        assert(k.size(1) == 1)
+        assert(v.size(1) == 1)
         if self._prev_k is None:
             assert(self._prev_v is None)
             self._prev_k, self._prev_v = k, v
@@ -168,7 +169,7 @@ class MultiHeadAttentionCell(nn.Module):
         """
         if mask is not None:
             raise NotImplemented("TODO: implement mask accumulation in MultiHeadAttention and its cell")
-        ret = self.core(x, k=k, v=v, mask=mask)
+        ret = self.core(x, k=k, v=v, mask=mask, _update_prev_f=lambda _k, _v: self.update_prev(_k, _v))
         return ret
 
 
@@ -241,7 +242,7 @@ class DecoderBlock(EncoderBlock):
                attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
             self.ln_ctx = LayerNorm(indim)
 
-    def forward(self, x, ctx, mask=None, ctxmask=None):
+    def forward(self, x, ctx=None, mask=None, ctxmask=None):
         """
         :param x:       decoder input sequence of vectors   (batsize, seqlen_dec, dim)
         :param ctx:     encoded sequence of vectors         (batsize, seqlen_enc, dim)
@@ -271,11 +272,11 @@ class DecoderBlock(EncoderBlock):
 class DecoderBlockCell(nn.Module):
     def __init__(self, core:DecoderBlock, horizon:int=100, **kw):
         super(DecoderBlockCell, self).__init__(**kw)
-        self.core = copy(core)
+        self.core = deepcopy(core)
         self.horizon = horizon
         self.core.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
 
-    def forward(self, x, ctx, mask=None, ctxmask=None):
+    def forward(self, x, ctx=None, mask=None, ctxmask=None):
         """
         :param x:       (batsize, 1, dim)
         :param ctx:     (batsize, seqlen, dim)
@@ -338,7 +339,7 @@ class TransformerDecoder(TransformerEncoder):
             for _ in range(numlayers)
         ])
 
-    def forward(self, x, ctx, mask=None, ctxmask=None, _posoffset:int=0):
+    def forward(self, x, ctx=None, mask=None, ctxmask=None, _posoffset:int=0):
         """
         :param x:       same is Encoder
         :param ctx:     (batsize, seqlen_ctx, encdim)
@@ -365,7 +366,7 @@ class TransformerDecoder(TransformerEncoder):
 class TransformerDecoderCell(nn.Module):
     def __init__(self, core:TransformerDecoder, horizon:int=100, **kw):
         super(TransformerDecoderCell, self).__init__(**kw)
-        self.core = copy(core)
+        self.core = deepcopy(core)
         self.horizon = horizon
         self.core.layers = nn.ModuleList([
             DecoderBlockCell(decoderblock, horizon=horizon)
@@ -373,12 +374,10 @@ class TransformerDecoderCell(nn.Module):
         ])
         self._posoffset = 0
 
-        # TODO: finish: copy necesary attributes
-
     def rec_reset(self):
         self._posoffset = 0
 
-    def forward(self, x, ctx, mask=None, ctxmask=None):
+    def forward(self, x, ctx=None, mask=None, ctxmask=None):
         """
         :param x:       (batsize, 1, dim)
         :param ctx:     (batsize, seqlen, dim)
@@ -409,7 +408,7 @@ class TS2S(nn.Module):
 class TS2SCell(nn.Module):
     def __init__(self, core:TS2S, horizon:int=100, **kw):
         super(TS2SCell, self).__init__(**kw)
-        self.core = core
+        self.core = core        # no deepcopy here! ...?
         self.horizon = horizon
         self.encoder = core.encoder
         self.decoder = TransformerDecoderCell(core.decoder, horizon=horizon)
