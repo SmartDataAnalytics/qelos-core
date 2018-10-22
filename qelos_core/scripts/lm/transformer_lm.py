@@ -1,6 +1,7 @@
 import torch
 import qelos_core as q
 import os
+import random
 
 
 def load_data(p="../../../datasets/wikitext2/",
@@ -62,28 +63,65 @@ def load_data(p="../../../datasets/wikitext2/",
         data = data.view(bsz, -1).t().contiguous()
         return data
 
-    train_data = batchify(corpus.train, batsize)
+    D = corpus.dictionary.word2idx
+    train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
     valid_data = batchify(corpus.valid, eval_batsize)
     test_data = batchify(corpus.test, eval_batsize)
-    D = corpus.dictionary.word2idx
-    train_data = LMLoader(train_data, seqlen)
-    valid_data = LMLoader(valid_data, seqlen)
-    test_data = LMLoader(test_data, seqlen)
+    valid_data = LMLoader_Test(valid_data, seqlen)
+    test_data = LMLoader_Test(test_data, seqlen)
     return train_data, valid_data, test_data, D
+
+
+class LMLoader_Test(object):
+    """ data loader for LM data """
+    def __init__(self, data, seqlen):
+        super(LMLoader_Test, self).__init__()
+        self.data = data
+        self.seqlen = seqlen
+
+    def __iter__(self):
+        return _LMLoaderIter_Test(self)
+
+    def __len__(self):
+        return 1 + ((len(self.data)-1) // self.seqlen.mu)
+
+
+class _LMLoaderIter_Test(object):
+    def __init__(self, lmloader):
+        super(_LMLoaderIter_Test, self).__init__()
+        self.lml = lmloader
+        self.i = 1
+
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen.mu)
+
+    def __next__(self):
+        if self.i < len(self.lml.data):
+            batch = self.lml.data[self.i-1]
+            batch_g = self.lml.data[self.i]
+            self.i += 1
+            return batch.transpose(1, 0), batch_g.transpose(1, 0)
+        else:
+            self.i = 0
+            raise StopIteration()
 
 
 class LMLoader(object):
     """ data loader for LM data """
-    def __init__(self, data, seqlen):
+    def __init__(self, data, seqlen, batsize):
         super(LMLoader, self).__init__()
         self.data = data
         self.seqlen = seqlen
+        self.batsize = batsize
 
     def __iter__(self):
         return _LMLoaderIter(self)
 
     def __len__(self):
-        return 1 + ( (len(self.data)-1) // self.seqlen)
+        return 1 + ( (len(self.data)-1) // (self.seqlen * self.batsize))
 
 
 class _LMLoaderIter(object):
@@ -96,20 +134,22 @@ class _LMLoaderIter(object):
         return self
 
     def __len__(self):
-        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen)
+        return 1 + ((len(self.lml.data)-1) // (self.lml.seqlen + self.lml.batsize))
 
     def __next__(self):
-        if self.i < len(self.lml.data)-1:
-            seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
-            batch = self.lml.data[self.i: self.i + seqlen]
-            batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
-            self.i += seqlen
-            return batch.transpose(1, 0), batch_g.transpose(1, 0)
-        else:
-            self.i = 0
+        if self.i >= len(self.lml):
             raise StopIteration()
+        self.i += 1
+        out = []
+        for k in range(self.lml.batsize):
+            start = random.randint(0, self.lml.data.size(0) - self.lml.seqlen)
+            out.append(self.lml.data[start: start+self.lml.seqlen])
+        out = torch.stack(out, 0)
+        gold = out[:, 1:]
+        out = out[:, :-1]
+        return out, gold
 
-
+# region rnn lm model -- don't need this for transformers
 class LMModel(torch.nn.Module, q.AutoHooker):
     """
     A language model must implement autohooker such that:
@@ -161,7 +201,7 @@ class RNNLayer_LM(LMModel):
         out = self.dropout(out)
         out = self.out(out)
         return out
-
+# endregion
 
 def run(lr=20.,
         dropout=0.2,
@@ -190,6 +230,8 @@ def run(lr=20.,
 
     tt.tick("creating model")
     dims = [embdim] + ([encdim] * numlayers)
+
+    # TODO: create transformer LM model and its test version
     m = RNNLayer_LM(*dims, worddic=D, dropout=dropout)
 
     if test:
@@ -204,7 +246,7 @@ def run(lr=20.,
 
     optim = torch.optim.SGD(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
-    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1 / 4, patience=0, verbose=True)
+    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1 / 2, patience=1, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
     tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)

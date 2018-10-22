@@ -82,11 +82,19 @@ class MultiHeadAttention(nn.Module):
 
         self.relpos_emb = None
         self._cache_relpos_vec = None
-        self._cache_relpos_size = None
-        if relpos is True:
+        self._cache_relpos_sizes = None
+        self.relpos_k_proj = None
+        if relpos is True or relpos == "full":
+            print("using simple relative position")
             waves = get_sinusoid_encoding_table(maxlen, indim, start=-maxlen)
-            self.relpos_emb = torch.nn.Embedding.from_pretrained(waves)
+            self.relpos_emb = torch.nn.Embedding.from_pretrained(waves, freeze=True)
             self.maxlen = maxlen
+            if relpos == "full":        # TODO: test
+                self.relpos_k_proj = nn.Linear(indim, numheads * self.d_k)    # projecting for rel position keys
+                self.relpos_u = torch.nn.Parameter(torch.empty(numheads, self.d_k))
+                self.relpos_v = torch.nn.Parameter(torch.empty(numheads, self.d_k))
+                nn.init.xavier_normal_(self.relpos_u)
+                nn.init.xavier_normal_(self.relpos_v)
 
         self.vw_proj = nn.Linear(vdim, indim)
         nn.init.xavier_normal_(self.vw_proj.weight)
@@ -104,39 +112,55 @@ class MultiHeadAttention(nn.Module):
         :return:    (batsize, seqlen, indim)
         """
         batsize = x.size(0)
-        q = x
-        k = q if k is None else k
-        v = k if v is None else v
+        _q = x
+        _k = _q if k is None else k
+        _v = _k if v is None else v
 
-        q = self.q_proj(q).view(batsize, q.size(1), self.numheads, self.d_k)
-        k = self.k_proj(k).view(batsize, k.size(1), self.numheads, self.d_k)
-        v = self.v_proj(v).view(batsize, v.size(1), self.numheads, self.d_v)
-
-        # region relative position matrix and projection
-        relpos_vec_heads = None
-        if self.relpos_emb is not None:
-            if self._cache_relpos_size != x.size(1):
-                relpos_idx = torch.arange(0, 2 * k.size(1)).unsqueeze(0)
-                relpos_offsets = torch.arange(0, q.size(1)).unsqueeze(1) * (-1)
-                relpos_idx = relpos_idx + relpos_offsets
-                relpos_idx = relpos_idx[:, :k.size(1)].to(x.device)
-                relpos_vec = self.relpos_emb(relpos_idx + self.maxlen)
-                # (seqlen_q, seqlen_k, relposembdim)
-                self._cache_relpos_vec = relpos_vec
-            relpos_vec_proj = self.k_proj(self._cache_relpos_vec)
-            relpos_vec_heads = relpos_vec_proj.view(q.size(1), k.size(1), self.numheads, self.d_k)
-            # (seqlen, seqlen, numheads, dim_per_head)
-
-        # endregion
+        q = self.q_proj(_q).view(batsize, _q.size(1), self.numheads, self.d_k)
+        k = self.k_proj(_k).view(batsize, _k.size(1), self.numheads, self.d_k)
+        v = self.v_proj(_v).view(batsize, _v.size(1), self.numheads, self.d_v)
 
         if _update_prev_f is not None:
             k, v = _update_prev_f(k, v)
 
+        # region relative position matrix and projection
+        relpos_vec_heads = None
+        relpos_kR = None
+        if self.relpos_emb is not None:
+            if self._cache_relpos_sizes != (q.size(1), k.size(1)):
+                relpos_offset = k.size(1) - q.size(1)       # right-align q re. rel positions if q is shorter than k
+                assert(relpos_offset >= 0)
+                relpos_idx = torch.arange(0, 2 * k.size(1)).unsqueeze(0)
+                relpos_offsets = torch.arange(0, q.size(1)).unsqueeze(1) + relpos_offset
+                relpos_idx = relpos_idx - relpos_offsets
+                relpos_idx = relpos_idx[:, :k.size(1)].to(x.device)
+                relpos_vec = self.relpos_emb(relpos_idx + self.maxlen)
+                # (seqlen_q, seqlen_k, relposembdim)
+                self._cache_relpos_vec = relpos_vec
+                self._cache_relpos_sizes = (q.size(1), k.size(1))
+            relpos_vec_proj = self.k_proj(self._cache_relpos_vec)
+            relpos_vec_heads = relpos_vec_proj.view(q.size(1), k.size(1), self.numheads, self.d_k)
+            # (seqlen, seqlen, numheads, dim_per_head)
+            if self.relpos_k_proj is not None:
+                relpos_kR = self.relpos_k_proj(_k).view(batsize, _k.size(1), self.numheads, self.d_k)
+                relpos_vecR = self.relpos_k_proj(self._cache_relpos_vec)\
+                    .view(q.size(1), k.size(1), self.numheads, self.d_k)
+        # endregion
+
         # compute attention weights
         w = torch.einsum("bshd,bzhd->bhsz", (q, k))     # (batsize, numheads, q_seqlen, k_seqlen)
+
+        # region relative position
         if relpos_vec_heads is not None:
             w_relpos = torch.einsum("bshd,szhd->bhsz", (q, relpos_vec_heads))
             w = w + w_relpos
+            if relpos_kR is not None:
+                w_uR = torch.einsum("hd,bzhd->bhz", (self.relpos_u, relpos_kR)).unsqueeze(2)
+                w_vR = torch.einsum("hd,szhd->hsz", (self.relpos_v, relpos_vecR)).unsqueeze(0)
+                w = w + w_uR
+                w = w + w_vR
+        # endregion
+
         # scale attention weights
         if self.scale:
             w = w / math.sqrt(self.d_k)  # scale attention weights by dimension of keys
@@ -168,7 +192,10 @@ class MultiHeadAttention(nn.Module):
         vw = vw.contiguous().view(*new_shape)
         _vw = self.vw_proj(vw)
         _vw = self.resid_dropout(_vw)
-        return _vw #, torch.cat([_i.view(_i.size(0), _i.size(1), _i.size(2)*_i.size(3)) for _i in [q, k, v]], 2), \
+        return _vw  #q.transpose(2, 1)
+
+
+        # #, torch.cat([_i.view(_i.size(0), _i.size(1), _i.size(2)*_i.size(3)) for _i in [q, k, v]], 2), \
                # ret_vw.transpose(2, 1)
 
 
@@ -348,7 +375,7 @@ class TransformerEncoder(nn.Module):
         super(TransformerEncoder, self).__init__(**kw)
         self.maxlen = maxlen
         posembD = {str(k): k for k in range(maxlen)}
-        self.posemb = q.WordEmb(dim, worddic=posembD) if maxlen > -1 else None
+        self.posemb = q.WordEmb(dim, worddic=posembD) if (maxlen > -1 and relpos is False) else None
         self.embdrop = nn.Dropout(p=embedding_dropout)
         self.layers = nn.ModuleList([
             EncoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
@@ -387,7 +414,7 @@ class TransformerDecoder(TransformerEncoder):
         self.maxlen = maxlen
         self.noctx = noctx
         posembD = {str(k): k for k in range(maxlen)}
-        self.posemb = q.WordEmb(dim, worddic=posembD) if maxlen > -1 else None
+        self.posemb = q.WordEmb(dim, worddic=posembD) if (maxlen > -1 and relpos is False) else None
         self.embdrop = nn.Dropout(p=embedding_dropout)
         self.layers = nn.ModuleList([
             DecoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
@@ -395,6 +422,8 @@ class TransformerDecoder(TransformerEncoder):
                          scale=scale, noctx=noctx, maxlen=maxlen, relpos=relpos)
             for _ in range(numlayers)
         ])
+        if self.posemb is None:
+            print("no absolute position embeddings")
 
     def forward(self, x, ctx=None, mask=None, ctxmask=None, _posoffset:int=0):
         """

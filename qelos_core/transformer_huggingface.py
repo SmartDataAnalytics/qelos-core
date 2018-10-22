@@ -88,7 +88,7 @@ class Attention(nn.Module):
         w = w * self.b + -1e9 * (1 - self.b)  # TF implem method: mask_attn_weights
         w = nn.Softmax(dim=-1)(w)
         w = self.attn_dropout(w)
-        return torch.matmul(w, v)
+        return torch.matmul(w, v), w
 
     def merge_heads(self, x):
         x = x.permute(0, 2, 1, 3).contiguous()
@@ -109,11 +109,11 @@ class Attention(nn.Module):
         query = self.split_heads(query)
         key = self.split_heads(key, k=True)
         value = self.split_heads(value)
-        vw = self._attn(query, key, value)
+        vw, w = self._attn(query, key, value)
         a = self.merge_heads(vw)
         a = self.c_proj(a)
         a = self.resid_dropout(a)
-        return a #, x, vw
+        return a, w #, query
 
 
 class MLP(nn.Module):
