@@ -8,6 +8,27 @@ from copy import copy, deepcopy
 import qelos_core as q
 
 
+def get_sinusoid_encoding_table(seqlen, dim, start=0, padding_idx=None):
+    ''' Sinusoid position encoding table '''
+
+    def cal_angle(position, hid_idx):
+        return position / np.power(10000, 2 * (hid_idx // 2) / dim)
+
+    def get_posi_angle_vec(position):
+        return [cal_angle(position, hid_j) for hid_j in range(dim)]
+
+    sinusoid_table = np.array([get_posi_angle_vec(pos_i) for pos_i in range(start, seqlen)])
+
+    sinusoid_table[:, 0::2] = np.sin(sinusoid_table[:, 0::2])  # dim 2i
+    sinusoid_table[:, 1::2] = np.cos(sinusoid_table[:, 1::2])  # dim 2i+1
+
+    if padding_idx is not None:
+        # zero vector for padding dimension
+        sinusoid_table[padding_idx] = 0.
+
+    return torch.tensor(sinusoid_table.astype("float32"))
+
+
 # region from huggingface github transformer
 class GeLU(nn.Module):
     def forward(self, x):
@@ -37,7 +58,8 @@ class LayerNorm(nn.Module):
 
 class MultiHeadAttention(nn.Module):
     def __init__(self, indim=None, kdim=None, vdim=None, bidir=True, numheads=None,
-                 attention_dropout=0., residual_dropout=0., scale=True, **kw):
+                 attention_dropout=0., residual_dropout=0., scale=True,
+                 maxlen=500, relpos=False, **kw):
         super(MultiHeadAttention, self).__init__(**kw)
 
         self.numheads, self.indim = numheads, indim
@@ -57,6 +79,14 @@ class MultiHeadAttention(nn.Module):
         nn.init.zeros_(self.q_proj.bias)
         nn.init.zeros_(self.k_proj.bias)
         nn.init.zeros_(self.v_proj.bias)
+
+        self.relpos_emb = None
+        self._cache_relpos_vec = None
+        self._cache_relpos_size = None
+        if relpos is True:
+            waves = get_sinusoid_encoding_table(maxlen, indim, start=-maxlen)
+            self.relpos_emb = torch.nn.Embedding.from_pretrained(waves)
+            self.maxlen = maxlen
 
         self.vw_proj = nn.Linear(vdim, indim)
         nn.init.xavier_normal_(self.vw_proj.weight)
@@ -82,11 +112,31 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(k).view(batsize, k.size(1), self.numheads, self.d_k)
         v = self.v_proj(v).view(batsize, v.size(1), self.numheads, self.d_v)
 
+        # region relative position matrix and projection
+        relpos_vec_heads = None
+        if self.relpos_emb is not None:
+            if self._cache_relpos_size != x.size(1):
+                relpos_idx = torch.arange(0, 2 * k.size(1)).unsqueeze(0)
+                relpos_offsets = torch.arange(0, q.size(1)).unsqueeze(1) * (-1)
+                relpos_idx = relpos_idx + relpos_offsets
+                relpos_idx = relpos_idx[:, :k.size(1)].to(x.device)
+                relpos_vec = self.relpos_emb(relpos_idx + self.maxlen)
+                # (seqlen_q, seqlen_k, relposembdim)
+                self._cache_relpos_vec = relpos_vec
+            relpos_vec_proj = self.k_proj(self._cache_relpos_vec)
+            relpos_vec_heads = relpos_vec_proj.view(q.size(1), k.size(1), self.numheads, self.d_k)
+            # (seqlen, seqlen, numheads, dim_per_head)
+
+        # endregion
+
         if _update_prev_f is not None:
             k, v = _update_prev_f(k, v)
 
         # compute attention weights
         w = torch.einsum("bshd,bzhd->bhsz", (q, k))     # (batsize, numheads, q_seqlen, k_seqlen)
+        if relpos_vec_heads is not None:
+            w_relpos = torch.einsum("bshd,szhd->bhsz", (q, relpos_vec_heads))
+            w = w + w_relpos
         # scale attention weights
         if self.scale:
             w = w / math.sqrt(self.d_k)  # scale attention weights by dimension of keys
@@ -194,7 +244,8 @@ class MLP(nn.Module):
 class EncoderBlock(nn.Module):
     """ Normal self-attention block. Used in encoders. """
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
-                 attention_dropout=0., residual_dropout=0., scale=True, _bidir=True, **kw):
+                 attention_dropout=0., residual_dropout=0., scale=True, _bidir=True,
+                 maxlen=500, relpos=False, **kw):
         """
         :param indim:       dimension of the input vectors
         :param kdim:        total dimension for the query and key projections
@@ -210,7 +261,8 @@ class EncoderBlock(nn.Module):
         """
         super(EncoderBlock, self).__init__()
         self.slf_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=_bidir, numheads=numheads,
-           attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+            attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale,
+            maxlen=maxlen, relpos=relpos)
         self.ln_slf = nn.LayerNorm(indim)
         self.mlp = MLP(indim, 4 * indim, activation=activation, dropout=residual_dropout)
         self.ln_ff = nn.LayerNorm(indim)
@@ -231,15 +283,17 @@ class EncoderBlock(nn.Module):
 
 class DecoderBlock(EncoderBlock):
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
-                 attention_dropout=0., residual_dropout=0., scale=True, noctx=False, **kw):
+                 attention_dropout=0., residual_dropout=0., scale=True, noctx=False,
+                 maxlen=500, relpos=False, **kw):
         super(DecoderBlock, self).__init__(indim, kdim=kdim, vdim=vdim, _bidir=False, numheads=numheads,
                 activation=activation, attention_dropout=attention_dropout, residual_dropout=residual_dropout,
-                scale=scale, **kw)
+                scale=scale, maxlen=maxlen, relpos=relpos, **kw)
         # additional modules for attention to ctx
         self.noctx = noctx
         if not noctx:
             self.ctx_attn = MultiHeadAttention(indim, kdim=kdim, vdim=vdim, bidir=True, numheads=numheads,
-               attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+               attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale,
+               relpos=False)
             self.ln_ctx = LayerNorm(indim)
 
     def forward(self, x, ctx=None, mask=None, ctxmask=None):
@@ -289,7 +343,8 @@ class DecoderBlockCell(nn.Module):
 
 class TransformerEncoder(nn.Module):
     def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8, activation=nn.ReLU,
-                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, **kw):
+                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True,
+                 relpos=False, **kw):
         super(TransformerEncoder, self).__init__(**kw)
         self.maxlen = maxlen
         posembD = {str(k): k for k in range(maxlen)}
@@ -297,7 +352,8 @@ class TransformerEncoder(nn.Module):
         self.embdrop = nn.Dropout(p=embedding_dropout)
         self.layers = nn.ModuleList([
             EncoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
-                         attention_dropout=attention_dropout, residual_dropout=residual_dropout, scale=scale)
+                         attention_dropout=attention_dropout, residual_dropout=residual_dropout,
+                         scale=scale, maxlen=maxlen, relpos=relpos)
             for _ in range(numlayers)
         ])
 
@@ -325,7 +381,8 @@ class TransformerEncoder(nn.Module):
 
 class TransformerDecoder(TransformerEncoder):
     def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8, activation=nn.ReLU,
-                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, noctx=False, **kw):
+                 embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, noctx=False,
+                 relpos=False, **kw):
         super(TransformerDecoder, self).__init__(**kw)
         self.maxlen = maxlen
         self.noctx = noctx
@@ -335,7 +392,7 @@ class TransformerDecoder(TransformerEncoder):
         self.layers = nn.ModuleList([
             DecoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
                          attention_dropout=attention_dropout, residual_dropout=residual_dropout,
-                         scale=scale, noctx=noctx)
+                         scale=scale, noctx=noctx, maxlen=maxlen, relpos=relpos)
             for _ in range(numlayers)
         ])
 
@@ -442,15 +499,15 @@ class TS2SCell(nn.Module):
 class TS2S_arg(TS2S):
     def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8,
                  activation=nn.ReLU, embedding_dropout=0., attention_dropout=0., residual_dropout=0.,
-                 scale=True, **kw):
+                 scale=True, relpos=False, **kw):
         encoder = TransformerEncoder(dim=dim, kdim=kdim, vdim=vdim, maxlen=maxlen, numlayers=numlayers,
                                      numheads=numheads, activation=activation,
                                      embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
-                                     residual_dropout=residual_dropout, scale=scale)
+                                     residual_dropout=residual_dropout, scale=scale, relpos=relpos)
         decoder = TransformerDecoder(dim=dim, kdim=kdim, vdim=vdim, maxlen=maxlen, numlayers=numlayers,
                                      numheads=numheads, activation=activation,
                                      embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
-                                     residual_dropout=residual_dropout, scale=scale, noctx=False)
+                                     residual_dropout=residual_dropout, scale=scale, noctx=False, relpos=relpos)
         super(TS2S_arg, self).__init__(encoder, decoder, **kw)
 
 # endregion

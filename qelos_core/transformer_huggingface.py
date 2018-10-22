@@ -113,7 +113,7 @@ class Attention(nn.Module):
         a = self.merge_heads(vw)
         a = self.c_proj(a)
         a = self.resid_dropout(a)
-        return a, x, vw
+        return a #, x, vw
 
 
 class MLP(nn.Module):

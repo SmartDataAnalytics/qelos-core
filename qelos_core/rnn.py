@@ -1586,9 +1586,10 @@ class RNNLayerEncoderBase(torch.nn.Module):
 
     def make_layers(self):
         for i in range(1, len(self.dims)):
-            if self.dropout_rec > 0 or self.dropconnect:        # uses overridden rnn layers --> support dropout_rec in constructor
+            if self.dropout_rec > 0 or self.dropconnect > 0:        # uses overridden rnn layers --> support dropout_rec in constructor
                 layer = self.rnnlayertype(input_size=self.dims[i-1] * (1 if not self.bidir or i == 1 else 2),
-                                          hidden_size=self.dims[i], num_layers=1, dropout_rec=self.dropout_rec, dropconnect=self.dropconnect,
+                                          hidden_size=self.dims[i], num_layers=1, dropout_rec=self.dropout_rec,
+                                          dropconnect=self.dropconnect,
                                           bidirectional=self.bidir, bias=self.bias, batch_first=True)
             else:
                 layer = self.rnnlayertype(input_size=self.dims[i - 1] * (1 if not self.bidir or i == 1 else 2),

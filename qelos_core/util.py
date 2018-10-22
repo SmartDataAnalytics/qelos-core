@@ -620,7 +620,9 @@ class hyperparam(object):
 
 
 def v(x):
-    if isinstance(x, hyperparam):
+    if hasattr(x, "__q_v__"):
+        return x.__q_v__()
+    elif isinstance(x, hyperparam):
         return x._v
     elif isinstance(x, (var, val)):
         print("WARNING from q.v() (util.py): var! ")

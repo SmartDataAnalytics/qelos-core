@@ -1,6 +1,7 @@
 import torch
 import qelos_core as q
 import os
+import numpy as np
 
 
 def load_data(p="../../datasets/wikitext2/",
@@ -72,9 +73,21 @@ def load_data(p="../../datasets/wikitext2/",
     return train_data, valid_data, test_data, D
 
 
+class VariableSeqlen(object):
+    def __init__(self, minimum=5, mu=50, maximum_offset=10, sigma=5):
+        super(VariableSeqlen, self).__init__()
+        self.min = minimum
+        self.mu = mu
+        self.sigma = sigma
+        self.max_off = maximum_offset
+
+    def __q_v__(self):
+        return min(max(self.min, np.random.normal(self.mu, self.sigma)), self.max_off + self.mu)
+
+
 class LMLoader(object):
     """ data loader for LM data """
-    def __init__(self, data, seqlen):
+    def __init__(self, data, seqlen:VariableSeqlen=None):
         super(LMLoader, self).__init__()
         self.data = data
         self.seqlen = seqlen
@@ -83,7 +96,7 @@ class LMLoader(object):
         return _LMLoaderIter(self)
 
     def __len__(self):
-        return 1 + ( (len(self.data)-1) // self.seqlen)
+        return 1 + ((len(self.data)-1) // self.seqlen.mu)
 
 
 class _LMLoaderIter(object):
@@ -96,11 +109,11 @@ class _LMLoaderIter(object):
         return self
 
     def __len__(self):
-        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen)
+        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen.mu)
 
     def __next__(self):
         if self.i < len(self.lml.data)-1:
-            seqlen = min(self.lml.seqlen, len(self.lml.data) - self.i - 1)
+            seqlen = min(q.v(self.lml.seqlen), len(self.lml.data) - self.i - 1)
             batch = self.lml.data[self.i: self.i + seqlen]
             batch_g = self.lml.data[self.i+1: self.i+1 + seqlen]
             self.i += seqlen
@@ -132,7 +145,8 @@ class LMModel(torch.nn.Module, q.AutoHooker):
 class RNNLayer_LM(LMModel):
     encodertype = q.LSTMEncoder
 
-    def __init__(self, *dims:int, worddic:dict=None, bias:bool=True, dropout:float=0., **kw):
+    def __init__(self, *dims:int, worddic:dict=None, bias:bool=True,
+                 dropout:float=0., dropouti:float=0., dropouth:float=0., dropoute:float=0., **kw):
         super(RNNLayer_LM, self).__init__(**kw)
         self.dims = dims
         self.D = worddic
@@ -143,6 +157,9 @@ class RNNLayer_LM(LMModel):
         self.rnn = self.encodertype(*dims, bidir=False, bias=bias, dropout_in=dropout)
         self.rnn.ret_all_states = True
         self.dropout = torch.nn.Dropout(p=dropout)
+        self.dropouti = torch.nn.Dropout(p=dropouti)
+        self.dropoute = torch.nn.Dropout(p=dropoute)
+        self.dropouth = torch.nn.Dropout(p=dropouth)
 
     def reset_backup_states(self, _, **kw):
         self.states = None
@@ -163,17 +180,17 @@ class RNNLayer_LM(LMModel):
         return out
 
 
-def run(lr=20.,
+def run(lr=30.,
         dropout=0.2,
         dropconnect=0.2,
         gradnorm=0.25,
         epochs=25,
-        embdim = 200,
-        encdim = 200,
-        numlayers = 2,
-        seqlen=35,
-        batsize=20,
-        eval_batsize=10,
+        embdim = 400,
+        encdim = 1150,
+        numlayers = 3,
+        seqlen=70,
+        batsize=80,
+        eval_batsize=80,
         cuda=False,
         gpu=0,
         test=False
@@ -184,7 +201,8 @@ def run(lr=20.,
         device = torch.device("cuda", gpu)
     tt.tick("loading data")
     train_batches, valid_batches, test_batches, D = \
-        load_data(batsize=batsize, eval_batsize=eval_batsize, seqlen=seqlen)
+        load_data(batsize=batsize, eval_batsize=eval_batsize,
+                  seqlen=VariableSeqlen(minimum=5, maximum_offset=10, mu=seqlen, sigma=5))
     tt.tock("data loaded")
     print("{} batches in train".format(len(train_batches)))
 
