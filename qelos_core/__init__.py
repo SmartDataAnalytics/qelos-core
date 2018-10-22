@@ -17,3 +17,4 @@ from qelos_core.pointernets import PointerGeneratorCell, PointerGeneratorOut, \
 from qelos_core import gan
 from qelos_core import ganutil
 from qelos_core.basic import *
+from qelos_core.transformer import *
