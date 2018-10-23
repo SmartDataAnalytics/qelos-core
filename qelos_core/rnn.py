@@ -49,6 +49,17 @@ class RecDropout(Dropout):
         y = y[0] if len(y) == 1 else y
         return y
 
+    @staticmethod
+    def convert_to_standard_in(m, names=None):
+        """ Convert RecDropouts contained in given module m to normal nn.Dropouts.
+            Use names=None as additional filter (only listed names will be converted). """
+        for _name, child in m.named_children():
+            if (names is not None or _name in names) and isinstance(child, RecDropout):
+                a = getattr(m, _name)
+                b = torch.nn.Dropout(p=a.p)
+                setattr(m, _name, b)
+            RecDropout.convert_to_standard_in(child, names=names)
+
 
 class PositionwiseForward(torch.nn.Module):       # TODO: make Recurrent
     ''' A two-feed-forward-layer module '''

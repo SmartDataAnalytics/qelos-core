@@ -101,7 +101,7 @@ class MultiHeadAttention(nn.Module):
         nn.init.zeros_(self.vw_proj.bias)
 
         self.attn_dropout = nn.Dropout(attention_dropout)
-        self.resid_dropout = q.RecDropout(residual_dropout)
+        self.resid_dropout = q.RecDropout(residual_dropout, shareaxis=1)
 
     def forward(self, x, k=None, v=None, mask=None, _update_prev_f=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
         """
@@ -191,7 +191,7 @@ class MultiHeadAttention(nn.Module):
         new_shape = vw.size()[:-2] + (vw.size(-2) * vw.size(-1),)   # (batsize, seqlen, dim)
         vw = vw.contiguous().view(*new_shape)
         _vw = self.vw_proj(vw)
-        _vw = self.resid_dropout(_vw, shareaxis=1)
+        _vw = self.resid_dropout(_vw)
         return _vw  #q.transpose(2, 1)
 
 
@@ -260,12 +260,12 @@ class MLP(nn.Module):
         nn.init.zeros_(self.projA.bias)
         nn.init.zeros_(self.projB.bias)
         self.act = activation()
-        self.dropout = q.RecDropout(dropout)
+        self.dropout = q.RecDropout(dropout, shareaxis=1)
 
     def forward(self, x):       # (batsize, seqlen, ?)
         h = self.act(self.projA(x))
         h2 = self.projB(h)
-        return self.dropout(h2, shareaxis=1)
+        return self.dropout(h2)
 
 
 class EncoderBlock(nn.Module):
@@ -376,7 +376,7 @@ class TransformerEncoder(nn.Module):
         self.maxlen = maxlen
         posembD = {str(k): k for k in range(maxlen)}
         self.posemb = q.WordEmb(dim, worddic=posembD) if (maxlen > -1 and relpos is False) else None
-        self.embdrop = q.RecDropout(p=embedding_dropout)
+        self.embdrop = q.RecDropout(p=embedding_dropout, shareaxis=1)
         self.layers = nn.ModuleList([
             EncoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
                          attention_dropout=attention_dropout, residual_dropout=residual_dropout,
@@ -390,7 +390,7 @@ class TransformerEncoder(nn.Module):
         :param mask:    optional mask (batsize, seqlen)
         :return:        (batsize, seqlen, outdim)
         """
-        x = self.embdrop(x, shareaxis=1)     # TODO: or after adding position embeddings?
+        x = self.embdrop(x)     # TODO: or after adding position embeddings?
 
         emb = x
         if self.posemb is not None:
@@ -415,7 +415,7 @@ class TransformerDecoder(TransformerEncoder):
         self.noctx = noctx
         posembD = {str(k): k for k in range(maxlen)}
         self.posemb = q.WordEmb(dim, worddic=posembD) if (maxlen > -1 and relpos is False) else None
-        self.embdrop = q.RecDropout(p=embedding_dropout)
+        self.embdrop = q.RecDropout(p=embedding_dropout, shareaxis=1)
         self.layers = nn.ModuleList([
             DecoderBlock(dim, kdim=kdim, vdim=vdim, numheads=numheads, activation=activation,
                          attention_dropout=attention_dropout, residual_dropout=residual_dropout,
@@ -433,7 +433,7 @@ class TransformerDecoder(TransformerEncoder):
         :param ctxmask:     (batsize, seqlen_ctx)
         :return:
         """
-        x = self.embdrop(x, shareaxis=1)       # TODO: or after adding position embeddings?
+        x = self.embdrop(x)       # TODO: or after adding position embeddings?
 
         emb = x
         if self.posemb is not None:

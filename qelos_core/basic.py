@@ -3,9 +3,10 @@ import qelos_core as q
 
 
 class Dropout(torch.nn.Module):
-    def __init__(self, p=.5):
+    def __init__(self, p=.5, inplace=False):
         super(Dropout, self).__init__()
-        self.d = torch.nn.Dropout(p=p, inplace=False)
+        self.d = torch.nn.Dropout(p=p, inplace=inplace)
+        self.p = p
 
     def forward(self, *x):
         y = [self.d(z) for z in x]
