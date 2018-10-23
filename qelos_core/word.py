@@ -131,7 +131,7 @@ class WordEmb(WordEmbBase):
     """ is a VectorEmbed with a dictionary to map words to ids """
     def __init__(self, dim=50, value=None, worddic=None,
                  max_norm=None, norm_type=2, scale_grad_by_freq=False,
-                 sparse=False, fixed=False, no_masking=False,
+                 sparse=False, fixed=False, no_masking=False, word_dropout=0.,
                  **kw):
         """
         Normal word embedder. Wraps nn.Embedding.
@@ -177,12 +177,25 @@ class WordEmb(WordEmbBase):
 
         self.reset_parameters()
 
+        self.word_dropout = q.RecDropout(p=word_dropout) if word_dropout > 0 else None
+
     def reset_parameters(self):
         initrange = 0.1
         self.embedding.weight.data.uniform_(-initrange, initrange)
 
     def forward(self, x):
-        ret = self.embedding(x)
+        weight = self.embedding.weight
+        if self.word_dropout is not None:
+            word_dropout_mask = torch.ones(weight.size(0), 1, device=weight.device)
+            word_dropout_mask = self.word_dropout(word_dropout_mask)
+            weight = weight * word_dropout_mask
+        ret = torch.nn.functional.embedding(x, weight,
+            padding_idx=self.embedding.padding_idx,
+            max_norm=self.embedding.max_norm,
+            norm_type=self.embedding.norm_type,
+            scale_grad_by_freq=self.embedding.scale_grad_by_freq,
+            sparse=self.embedding.sparse)
+        #ret = self.embedding(x)
         mask = None
         if self.maskid is not None:
             mask = (x != self.maskid).int()

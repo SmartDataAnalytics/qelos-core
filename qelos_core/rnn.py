@@ -15,7 +15,7 @@ def rec_reset(module):
 
 class RecDropout(Dropout):
     """ Variational Dropout for use in rec cells"""
-    def __init__(self, p=.5):
+    def __init__(self, p=0):
         super(RecDropout, self).__init__(p=p)
         self.mask = None
 
