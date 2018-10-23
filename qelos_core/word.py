@@ -146,6 +146,9 @@ class WordEmb(WordEmbBase):
         :param fixed: fixed embeddings
         :param no_masking: ignore usual mask id (default "<MASK>") in this instance of WordEmb 
             --> no masking (will return no mask), useful for using WordEmb in output vectors
+        :param word_dropout: if >0, applies word-level embeddings (zeros complete word vectors).
+                             The word dropout mask is shared across timesteps and examples in a batch.
+                             Must call rec_reset() to sample new dropout mask for a new batch.
         :param kw:
         """
         assert(worddic is not None)     # always needs a dictionary

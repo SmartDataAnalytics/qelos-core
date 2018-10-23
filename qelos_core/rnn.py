@@ -14,19 +14,37 @@ def rec_reset(module):
 
 
 class RecDropout(Dropout):
-    """ Variational Dropout for use in rec cells"""
-    def __init__(self, p=0):
+    """ Variational Dropout for use in rec cells.
+        Uses the same dropout masks until rec_reset() is called (then mask is resampled on next forward call) """
+    def __init__(self, p=0, shareaxis=None):
+        """
+        :param p:   dropout probability
+        :param shareaxis:   axis (int or tuple of int) for sharing the dropout mask across
+        """
         super(RecDropout, self).__init__(p=p)
         self.mask = None
+        self.shareaxis = (shareaxis,) if isinstance(shareaxis, int) else shareaxis
+        self._last_shareaxis = None
 
     def rec_reset(self):
         self.mask = None
 
-    def forward(self, *x):
+    def forward(self, *x, shareaxis=None):
+        shareaxis = (shareaxis,) if isinstance(shareaxis, int) else shareaxis
+        shareaxis = self.shareaxis if shareaxis is None else shareaxis
+        if shareaxis is None:
+            shareaxis = []
         y = x
         if self.training:
-            if self.mask is None:
-                self.mask = [self.d(torch.ones_like(xe).to(xe.device)) for xe in x]
+            if self.mask is None or self._last_shareaxis != shareaxis:
+                masks = []
+                for xe in x:
+                    mask_shape = [xe.size(i) if i not in shareaxis else 1
+                                  for i in range(xe.dim())]
+                    mask = torch.ones(*mask_shape).to(xe.device)
+                    masks.append(mask)
+                self.mask = [self.d(mask) for mask in masks]
+                self._last_shareaxis = shareaxis
             y = [xe_me[0] * xe_me[1] for xe_me in zip(x, self.mask)]
         y = y[0] if len(y) == 1 else y
         return y

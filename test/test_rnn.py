@@ -5,6 +5,30 @@ import numpy as np
 
 from qelos_core.rnn import OverriddenLSTMLayer, OverriddenGRULayer, OverriddenRNNLayer
 
+
+class TestRecDropout(TestCase):
+    def test_it(self):
+        x = torch.randn(4,5,6,7)
+        m = q.RecDropout(0.5)
+        y = m(x)
+        mask = y == 0
+        for i in range(10):
+            x = torch.randn(4,5,6,7)
+            y = m(x)
+            _mask = y == 0
+            self.assertTrue(np.allclose(mask.detach().numpy(), _mask.detach().numpy()))
+
+        x = torch.randn(4, 5, 6, 7)
+        y = m(x, shareaxis=1)
+        mask = y == 0
+        print(mask[0, :, 0])
+        for i in range(mask.size(1)):
+            self.assertTrue(np.allclose(mask[:, i].detach().numpy(),
+                                        mask[:, 0].detach().numpy()))
+
+
+
+
 # region TEST CELLS
 class TestGRUCell(TestCase):
     def test_gru_shapes(self):
