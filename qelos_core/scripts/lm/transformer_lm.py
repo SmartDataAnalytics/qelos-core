@@ -84,7 +84,7 @@ class LMLoader_Test(object):
         return _LMLoaderIter_Test(self)
 
     def __len__(self):
-        return 1 + ((len(self.data)-1) // self.seqlen.mu)
+        return 1 + ((len(self.data)-1) // self.seqlen)
 
 
 class _LMLoaderIter_Test(object):
@@ -97,7 +97,7 @@ class _LMLoaderIter_Test(object):
         return self
 
     def __len__(self):
-        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen.mu)
+        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen)
 
     def __next__(self):
         if self.i < len(self.lml.data):
