@@ -308,10 +308,10 @@ def run(lr=0.001,
         print(y.size())
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
-    test_loss = loss
-    ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
-    # test_loss = q.KLLoss(size_average=True, mode="logits")
-    # ppl_loss = q.PPLLoss(size_average=True, mode="logits")
+    # test_loss = loss
+    # ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
+    test_loss = q.KLLoss(size_average=True, mode="logits")
+    ppl_loss = q.PPLLoss(size_average=True, mode="logits")
 
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
