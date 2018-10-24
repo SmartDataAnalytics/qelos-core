@@ -158,7 +158,7 @@ class LMLoader_Test(object):
     """ data loader for LM data """
     def __init__(self, data, seqlen, batsize):
         super(LMLoader_Test, self).__init__()
-        self.data = data
+        self.data = data        # (totallen,)
         self.seqlen = seqlen
         self.batsize = batsize
 
@@ -190,7 +190,7 @@ class _LMLoaderIter_Test(object):
             start = random.randint(0, self.lml.data.size(0) - self.lml.seqlen)
             out.append(self.lml.data[start: start+self.lml.seqlen])
         out = torch.stack(out, 0)
-        gold = out[:, 1].unsqueeze(1)
+        gold = out[:, -1].unsqueeze(1)
         out = out[:, :-1]
         return out, gold
 
@@ -296,7 +296,7 @@ class TransformerLMCell(torch.nn.Module):
         :return:     (batsize, vocsize)
         """
         out = self.core(x)
-        ret = out[:, 0].unsqueeze(1)
+        ret = out[:, -1].unsqueeze(1)
         return ret
 # endregion
 

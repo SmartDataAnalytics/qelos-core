@@ -30,12 +30,12 @@ class RecDropout(Dropout):
         self.mask = None
 
     def forward(self, *x, shareaxis=None):
-        shareaxis = (shareaxis,) if isinstance(shareaxis, int) else shareaxis
-        shareaxis = self.shareaxis if shareaxis is None else shareaxis
-        if shareaxis is None:
-            shareaxis = []
         y = x
         if self.training:
+            shareaxis = (shareaxis,) if isinstance(shareaxis, int) else shareaxis
+            shareaxis = self.shareaxis if shareaxis is None else shareaxis
+            if shareaxis is None:
+                shareaxis = []
             if self.mask is None or self._last_shareaxis != shareaxis:
                 masks = []
                 for xe in x:
