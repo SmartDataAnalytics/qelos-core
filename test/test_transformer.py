@@ -85,7 +85,8 @@ class TestAttentionCell(TestCase):
         x.requires_grad = True
         numheads = 6
         m = MultiHeadAttention(12, numheads=numheads, bidir=False)
-        mc = MultiHeadAttentionCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         ys = []
         for i in range(x.size(1)):
@@ -117,7 +118,8 @@ class TestAttentionCell(TestCase):
         x.requires_grad = True
         numheads = 6
         m = MultiHeadAttention(12, numheads=numheads, bidir=False, relpos=True)
-        mc = MultiHeadAttentionCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         ys = []
         for i in range(x.size(1)):
@@ -153,7 +155,8 @@ class TestAttentionCell(TestCase):
         x.requires_grad = True
         numheads = 6
         m = MultiHeadAttention(12, numheads=numheads, bidir=False)
-        mc = MultiHeadAttentionCell(m, 3)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=3)
 
         ys = []
         for i in range(x.size(1)):
@@ -223,7 +226,8 @@ class TestDecoderBlock(TestCase):
         x.requires_grad = True
 
         m = DecoderBlock(12, numheads=4, noctx=True)
-        mc = DecoderBlockCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         y = m(x)
         y.norm(1).backward()
@@ -259,14 +263,13 @@ class TestDecoderBlock(TestCase):
 
         print(x.grad)
 
-
-
     def test_it_relpos(self):
         x = torch.randn(3, 4, 12)
         x.requires_grad = True
 
         m = DecoderBlock(12, numheads=4, noctx=True, relpos=True)
-        mc = DecoderBlockCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         y = m(x)
         y.norm(1).backward()
@@ -298,7 +301,8 @@ class TestDecoderTransformer(TestCase):
         x.requires_grad = True
 
         m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=True)
-        mc = TransformerDecoderCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         y = m(x)
         y.norm(1).backward()
@@ -328,7 +332,8 @@ class TestDecoderTransformer(TestCase):
         x.requires_grad = True
 
         m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=True, relpos=True)
-        mc = TransformerDecoderCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         y = m(x)
         y.norm(1).backward()
@@ -359,7 +364,10 @@ class TestDecoderTransformer(TestCase):
         x.requires_grad = True
 
         m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=False)
-        mc = TransformerDecoderCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
+        assert(m._cell_mode == False)
+        assert(mc._cell_mode == True)
 
         y = m(x, ctx)
         y.norm(1).backward()
@@ -415,7 +423,8 @@ class TestTS2S(TestCase):
         print(ygrad.norm(1, 2))
         zref = z
 
-        mc = TS2SCell(m, 5)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=5)
 
         x = torch.tensor(x.detach().numpy() + 0.)
         x.requires_grad = True

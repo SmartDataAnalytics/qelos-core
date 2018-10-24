@@ -102,7 +102,47 @@ class MultiHeadAttention(nn.Module):
         self.attn_dropout = nn.Dropout(attention_dropout)
         self.resid_dropout = q.RecDropout(residual_dropout, shareaxis=1)
 
-    def forward(self, x, k=None, v=None, mask=None, _update_prev_f=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
+        self._cell_mode = False     # True if in cell mode --> saves previous and expects seqlen 1
+        self._horizon = None
+        self._prev_k = None      # (batsize, seqlen, numheads, dim)
+        self._prev_v = None
+        self._lm_mode = False       # if True, rec_reset doesn't reset previous k and v
+
+    def set_cell_mode(self, val:bool, horizon:int=None, lm_mode:bool=False):
+        # TODO: accumulate mask in cell mode
+        if val is True:
+            assert(horizon is not None)
+            assert(self.bidir == False)
+        self._cell_mode = val
+        self._horizon = horizon
+        self._lm_mode = lm_mode
+
+    def rec_reset(self):
+        if not self._lm_mode:
+            self._prev_k = None
+            self._prev_v = None
+
+    def update_prev(self, k, v):
+        """     Only used in cell mode.
+        :param k:   (batsize, 1, numheads, dim_per_head)
+        :param v:   (batsize, 1, numheads, dim_per_head)
+        :return:
+        """
+        assert(k.size(1) == 1)
+        assert(v.size(1) == 1)
+        if self._prev_k is None:
+            assert(self._prev_v is None)
+            self._prev_k, self._prev_v = k, v
+        else:
+            self._prev_k = torch.cat([self._prev_k, k], 1)
+            self._prev_v = torch.cat([self._prev_v, v], 1)
+        assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
+        if self._prev_k.size(1) > self._horizon:
+            self._prev_k = self._prev_k[:, -self._horizon:]
+            self._prev_v = self._prev_v[:, -self._horizon:]
+        return self._prev_k, self._prev_v
+
+    def forward(self, x, k=None, v=None, mask=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
         """
         :param x:   is input    (batsize, seqlen, indim)
         :param k:   if None, x is used for k proj, otherwise provided k
@@ -110,6 +150,9 @@ class MultiHeadAttention(nn.Module):
         :param mask:    mask on keys (batsize, seqlen)
         :return:    (batsize, seqlen, indim)
         """
+        if self._cell_mode is True:
+            if mask is not None:
+                raise NotImplemented("TODO: implement mask accumulation in MultiHeadAttention and its cell")
         batsize = x.size(0)
         _q = x
         _k = _q if k is None else k
@@ -119,8 +162,8 @@ class MultiHeadAttention(nn.Module):
         k = self.k_proj(_k).view(batsize, _k.size(1), self.numheads, self.d_k)
         v = self.v_proj(_v).view(batsize, _v.size(1), self.numheads, self.d_v)
 
-        if _update_prev_f is not None:
-            k, v = _update_prev_f(k, v)
+        if self._cell_mode is True:
+            k, v = self.update_prev(k, v)
 
         # region relative position matrix and projection
         relpos_vec_heads = None
@@ -173,6 +216,8 @@ class MultiHeadAttention(nn.Module):
         if self.bidir is False:
             seqlen = w.size(-1)
             causality_mask = torch.tril(torch.ones(seqlen, seqlen, device=x.device)).unsqueeze(0).unsqueeze(0)
+            if q.size(1) < causality_mask.size(2):  # right-align q's (for cell mode)
+                causality_mask = causality_mask[:, :, -q.size(1):, :]
                 # .view(1, 1, seqlen, seqlen)
             wholemask = wholemask * causality_mask if wholemask is not None else causality_mask
             # * self.mask + -1e9 * (1 - self.mask)  # TF implem method: mask_attn_weights
@@ -197,57 +242,6 @@ class MultiHeadAttention(nn.Module):
 
         # #, torch.cat([_i.view(_i.size(0), _i.size(1), _i.size(2)*_i.size(3)) for _i in [q, k, v]], 2), \
                # ret_vw.transpose(2, 1)
-
-
-class MultiHeadAttentionCell(nn.Module):
-    """
-    For incrementally predicting a next output given a single time step input and previous timestep values
-    """
-    def __init__(self, core:MultiHeadAttention, horizon:int=100, **kw):
-        super(MultiHeadAttentionCell, self).__init__(**kw)
-        self.core = q.deep_copy(core, share_params=True)
-        self.core.bidir = True
-        # self.core.update_prev = lambda k, v: self.update_prev(k, v)
-        assert(core.bidir is False)     # ensure it was trained in decoder mode
-        self._horizon = horizon
-        self._prev_k = None      # (batsize, seqlen, numheads, dim)
-        self._prev_v = None
-
-    def rec_reset(self):
-        self._prev_k = None
-        self._prev_v = None
-
-    def update_prev(self, k, v):
-        """
-        :param k:   (batsize, 1, numheads, dim_per_head)
-        :param v:   (batsize, 1, numheads, dim_per_head)
-        :return:
-        """
-        assert(k.size(1) == 1)
-        assert(v.size(1) == 1)
-        if self._prev_k is None:
-            assert(self._prev_v is None)
-            self._prev_k, self._prev_v = k, v
-        else:
-            self._prev_k = torch.cat([self._prev_k, k], 1)
-            self._prev_v = torch.cat([self._prev_v, v], 1)
-        assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
-        if self._prev_k.size(1) > self._horizon:
-            self._prev_k = self._prev_k[:, -self._horizon:]
-            self._prev_v = self._prev_v[:, -self._horizon:]
-        return self._prev_k, self._prev_v
-
-    def forward(self, x, k=None, v=None, mask=None):    # TODO: also accumulate mask
-        """
-        :param x:       (batsize, 1, indim)
-        :param k:       (batsize, 1, kdim)
-        :param v:       (batsize, 1, vdim)
-        :return:        (batsize, 1, indim)
-        """
-        if mask is not None:
-            raise NotImplemented("TODO: implement mask accumulation in MultiHeadAttention and its cell")
-        ret = self.core(x, k=k, v=v, mask=mask, _update_prev_f=lambda _k, _v: self.update_prev(_k, _v))
-        return ret
 
 
 class MLP(nn.Module):
@@ -323,6 +317,9 @@ class DecoderBlock(EncoderBlock):
                relpos=False)
             self.ln_ctx = LayerNorm(indim)
 
+    def set_cell_mode(self, val:bool, horizon:int=None, lm_mode:bool=False):
+        self.slf_attn.set_cell_mode(val, horizon=horizon, lm_mode=lm_mode)
+
     def forward(self, x, ctx=None, mask=None, ctxmask=None):
         """
         :param x:       decoder input sequence of vectors   (batsize, seqlen_dec, dim)
@@ -348,24 +345,6 @@ class DecoderBlock(EncoderBlock):
         m = self.mlp(nb)
         h = self.ln_ff(nb + m)
         return h
-
-
-class DecoderBlockCell(nn.Module):
-    def __init__(self, core:DecoderBlock, horizon:int=100, **kw):
-        super(DecoderBlockCell, self).__init__(**kw)
-        self.core = q.deep_copy(core, share_params=True)
-        self.horizon = horizon
-        self.core.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
-
-    def forward(self, x, ctx=None, mask=None, ctxmask=None):
-        """
-        :param x:       (batsize, 1, dim)
-        :param ctx:     (batsize, seqlen, dim)
-        :param ctxmask: (batsize, seqlen)
-        :return:
-        """
-        ret = self.core(x, ctx, mask=mask, ctxmask=ctxmask)
-        return ret
 
 
 class TransformerEncoder(nn.Module):
@@ -425,7 +404,21 @@ class TransformerDecoder(nn.Module):
         if self.posemb is None:
             print("no absolute position embeddings")
 
-    def forward(self, x, ctx=None, mask=None, ctxmask=None, _posoffset:int=0):
+        self._lm_mode = False
+        self._cell_mode = False
+        self._posoffset = 0
+
+    def rec_reset(self):
+        if not self._lm_mode:
+            self._posoffset = 0
+
+    def set_cell_mode(self, val:bool, horizon:int=None, lm_mode:bool=False):
+        self._cell_mode = val
+        self._lm_mode = lm_mode
+        for layer in self.layers:
+            layer.set_cell_mode(val, horizon=horizon, lm_mode=lm_mode)
+
+    def forward(self, x, ctx=None, mask=None, ctxmask=None):
         """
         :param x:       same is Encoder
         :param ctx:     (batsize, seqlen_ctx, encdim)
@@ -437,8 +430,8 @@ class TransformerDecoder(nn.Module):
 
         emb = x
         if self.posemb is not None:
-            assert(x.size(1) <= self.maxlen - _posoffset)
-            xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0) + _posoffset
+            assert(x.size(1) <= self.maxlen - self._posoffset)
+            xpos = torch.arange(0, x.size(1), device=x.device).unsqueeze(0) + self._posoffset
             posemb, *_ = self.posemb(xpos)
             emb = emb + posemb
 
@@ -446,33 +439,10 @@ class TransformerDecoder(nn.Module):
 
         for layer in self.layers:
             h = layer(h, ctx, mask=mask, ctxmask=ctxmask)
+
+        if self._cell_mode:
+            self._posoffset += 1
         return h
-
-
-class TransformerDecoderCell(nn.Module):
-    def __init__(self, core:TransformerDecoder, horizon:int=100, **kw):
-        super(TransformerDecoderCell, self).__init__(**kw)
-        self.core = q.deep_copy(core, share_params=True)
-        self.horizon = horizon
-        self.core.layers = nn.ModuleList([
-            DecoderBlockCell(decoderblock, horizon=horizon)
-            for decoderblock in self.core.layers
-        ])
-        self._posoffset = 0
-
-    def rec_reset(self):
-        self._posoffset = 0
-
-    def forward(self, x, ctx=None, mask=None, ctxmask=None):
-        """
-        :param x:       (batsize, 1, dim)
-        :param ctx:     (batsize, seqlen, dim)
-        :param ctxmask: (batsize, seqlen)
-        :return:
-        """
-        ret = self.core(x, ctx, mask=None, ctxmask=None, _posoffset=self._posoffset)
-        self._posoffset += 1
-        return ret
 
 
 class TS2S(nn.Module):
@@ -480,24 +450,7 @@ class TS2S(nn.Module):
         super(TS2S, self).__init__(**kw)
         self.encoder, self.decoder = encoder, decoder
 
-    def forward(self, x, y, xmask=None, ymask=None):
-        """
-        :param x:       (batsize, inpseqlen)
-        :param y:       (batsize, outseqlen)
-        :return:
-        """
-        xemb = self.encoder(x, mask=xmask)
-        out = self.decoder(y, xemb, mask=ymask, ctxmask=xmask)
-        return out
-
-
-class TS2SCell(nn.Module):
-    def __init__(self, core:TS2S, horizon:int=100, **kw):
-        super(TS2SCell, self).__init__(**kw)
-        self.core = core        # no deepcopy here! ...?
-        self.horizon = horizon
-        self.encoder = core.encoder
-        self.decoder = TransformerDecoderCell(core.decoder, horizon=horizon)
+        self._cell_mode = False
         self._x = None
         self._ctx = None
         self._ctxmask = None
@@ -505,23 +458,31 @@ class TS2SCell(nn.Module):
     def rec_reset(self):
         self._x, self._ctx, self._ctxmask = None, None, None
 
+    def set_cell_mode(self, val:bool, horizon:int=None, lm_mode:bool=False):
+        if lm_mode is True:
+            raise Exception("lm_mode=True is not supported in transformer-based seq2seq")
+        self._cell_mode = val
+        self.decoder.set_cell_mode(val, horizon=horizon, lm_mode=lm_mode)
+
     def forward(self, x, y, xmask=None, ymask=None):
         """
-        :param x:       (batsize, seqlen_enc)
-        :param y:       (batsize, 1)
-        :param xmask:
-        :param ymask:
+        :param x:       (batsize, inpseqlen)
+        :param y:       (batsize, outseqlen)
         :return:
         """
-        if self._ctx is None:
-            self._ctx = self.encoder(x, mask=xmask)
-            self._ctxmask = xmask
+        if self._cell_mode:
+            if self._ctx is None:
+                self._ctx = self.encoder(x, mask=xmask)
+                self._x, self._ctxmask = x, xmask
+            else:
+                pass
+                # assert(x == self._x)
+                # assert(xmask == self._ctxmask)
+            ctx, xmask = self._ctx, self._ctxmask
         else:
-            pass
-            # assert(x == self._x)
-            # assert(xmask == self._ctxmask)
+            ctx = self.encoder(x, mask=xmask)
 
-        out = self.decoder(y, self._ctx, mask=ymask, ctxmask=self._ctxmask)
+        out = self.decoder(y, ctx, mask=ymask, ctxmask=xmask)
         return out
 
 

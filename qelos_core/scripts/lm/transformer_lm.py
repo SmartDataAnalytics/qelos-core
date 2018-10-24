@@ -355,8 +355,8 @@ def run(lr=0.001,
                       activation=torch.nn.ReLU, embedding_dropout=edropout,attention_dropout=adropout,
                       word_dropout=wdropout, residual_dropout=rdropout, relpos=relpos,
                       tie_wordvecs=tie_wordvecs, maxlen=2*seqlen)
-    valid_m = TransformerLMCell(m, seqlen)
-    q.copy_params(m, valid_m.core)
+    valid_m = q.deep_copy(m, share_params=True)
+    valid_m.transformer.set_cell_mode(True, horizon=seqlen, lm_mode=True)
 
     if test:
         for i, batch in enumerate(valid_batches):
