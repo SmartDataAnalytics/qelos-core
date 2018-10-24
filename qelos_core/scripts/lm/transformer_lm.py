@@ -258,7 +258,7 @@ def run(lr=0.001,
         eval_batsize=16,
         cuda=False,
         gpu=0,
-        test=True
+        test=False,
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
