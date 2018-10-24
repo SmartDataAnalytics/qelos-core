@@ -66,7 +66,7 @@ def load_data(p="../../../datasets/wikitext2/",
 
     D = corpus.dictionary.word2idx
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
-    valid_data = batchify(corpus.train, eval_batsize)
+    valid_data = batchify(corpus.valid, eval_batsize)
     valid_data = LMLoader_Test(valid_data, seqlen)
     # valid_data = LMLoader(corpus.valid, seqlen, batsize=batsize)
     test_data = batchify(corpus.test, eval_batsize)
@@ -93,7 +93,7 @@ class _LMLoaderIter_Test(object):
         super(_LMLoaderIter_Test, self).__init__()
         self.lml = lmloader
         # self.i = 1
-        self.i = self.lml.seqlen
+        self.i = self.lml.seqlen+1
 
     def __iter__(self):
         return self
@@ -108,7 +108,7 @@ class _LMLoaderIter_Test(object):
         #     self.i += 1
         #     return batch, batch_g
         if self.i < len(self.lml.data):
-            batch = self.lml.data[self.i - self.lml.seqlen:self.i-1]
+            batch = self.lml.data[self.i - self.lml.seqlen - 1:self.i-1]
             batch_g = self.lml.data[self.i]
             self.i += 1
             return batch.transpose(1, 0), batch_g
