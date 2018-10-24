@@ -227,6 +227,7 @@ class eval(object):
         tt = ticktock("-")
         totaltestbats = len(self.dataloader)
         self.model.eval()
+        epoch_reset(self.model)
         outs = []
         with torch.no_grad():
             for i, batch in enumerate(self.dataloader):
@@ -667,55 +668,56 @@ class tester(Modelholder):
         self.model.eval()
         self.do_callbacks(self.START_TEST)
         epoch_reset(self.model)
-        for loss_obj in self.losses:
-            loss_obj.push_epoch_to_history()
-            loss_obj.reset_agg()
-        totalbats = len(self.dataloader)
-        for i, _batch in enumerate(self.dataloader):
-            self.do_callbacks(self.START_BATCH)
+        with torch.no_grad():
+            for loss_obj in self.losses:
+                loss_obj.push_epoch_to_history()
+                loss_obj.reset_agg()
+            totalbats = len(self.dataloader)
+            for i, _batch in enumerate(self.dataloader):
+                self.do_callbacks(self.START_BATCH)
 
-            _batch = (_batch,) if not q.issequence(_batch) else _batch
-            _batch = recmap(_batch, lambda x: x.to(self._device) if isinstance(x, torch.Tensor) else x)
-            # _batch = [batch_e.to(self._device) for batch_e in _batch]
-            if self.transform_batch_inp is not None:
-                batch = self.transform_batch_inp(*_batch)
-            else:
-                batch = _batch
+                _batch = (_batch,) if not q.issequence(_batch) else _batch
+                _batch = recmap(_batch, lambda x: x.to(self._device) if isinstance(x, torch.Tensor) else x)
+                # _batch = [batch_e.to(self._device) for batch_e in _batch]
+                if self.transform_batch_inp is not None:
+                    batch = self.transform_batch_inp(*_batch)
+                else:
+                    batch = _batch
 
-            if self.no_gold:
-                batch_in = batch
-                gold = None
-            else:
-                batch_in = batch[:-1]
-                gold = batch[-1]
+                if self.no_gold:
+                    batch_in = batch
+                    gold = None
+                else:
+                    batch_in = batch[:-1]
+                    gold = batch[-1]
 
-            batch_reset(self.model)
-            modelouts = self.model(*batch_in)
+                batch_reset(self.model)
+                modelouts = self.model(*batch_in)
 
-            modelout2loss = modelouts
-            if self.transform_batch_out is not None:
-                modelout2loss = self.transform_batch_out(modelouts)
+                modelout2loss = modelouts
+                if self.transform_batch_out is not None:
+                    modelout2loss = self.transform_batch_out(modelouts)
 
-            if self.transform_batch_gold is not None:
-                gold = self.transform_batch_gold(gold)
+                if self.transform_batch_gold is not None:
+                    gold = self.transform_batch_gold(gold)
 
-            losses = [loss_obj(modelout2loss, gold) for loss_obj in self.losses]
+                losses = [loss_obj(modelout2loss, gold) for loss_obj in self.losses]
 
-            epochmsg = ""
-            if epoch is not None:
-                curepoch, maxepoch = epoch
-                epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
+                epochmsg = ""
+                if epoch is not None:
+                    curepoch, maxepoch = epoch
+                    epochmsg = "Epoch {}/{} -".format(curepoch, maxepoch)
 
-            tt.live("{} - {}[{}/{}]: {}"
-                .format(
-                self._name,
-                epochmsg,
-                i + 1,
-                totalbats,
-                pp_epoch_losses(*self.losses)
-            )
-            )
-            self.do_callbacks(self.END_BATCH)
+                tt.live("{} - {}[{}/{}]: {}"
+                    .format(
+                    self._name,
+                    epochmsg,
+                    i + 1,
+                    totalbats,
+                    pp_epoch_losses(*self.losses)
+                )
+                )
+                self.do_callbacks(self.END_BATCH)
         # losses = self.losses.get_agg_errors()
         tt.stoplive()
         ttmsg = "{}: {}" \
