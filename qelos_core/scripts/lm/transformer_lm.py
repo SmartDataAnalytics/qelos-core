@@ -230,7 +230,7 @@ class TransformerLM(torch.nn.Module):
 class TransformerLMCell(torch.nn.Module):
     def __init__(self, core:TransformerLM, horizon:int=100):
         super(TransformerLMCell, self).__init__()
-        self.core = deepcopy(core)
+        self.core = q.deep_copy(core, share_params=True)
         self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
         self.horizon = horizon
 

@@ -3,7 +3,6 @@ import math
 import numpy as np
 import torch
 from torch import nn
-from copy import copy, deepcopy
 
 import qelos_core as q
 
@@ -205,7 +204,7 @@ class MultiHeadAttentionCell(nn.Module):
     """
     def __init__(self, core:MultiHeadAttention, horizon:int=100, **kw):
         super(MultiHeadAttentionCell, self).__init__(**kw)
-        self.core = deepcopy(core)
+        self.core = q.deep_copy(core, share_params=True)
         self.core.bidir = True
         # self.core.update_prev = lambda k, v: self.update_prev(k, v)
         assert(core.bidir is False)     # ensure it was trained in decoder mode
@@ -353,7 +352,7 @@ class DecoderBlock(EncoderBlock):
 class DecoderBlockCell(nn.Module):
     def __init__(self, core:DecoderBlock, horizon:int=100, **kw):
         super(DecoderBlockCell, self).__init__(**kw)
-        self.core = deepcopy(core)
+        self.core = q.deep_copy(core, share_params=True)
         self.horizon = horizon
         self.core.slf_attn = MultiHeadAttentionCell(self.core.slf_attn, horizon=horizon)
 
@@ -452,7 +451,7 @@ class TransformerDecoder(nn.Module):
 class TransformerDecoderCell(nn.Module):
     def __init__(self, core:TransformerDecoder, horizon:int=100, **kw):
         super(TransformerDecoderCell, self).__init__(**kw)
-        self.core = deepcopy(core)
+        self.core = q.deep_copy(core, share_params=True)
         self.horizon = horizon
         self.core.layers = nn.ModuleList([
             DecoderBlockCell(decoderblock, horizon=horizon)
