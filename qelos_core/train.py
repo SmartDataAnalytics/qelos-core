@@ -358,7 +358,7 @@ def batch_reset(module):        # performs all resetting operations on module be
             modu.batch_reset()
 
 
-def epoch_reset(module):        # performs all resetting operations on module before using it in the next batch
+def epoch_reset(module):        # performs all resetting operations on module before using it in the next epoch
     for modu in module.modules():
         if hasattr(modu, "epoch_reset"):
             modu.epoch_reset()
