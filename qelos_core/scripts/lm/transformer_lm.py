@@ -288,6 +288,8 @@ def run(lr=0.001,
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
     ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
+    test_loss = q.KLLoss(size_average=True, mode="logits")
+    ppl_loss = q.PPLLoss(size_average=True, mode="logits")
 
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
@@ -295,7 +297,7 @@ def run(lr=0.001,
     lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=1, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
-    tester = q.tester(valid_m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
+    tester = q.tester(valid_m).on(valid_batches).loss(test_loss, ppl_loss).device(device).hook(m)
 
     tt.tock("created model")
     tt.tick("training")
@@ -304,7 +306,7 @@ def run(lr=0.001,
     tt.tock("trained")
 
     tt.tick("testing")
-    finaltester = q.tester(valid_m).on(test_batches).loss(loss, ppl_loss).device(device).hook(m)
+    finaltester = q.tester(valid_m).on(test_batches).loss(test_loss, ppl_loss).device(device).hook(m)
     finaltester.run()
     tt.tock("tested")
 
