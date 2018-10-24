@@ -84,7 +84,7 @@ class LMLoader_Test(object):
         return _LMLoaderIter_Test(self)
 
     def __len__(self):
-        return 1 + ((len(self.data)-1) // self.seqlen)
+        return self.data.size(1)-1
 
 
 class _LMLoaderIter_Test(object):
@@ -97,7 +97,7 @@ class _LMLoaderIter_Test(object):
         return self
 
     def __len__(self):
-        return 1 + ((len(self.lml.data)-1) // self.lml.seqlen)
+        return self.data.size(1)-1
 
     def __next__(self):
         if self.i < len(self.lml.data):
@@ -256,7 +256,7 @@ def run(lr=0.001,
         dim=128,
         seqlen=50,
         batsize=64,
-        eval_batsize=16,
+        eval_batsize=1024,
         cuda=False,
         gpu=0,
         test=False,
