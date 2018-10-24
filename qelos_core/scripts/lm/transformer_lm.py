@@ -163,7 +163,7 @@ class LMLoader_Test(object):
         self.batsize = batsize
 
     def __iter__(self):
-        return _LMLoaderIter(self)
+        return _LMLoaderIter_Test(self)
 
     def __len__(self):
         return self.data.size(0) // (self.batsize)
@@ -318,7 +318,7 @@ def run(lr=0.001,
         eval_batsize=64,
         cuda=False,
         gpu=0,
-        test=False,
+        test=True,
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
