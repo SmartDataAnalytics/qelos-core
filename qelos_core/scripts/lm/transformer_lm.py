@@ -74,47 +74,42 @@ def load_data(p="../../../datasets/wikitext2/",
     return train_data, valid_data, test_data, D
 
 
-class LMLoader_Test(object):
-    """ data loader for LM data """
-    def __init__(self, data, seqlen):
-        super(LMLoader_Test, self).__init__()
-        self.data = data
-        self.seqlen = seqlen
-
-    def __iter__(self):
-        return _LMLoaderIter_Test(self)
-
-    def __len__(self):
-        return self.data.size(0)-1
-
-
-class _LMLoaderIter_Test(object):
-    def __init__(self, lmloader):
-        super(_LMLoaderIter_Test, self).__init__()
-        self.lml = lmloader
-        # self.i = 1
-        self.i = self.lml.seqlen+1
-
-    def __iter__(self):
-        return self
-
-    def __len__(self):
-        return len(self.lml)
-
-    def __next__(self):
-        # if self.i < len(self.lml.data):
-        #     batch = self.lml.data[self.i-1]
-        #     batch_g = self.lml.data[self.i]
-        #     self.i += 1
-        #     return batch, batch_g
-        if self.i < len(self.lml.data):
-            batch = self.lml.data[self.i - self.lml.seqlen - 1:self.i-1]
-            batch_g = self.lml.data[self.i]
-            self.i += 1
-            return batch.transpose(1, 0), batch_g
-        else:
-            self.i = 0
-            raise StopIteration()
+# class LMLoader_Test(object):
+#     """ data loader for LM data """
+#     def __init__(self, data, seqlen):
+#         super(LMLoader_Test, self).__init__()
+#         self.data = data
+#         self.seqlen = seqlen
+#
+#     def __iter__(self):
+#         return _LMLoaderIter_Test(self)
+#
+#     def __len__(self):
+#         return self.data.size(0)-1
+#
+#
+# class _LMLoaderIter_Test(object):
+#     def __init__(self, lmloader):
+#         super(_LMLoaderIter_Test, self).__init__()
+#         self.lml = lmloader
+#         # self.i = 1
+#         self.i = self.lml.seqlen+1
+#
+#     def __iter__(self):
+#         return self
+#
+#     def __len__(self):
+#         return len(self.lml)
+#
+#     def __next__(self):
+#         if self.i < len(self.lml.data):
+#             batch = self.lml.data[self.i-1]
+#             batch_g = self.lml.data[self.i]
+#             self.i += 1
+#             return batch, batch_g
+#         else:
+#             self.i = 0
+#             raise StopIteration()
 
 
 class LMLoader(object):
@@ -156,6 +151,48 @@ class _LMLoaderIter(object):
         gold = out[:, 1:]
         out = out[:, :-1]
         return out, gold
+
+
+class LMLoader_Test(object):
+    """ data loader for LM data """
+    def __init__(self, data, seqlen, batsize):
+        super(LMLoader_Test, self).__init__()
+        self.data = data
+        self.seqlen = seqlen
+        self.batsize = batsize
+
+    def __iter__(self):
+        return _LMLoaderIter(self)
+
+    def __len__(self):
+        return self.data.size(0) // (self.batsize)
+
+
+class _LMLoaderIter_Test(object):
+    def __init__(self, lmloader):
+        super(_LMLoaderIter_Test, self).__init__()
+        self.lml = lmloader
+        self.i = 0
+
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return len(self.lml)
+
+    def __next__(self):
+        if self.i >= len(self.lml):
+            raise StopIteration()
+        self.i += 1
+        out = []
+        for k in range(self.lml.batsize):
+            start = random.randint(0, self.lml.data.size(0) - self.lml.seqlen)
+            out.append(self.lml.data[start: start+self.lml.seqlen])
+        out = torch.stack(out, 0)
+        gold = out[:, -1].unsqueeze(1)
+        out = out[:, :-1]
+        return out, gold
+
 
 # region rnn lm model -- don't need this for transformers
 class LMModel(torch.nn.Module, q.AutoHooker):
@@ -258,7 +295,7 @@ class TransformerLMCell(torch.nn.Module):
         :return:     (batsize, vocsize)
         """
         out = self.core(x)
-        ret = out[:, -1, :]
+        ret = out[:, -1].unsqueeze(1)
         return ret
 # endregion
 
@@ -308,10 +345,10 @@ def run(lr=0.001,
         print(y.size())
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
-    # test_loss = loss
-    # ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
-    test_loss = q.KLLoss(size_average=True, mode="logits")
-    ppl_loss = q.PPLLoss(size_average=True, mode="logits")
+    test_loss = loss
+    ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
+    # test_loss = q.KLLoss(size_average=True, mode="logits")
+    # ppl_loss = q.PPLLoss(size_average=True, mode="logits")
 
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)

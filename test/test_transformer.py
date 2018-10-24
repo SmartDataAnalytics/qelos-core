@@ -248,6 +248,19 @@ class TestDecoderBlock(TestCase):
         self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
         self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
 
+    def test_deps(self):
+        x = torch.randn(3, 4, 12)
+        x.requires_grad = True
+
+        m = DecoderBlock(12, numheads=4, noctx=True)
+        y = m(x)
+
+        y[:, -2].norm(1).backward(retain_graph=True)
+
+        print(x.grad)
+
+
+
     def test_it_relpos(self):
         x = torch.randn(3, 4, 12)
         x.requires_grad = True
@@ -371,6 +384,19 @@ class TestDecoderTransformer(TestCase):
         self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
         self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
 
+    def test_deps(self):
+        x = torch.randn(3, 4, 12)
+        x.requires_grad = True
+
+        m = TransformerDecoder(12, numheads=4, numlayers=3, noctx=True)
+        y = m(x)
+
+        y[:, 1].norm(1).backward(retain_graph=True)
+
+        print(x.grad.norm(1, 2))
+
+        self.assertTrue(np.allclose(x.grad[:, 2:].detach().numpy(),
+                                    np.zeros((3, 2, 12))))
 
 class TestTS2S(TestCase):
     def test_it(self):
