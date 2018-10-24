@@ -173,6 +173,28 @@ class LMLoader_Test(object):
         return self.data.size(0) // (self.batsize)
 
 
+# class _LMLoaderIter_Test(object):
+#     def __init__(self, lmloader):
+#         super(_LMLoaderIter_Test, self).__init__()
+#         self.lml = lmloader
+#         self.i = 0
+#
+#     def __iter__(self):
+#         return self
+#
+#     def __len__(self):
+#         return len(self.lml)
+#
+#     def __next__(self):
+#         if self.i + self.lml.seqlen >= self.lml.seglen:
+#             raise StopIteration()
+#         out = self.lml._data[:, self.i:self.i + self.lml.seqlen]
+#         gold = out[:, -1].unsqueeze(1)
+#         out = out[:, :-1]
+#         self.i += 1
+#         return out, gold
+
+
 class _LMLoaderIter_Test(object):
     def __init__(self, lmloader):
         super(_LMLoaderIter_Test, self).__init__()
@@ -188,9 +210,8 @@ class _LMLoaderIter_Test(object):
     def __next__(self):
         if self.i + self.lml.seqlen >= self.lml.seglen:
             raise StopIteration()
-        out = self.lml._data[:, self.i:self.i + self.lml.seqlen]
-        gold = out[:, -1].unsqueeze(1)
-        out = out[:, :-1]
+        out = self.lml._data[:, self.i:self.i + 1]
+        gold = self.lml._data[:, self.i+1:self.i+2]
         self.i += 1
         return out, gold
 
@@ -271,33 +292,31 @@ class TransformerLM(torch.nn.Module):
         return out
 
 
-# class TransformerLMCell(torch.nn.Module):
-#     def __init__(self, core:TransformerLM, horizon:int=100):
-#         super(TransformerLMCell, self).__init__()
-#         self.core = q.deep_copy(core, share_params=True)
-#         self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
-#         self.horizon = horizon
-#
-#     def forward(self, x):   # (batsize, ) wordids
-#         x = x.unsqueeze(1)
-#         out = self.core(x)
-#         out = out.squeeze(1)
-#         return out
-
 class TransformerLMCell(torch.nn.Module):
     def __init__(self, core:TransformerLM, horizon:int=100):
         super(TransformerLMCell, self).__init__()
-        self.core = core
+        self.core = q.deep_copy(core, share_params=True)
+        self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
         self.horizon = horizon
 
-    def forward(self, x):
-        """
-        :param x:    (batsize, seqlen)
-        :return:     (batsize, vocsize)
-        """
+    def forward(self, x):   # (batsize, 1) wordids
         out = self.core(x)
-        ret = out[:, -1].unsqueeze(1)
-        return ret
+        return out
+
+# class TransformerLMCell(torch.nn.Module):
+#     def __init__(self, core:TransformerLM, horizon:int=100):
+#         super(TransformerLMCell, self).__init__()
+#         self.core = core
+#         self.horizon = horizon
+#
+#     def forward(self, x):
+#         """
+#         :param x:    (batsize, seqlen)
+#         :return:     (batsize, vocsize)
+#         """
+#         out = self.core(x)
+#         ret = out[:, -1].unsqueeze(1)
+#         return ret
 # endregion
 
 
