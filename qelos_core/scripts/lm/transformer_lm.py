@@ -66,7 +66,7 @@ def load_data(p="../../../datasets/wikitext2/",
 
     D = corpus.dictionary.word2idx
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
-    valid_data = batchify(corpus.valid, eval_batsize)
+    valid_data = batchify(corpus.train, eval_batsize)
     valid_data = LMLoader_Test(valid_data, seqlen)
     # valid_data = LMLoader(corpus.valid, seqlen, batsize=batsize)
     test_data = batchify(corpus.test, eval_batsize)
@@ -85,7 +85,7 @@ class LMLoader_Test(object):
         return _LMLoaderIter_Test(self)
 
     def __len__(self):
-        return self.data.size(1)-1
+        return self.data.size(0)-1
 
 
 class _LMLoaderIter_Test(object):
@@ -99,7 +99,7 @@ class _LMLoaderIter_Test(object):
         return self
 
     def __len__(self):
-        return self.data.size(1)-1
+        return len(self.lml)
 
     def __next__(self):
         # if self.i < len(self.lml.data):
@@ -129,7 +129,7 @@ class LMLoader(object):
         return _LMLoaderIter(self)
 
     def __len__(self):
-        return 1 + ( (len(self.data)-1) // (self.seqlen * self.batsize))
+        return self.data.size(0) // (self.seqlen * self.batsize)
 
 
 class _LMLoaderIter(object):
@@ -142,7 +142,7 @@ class _LMLoaderIter(object):
         return self
 
     def __len__(self):
-        return 1 + ((len(self.lml.data)-1) // (self.lml.seqlen + self.lml.batsize))
+        return len(self.lml)
 
     def __next__(self):
         if self.i >= len(self.lml):
@@ -277,10 +277,10 @@ def run(lr=0.001,
         dim=128,
         seqlen=50,
         batsize=64,
-        eval_batsize=1024,
+        eval_batsize=64,
         cuda=False,
         gpu=0,
-        test=False,
+        test=True,
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
@@ -301,8 +301,9 @@ def run(lr=0.001,
     valid_m = TransformerLMCell(m, seqlen)
 
     if test:
-        for i, batch in enumerate(train_batches):
-            y = m(batch[0])
+        for i, batch in enumerate(valid_batches):
+            batch.requires_grad = True
+            y = valid_m(batch[0])
             if i > 5:
                 break
         print(y.size())
