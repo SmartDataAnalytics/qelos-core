@@ -190,7 +190,7 @@ class _LMLoaderIter_Test(object):
             start = random.randint(0, self.lml.data.size(0) - self.lml.seqlen)
             out.append(self.lml.data[start: start+self.lml.seqlen])
         out = torch.stack(out, 0)
-        gold = out[:, 0].unsqueeze(1)
+        gold = out[:, 1].unsqueeze(1)
         out = out[:, :-1]
         return out, gold
 
