@@ -208,7 +208,7 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i + self.lml.seqlen >= self.lml.seglen:
+        if self.i + 2 >= self.lml.seglen:
             raise StopIteration()
         out = self.lml._data[:, self.i:self.i + 1]
         gold = self.lml._data[:, self.i+1:self.i+2]
