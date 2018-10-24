@@ -66,9 +66,9 @@ def load_data(p="../../../datasets/wikitext2/",
 
     D = corpus.dictionary.word2idx
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
-    # valid_data = batchify(corpus.valid, eval_batsize)
-    # valid_data = LMLoader_Test(valid_data, seqlen)
-    valid_data = LMLoader(corpus.valid, seqlen, batsize=batsize)
+    valid_data = batchify(corpus.valid, eval_batsize)
+    valid_data = LMLoader_Test(valid_data, seqlen)
+    # valid_data = LMLoader(corpus.valid, seqlen, batsize=batsize)
     test_data = batchify(corpus.test, eval_batsize)
     test_data = LMLoader_Test(test_data, seqlen)
     return train_data, valid_data, test_data, D
@@ -109,7 +109,7 @@ class _LMLoaderIter_Test(object):
         #     return batch, batch_g
         if self.i < len(self.lml.data):
             batch = self.lml.data[self.i - self.lml.seqlen:self.i-1]
-            batch_g = self.lml.data[self.i].unsqueeze(1)
+            batch_g = self.lml.data[self.i]
             self.i += 1
             return batch.transpose(1, 0), batch_g
         else:
@@ -233,18 +233,33 @@ class TransformerLM(torch.nn.Module):
         return out
 
 
+# class TransformerLMCell(torch.nn.Module):
+#     def __init__(self, core:TransformerLM, horizon:int=100):
+#         super(TransformerLMCell, self).__init__()
+#         self.core = q.deep_copy(core, share_params=True)
+#         self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
+#         self.horizon = horizon
+#
+#     def forward(self, x):   # (batsize, ) wordids
+#         x = x.unsqueeze(1)
+#         out = self.core(x)
+#         out = out.squeeze(1)
+#         return out
+
 class TransformerLMCell(torch.nn.Module):
     def __init__(self, core:TransformerLM, horizon:int=100):
         super(TransformerLMCell, self).__init__()
-        self.core = q.deep_copy(core, share_params=True)
-        self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
+        self.core = core
         self.horizon = horizon
 
-    def forward(self, x):   # (batsize, ) wordids
-        x = x.unsqueeze(1)
+    def forward(self, x):
+        """
+        :param x:    (batsize, seqlen)
+        :return:     (batsize, vocsize)
+        """
         out = self.core(x)
-        out = out.squeeze(1)
-        return out
+        ret = out[:, -1, :]
+        return ret
 # endregion
 
 
@@ -304,7 +319,7 @@ def run(lr=0.001,
     lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=1, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
-    tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
+    tester = q.tester(valid_m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
 
     tt.tock("created model")
     tt.tick("training")
