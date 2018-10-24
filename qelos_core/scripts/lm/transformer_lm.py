@@ -66,9 +66,9 @@ def load_data(p="../../../datasets/wikitext2/",
 
     D = corpus.dictionary.word2idx
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
-    valid_data = batchify(corpus.valid, eval_batsize)
-    valid_data = LMLoader_Test(valid_data, seqlen)
-    # valid_data = LMLoader(corpus.valid, seqlen, batsize=batsize)
+    # valid_data = batchify(corpus.valid, eval_batsize)
+    # valid_data = LMLoader_Test(valid_data, seqlen)
+    valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize)
     test_data = batchify(corpus.test, eval_batsize)
     test_data = LMLoader_Test(test_data, seqlen)
     return train_data, valid_data, test_data, D
