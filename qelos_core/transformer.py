@@ -59,7 +59,7 @@ class LayerNorm(nn.Module):
 class MultiHeadAttention(nn.Module):
     def __init__(self, indim=None, kdim=None, vdim=None, bidir=True, numheads=None,
                  attention_dropout=0., residual_dropout=0., scale=True,
-                 maxlen=500, relpos=False, **kw):
+                 maxlen=512, relpos=False, **kw):
         super(MultiHeadAttention, self).__init__(**kw)
 
         self.numheads, self.indim = numheads, indim
@@ -85,7 +85,7 @@ class MultiHeadAttention(nn.Module):
         self._cache_relpos_sizes = None
         self.relpos_k_proj = None
         if relpos is True or relpos == "full":
-            print("using simple relative position")
+            # print("using simple relative position")
             waves = get_sinusoid_encoding_table(maxlen, indim, start=-maxlen)
             self.relpos_emb = torch.nn.Embedding.from_pretrained(waves, freeze=True)
             self.maxlen = maxlen
@@ -272,7 +272,7 @@ class EncoderBlock(nn.Module):
     """ Normal self-attention block. Used in encoders. """
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
                  attention_dropout=0., residual_dropout=0., scale=True, _bidir=True,
-                 maxlen=500, relpos=False, **kw):
+                 maxlen=512, relpos=False, **kw):
         """
         :param indim:       dimension of the input vectors
         :param kdim:        total dimension for the query and key projections
@@ -311,7 +311,7 @@ class EncoderBlock(nn.Module):
 class DecoderBlock(EncoderBlock):
     def __init__(self, indim, kdim=None, vdim=None, numheads=None, activation=nn.ReLU,
                  attention_dropout=0., residual_dropout=0., scale=True, noctx=False,
-                 maxlen=500, relpos=False, **kw):
+                 maxlen=512, relpos=False, **kw):
         super(DecoderBlock, self).__init__(indim, kdim=kdim, vdim=vdim, _bidir=False, numheads=numheads,
                 activation=activation, attention_dropout=attention_dropout, residual_dropout=residual_dropout,
                 scale=scale, maxlen=maxlen, relpos=relpos, **kw)
@@ -406,7 +406,7 @@ class TransformerEncoder(nn.Module):
         return h
 
 
-class TransformerDecoder(TransformerEncoder):
+class TransformerDecoder(nn.Module):
     def __init__(self, dim=512, kdim=None, vdim=None, maxlen=512, numlayers=6, numheads=8, activation=nn.ReLU,
                  embedding_dropout=0., attention_dropout=0., residual_dropout=0., scale=True, noctx=False,
                  relpos=False, **kw):

@@ -2,6 +2,7 @@ import torch
 import qelos_core as q
 import os
 import random
+from copy import deepcopy
 
 
 def load_data(p="../../../datasets/wikitext2/",
@@ -203,20 +204,61 @@ class RNNLayer_LM(LMModel):
         return out
 # endregion
 
-def run(lr=20.,
-        dropout=0.2,
-        dropconnect=0.2,
-        gradnorm=0.25,
+
+# region transformer language model
+class TransformerLM(torch.nn.Module):
+    def __init__(self, dim=512, worddic=None, numlayers=3, numheads=8, activation=torch.nn.ReLU,
+                 embedding_dropout=0., attention_dropout=0., residual_dropout=0.,
+                 word_dropout=0., relpos=True, tie_wordvecs=True, maxlen=512):
+        super(TransformerLM, self).__init__()
+        self.wordemb = q.WordEmb(dim, worddic=worddic, word_dropout=word_dropout)
+        self.transformer = q.TransformerDecoder(dim=dim, numlayers=numlayers, numheads=numheads, activation=activation,
+                                                embedding_dropout=embedding_dropout, attention_dropout=attention_dropout,
+                                                residual_dropout=residual_dropout, relpos=relpos, noctx=True, maxlen=maxlen)
+        self.wordout = q.WordLinout(dim, worddic=worddic)
+        if tie_wordvecs:
+            self.wordout.lin.weight = self.wordemb.embedding.weight
+
+    def forward(self, x):   # (batsize, seqlen) wordids
+        xemb, _ = self.wordemb(x)
+        enc = self.transformer(xemb)
+        out = self.wordout(enc)
+        return out
+
+
+class TransformerLMCell(torch.nn.Module):
+    def __init__(self, core:TransformerLM, horizon:int=100):
+        super(TransformerLMCell, self).__init__()
+        self.core = deepcopy(core)
+        self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
+        self.horizon = horizon
+
+    def forward(self, x):   # (batsize, ) wordids
+        x = x.unsqueeze(1)
+        out = self.core(x)
+        out = out.squeeze(1)
+        return out
+# endregion
+
+
+def run(lr=0.001,
+        edropout=0.2,
+        wdropout=0.1,
+        rdropout=0.3,
+        adropout=0.05,
+        numlayers=3,
+        numheads=8,
+        relpos=True,
+        tie_wordvecs=True,
+        gradnorm=5.,
         epochs=25,
-        embdim = 200,
-        encdim = 200,
-        numlayers = 2,
-        seqlen=35,
-        batsize=20,
-        eval_batsize=10,
+        dim=128,
+        seqlen=50,
+        batsize=64,
+        eval_batsize=16,
         cuda=False,
         gpu=0,
-        test=False
+        test=True
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
@@ -229,10 +271,12 @@ def run(lr=20.,
     print("{} batches in train".format(len(train_batches)))
 
     tt.tick("creating model")
-    dims = [embdim] + ([encdim] * numlayers)
 
-    # TODO: create transformer LM model and its test version
-    m = RNNLayer_LM(*dims, worddic=D, dropout=dropout)
+    m = TransformerLM(dim=dim, worddic=D, numlayers=numlayers, numheads=numheads,
+                      activation=torch.nn.ReLU, embedding_dropout=edropout,attention_dropout=adropout,
+                      word_dropout=wdropout, residual_dropout=rdropout, relpos=relpos,
+                      tie_wordvecs=tie_wordvecs, maxlen=2*seqlen)
+    valid_m = TransformerLMCell(m, seqlen)
 
     if test:
         for i, batch in enumerate(train_batches):
@@ -244,12 +288,13 @@ def run(lr=20.,
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
     ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
 
-    optim = torch.optim.SGD(q.params_of(m), lr=lr)
+    # optim = torch.optim.SGD(q.params_of(m), lr=lr)
+    optim = torch.optim.Adam(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
-    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1 / 2, patience=1, verbose=True)
+    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=1, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
-    tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
+    tester = q.tester(valid_m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
 
     tt.tock("created model")
     tt.tick("training")
@@ -258,7 +303,7 @@ def run(lr=20.,
     tt.tock("trained")
 
     tt.tick("testing")
-    finaltester = q.tester(m).on(test_batches).loss(loss, ppl_loss).device(device).hook(m)
+    finaltester = q.tester(valid_m).on(test_batches).loss(loss, ppl_loss).device(device).hook(m)
     finaltester.run()
     tt.tock("tested")
 

@@ -231,7 +231,8 @@ class eval(object):
         with torch.no_grad():
             for i, batch in enumerate(self.dataloader):
                 batch = (batch,) if not q.issequence(batch) else batch
-                batch = [batch_e.to(self._device) for batch_e in batch]
+                batch = recmap(batch, lambda x: x.to(self._device) if isinstance(x, torch.Tensor) else x)
+                # batch = [batch_e.to(self._device) for batch_e in batch]
                 if self.transform_batch_inp is not None:
                     batch = self.transform_batch_inp(*batch)
 
@@ -493,7 +494,7 @@ class trainer(Modelholder):
         # params = q.params_of(self.model)
 
         _batch = (_batch,) if not q.issequence(_batch) else _batch
-        _batch = recmap(_batch, lambda x: x.to(self.device) if isinstance(x, torch.Tensor) else x)
+        _batch = recmap(_batch, lambda x: x.to(self._device) if isinstance(x, torch.Tensor) else x)
         # _batch = [batch_e.to(self._device) for batch_e in _batch]
         if self.transform_batch_inp is not None:
             batch = self.transform_batch_inp(*_batch)
@@ -665,7 +666,7 @@ class tester(Modelholder):
             self.do_callbacks(self.START_BATCH)
 
             _batch = (_batch,) if not q.issequence(_batch) else _batch
-            _batch = recmap(_batch, lambda x: x.to(self.device) if isinstance(x, torch.Tensor) else x)
+            _batch = recmap(_batch, lambda x: x.to(self._device) if isinstance(x, torch.Tensor) else x)
             # _batch = [batch_e.to(self._device) for batch_e in _batch]
             if self.transform_batch_inp is not None:
                 batch = self.transform_batch_inp(*_batch)
