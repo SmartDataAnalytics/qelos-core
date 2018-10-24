@@ -280,7 +280,7 @@ def run(lr=0.001,
         eval_batsize=64,
         cuda=False,
         gpu=0,
-        test=True,
+        test=False,
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
@@ -302,7 +302,6 @@ def run(lr=0.001,
 
     if test:
         for i, batch in enumerate(valid_batches):
-            batch.requires_grad = True
             y = valid_m(batch[0])
             if i > 5:
                 break
