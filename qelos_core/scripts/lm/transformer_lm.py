@@ -161,6 +161,8 @@ class LMLoader_Test(object):
         self.data = data        # (totallen,)
         self.seqlen = seqlen
         self.batsize = batsize
+        self.seglen = data.size(0) // batsize
+        self.starts = [i for i in range(batsize)]
 
     def __iter__(self):
         return _LMLoaderIter_Test(self)
@@ -182,16 +184,15 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i >= len(self.lml):
+        if self.i + self.lml.batsize + self.lml.seqlen >= self.lml.data.size(0):
             raise StopIteration()
-        self.i += 1
         out = []
-        for k in range(self.lml.batsize):
-            start = random.randint(0, self.lml.data.size(0) - self.lml.seqlen)
-            out.append(self.lml.data[start: start+self.lml.seqlen])
+        for start in self.lml.starts:
+            out.append(self.lml.data[start+self.i: start+self.i+self.lml.seqlen])
         out = torch.stack(out, 0)
         gold = out[:, -1].unsqueeze(1)
         out = out[:, :-1]
+        self.i += self.lml.batsize
         return out, gold
 
 
@@ -311,7 +312,7 @@ def run(lr=0.001,
         relpos=True,
         tie_wordvecs=True,
         gradnorm=5.,
-        epochs=25,
+        epochs=100,
         dim=128,
         seqlen=50,
         batsize=64,
@@ -343,6 +344,9 @@ def run(lr=0.001,
             y = valid_m(batch[0])
             if i > 5:
                 break
+        for i, batch in enumerate(valid_batches):
+            pass
+        print(i, batsize, seqlen, valid_batches.data.size(0))
         print(y.size())
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
@@ -354,7 +358,7 @@ def run(lr=0.001,
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
-    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=1, verbose=True)
+    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=0, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
     tester = q.tester(valid_m).on(valid_batches).loss(test_loss, ppl_loss).device(device).hook(m)
