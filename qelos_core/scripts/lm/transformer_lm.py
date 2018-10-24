@@ -69,8 +69,9 @@ def load_data(p="../../../datasets/wikitext2/",
     # valid_data = batchify(corpus.valid, eval_batsize)
     # valid_data = LMLoader_Test(valid_data, seqlen)
     valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize)
-    test_data = batchify(corpus.test, eval_batsize)
-    test_data = LMLoader_Test(test_data, seqlen)
+    # test_data = batchify(corpus.test, eval_batsize)
+    # test_data = LMLoader_Test(test_data, seqlen)
+    test_data = None
     return train_data, valid_data, test_data, D
 
 
