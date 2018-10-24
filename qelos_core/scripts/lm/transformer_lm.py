@@ -104,7 +104,8 @@ class _LMLoaderIter_Test(object):
             batch = self.lml.data[self.i-1]
             batch_g = self.lml.data[self.i]
             self.i += 1
-            return batch.transpose(1, 0), batch_g.transpose(1, 0)
+            return batch, batch_g
+            # return batch.transpose(1, 0), batch_g.transpose(1, 0)
         else:
             self.i = 0
             raise StopIteration()
