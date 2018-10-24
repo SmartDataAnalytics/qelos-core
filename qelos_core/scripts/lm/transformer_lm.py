@@ -357,6 +357,8 @@ def run(lr=0.001,
                       tie_wordvecs=tie_wordvecs, maxlen=2*seqlen)
     valid_m = q.deep_copy(m, share_params=True)
     valid_m.transformer.set_cell_mode(True, horizon=seqlen, lm_mode=True)
+    assert(m.transformer._cell_mode == False)
+    assert(valid_m.transformer._cell_mode == True)
 
     if test:
         for i, batch in enumerate(valid_batches):

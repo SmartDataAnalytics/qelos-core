@@ -358,6 +358,12 @@ def batch_reset(module):        # performs all resetting operations on module be
             modu.batch_reset()
 
 
+def epoch_reset(module):        # performs all resetting operations on module before using it in the next batch
+    for modu in module.modules():
+        if hasattr(modu, "epoch_reset"):
+            modu.epoch_reset()
+
+
 def pp_epoch_losses(*losses:LossWrapper):
     values = [loss.get_epoch_error() for loss in losses]
     ret = " :: ".join("{:.4f}".format(value) for value in values)
@@ -566,6 +572,8 @@ class trainer(Modelholder):
         self.do_callbacks(self.START_EPOCH)
         self.do_callbacks(self.START_TRAIN)
 
+        epoch_reset(self.model)
+
         for i, _batch in enumerate(self.dataloader):
             ttmsg = self.do_batch(_batch, i=i)
             tt.live(ttmsg)
@@ -658,6 +666,7 @@ class tester(Modelholder):
         tt = ticktock("-")
         self.model.eval()
         self.do_callbacks(self.START_TEST)
+        epoch_reset(self.model)
         for loss_obj in self.losses:
             loss_obj.push_epoch_to_history()
             loss_obj.reset_agg()

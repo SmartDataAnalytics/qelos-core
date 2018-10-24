@@ -119,8 +119,11 @@ class MultiHeadAttention(nn.Module):
 
     def rec_reset(self):
         if not self._lm_mode:
-            self._prev_k = None
-            self._prev_v = None
+            self.epoch_reset()
+
+    def epoch_reset(self):
+        self._prev_k = None
+        self._prev_v = None
 
     def update_prev(self, k, v):
         """     Only used in cell mode.
@@ -410,7 +413,10 @@ class TransformerDecoder(nn.Module):
 
     def rec_reset(self):
         if not self._lm_mode:
-            self._posoffset = 0
+            self.epoch_reset()
+
+    def epoch_reset(self):
+        self._posoffset = 0
 
     def set_cell_mode(self, val:bool, horizon:int=None, lm_mode:bool=False):
         self._cell_mode = val
