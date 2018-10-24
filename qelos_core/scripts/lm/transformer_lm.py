@@ -162,7 +162,9 @@ class LMLoader_Test(object):
         self.seqlen = seqlen
         self.batsize = batsize
         self.seglen = data.size(0) // batsize
-        self.starts = [i for i in range(batsize)]
+        self.starts = [i*self.seglen for i in range(batsize)]
+        d = [data[i: i+self.seglen] for i in self.starts]
+        self._data = torch.stack(d, 0)
 
     def __iter__(self):
         return _LMLoaderIter_Test(self)
@@ -184,15 +186,12 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i + self.lml.batsize + self.lml.seqlen >= self.lml.data.size(0):
+        if self.i + self.lml.seqlen >= self.lml.seglen:
             raise StopIteration()
-        out = []
-        for start in self.lml.starts:
-            out.append(self.lml.data[start+self.i: start+self.i+self.lml.seqlen])
-        out = torch.stack(out, 0)
+        out = self.lml._data[:, self.i:self.i + self.lml.seqlen]
         gold = out[:, -1].unsqueeze(1)
         out = out[:, :-1]
-        self.i += self.lml.batsize
+        self.i += 1
         return out, gold
 
 
@@ -348,6 +347,7 @@ def run(lr=0.001,
             pass
         print(i, batsize, seqlen, valid_batches.data.size(0))
         print(y.size())
+    # return
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
     test_loss = loss
