@@ -126,7 +126,8 @@ class MultiHeadAttention(nn.Module):
         relpos_vec_heads = None
         relpos_kR = None
         if self.relpos_emb is not None:
-            if self._cache_relpos_sizes != (q.size(1), k.size(1)):
+            if self._cache_relpos_sizes != (q.size(1), k.size(1)) \
+                    or self._cache_relpos_vec.device != x.device:
                 relpos_offset = k.size(1) - q.size(1)       # right-align q re. rel positions if q is shorter than k
                 assert(relpos_offset >= 0)
                 relpos_idx = torch.arange(0, 2 * k.size(1), device=x.device).unsqueeze(0)
