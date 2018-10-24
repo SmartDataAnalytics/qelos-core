@@ -356,7 +356,7 @@ def run(lr=0.001,
                       word_dropout=wdropout, residual_dropout=rdropout, relpos=relpos,
                       tie_wordvecs=tie_wordvecs, maxlen=2*seqlen)
     valid_m = TransformerLMCell(m, seqlen)
-    q.copy_params(m, valid_m)
+    q.copy_params(m, valid_m.core)
 
     if test:
         for i, batch in enumerate(valid_batches):
