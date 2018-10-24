@@ -91,7 +91,7 @@ class _LMLoaderIter_Test(object):
     def __init__(self, lmloader):
         super(_LMLoaderIter_Test, self).__init__()
         self.lml = lmloader
-        self.i = 1
+        self.i = self.lml.seqlen
 
     def __iter__(self):
         return self
@@ -100,12 +100,16 @@ class _LMLoaderIter_Test(object):
         return self.data.size(1)-1
 
     def __next__(self):
+        # if self.i < len(self.lml.data):
+        #     batch = self.lml.data[self.i-1]
+        #     batch_g = self.lml.data[self.i]
+        #     self.i += 1
+        #     return batch, batch_g
         if self.i < len(self.lml.data):
-            batch = self.lml.data[self.i-1]
-            batch_g = self.lml.data[self.i]
+            batch = self.lml.data[self.i - self.lml.seqlen:self.i-1]
+            batch_g = self.lml.data[self.i].unsqueeze(1)
             self.i += 1
-            return batch, batch_g
-            # return batch.transpose(1, 0), batch_g.transpose(1, 0)
+            return batch.transpose(1, 0), batch_g
         else:
             self.i = 0
             raise StopIteration()
@@ -287,9 +291,10 @@ def run(lr=0.001,
         print(y.size())
 
     loss = q.SeqKLLoss(time_average=True, size_average=True, mode="logits")
+    test_loss = loss
     ppl_loss = q.SeqPPLLoss(time_average=True, size_average=True, mode="logits")
-    test_loss = q.KLLoss(size_average=True, mode="logits")
-    ppl_loss = q.PPLLoss(size_average=True, mode="logits")
+    # test_loss = q.KLLoss(size_average=True, mode="logits")
+    # ppl_loss = q.PPLLoss(size_average=True, mode="logits")
 
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
@@ -297,7 +302,7 @@ def run(lr=0.001,
     lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=1, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
-    tester = q.tester(valid_m).on(valid_batches).loss(test_loss, ppl_loss).device(device).hook(m)
+    tester = q.tester(m).on(valid_batches).loss(loss, ppl_loss).device(device).hook(m)
 
     tt.tock("created model")
     tt.tick("training")
