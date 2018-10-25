@@ -302,7 +302,7 @@ def run(lr=0.001,
     # optim = torch.optim.SGD(q.params_of(m), lr=lr)
     optim = torch.optim.Adam(q.params_of(m), lr=lr)
     gradclip = q.ClipGradNorm(gradnorm)
-    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=0, verbose=True)
+    lrp = torch.optim.lr_scheduler.ReduceLROnPlateau(optim, mode="min", factor=1/2, patience=2, verbose=True)
 
     trainer = q.trainer(m).on(train_batches).loss(loss).optimizer(optim).device(device).hook(m).hook(gradclip)
     tester = q.tester(valid_m).on(valid_batches).loss(test_loss, ppl_loss).device(device).hook(m)
