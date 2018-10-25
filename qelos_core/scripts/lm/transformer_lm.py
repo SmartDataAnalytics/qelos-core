@@ -162,8 +162,8 @@ class LMLoader_Test(object):
         self.seqlen = seqlen
         self.batsize = batsize
         self.seglen = data.size(0) // batsize
-        self.starts = [i*self.seqlen for i in range(batsize)]
-        d = [data[i: i+self.seqlen] for i in self.starts]
+        self.starts = [i*self.seglen for i in range(batsize)]
+        d = [data[i: i+self.seglen] for i in self.starts]
         self._data = torch.stack(d, 0)
 
     def __iter__(self):
