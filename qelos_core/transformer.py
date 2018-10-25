@@ -79,6 +79,7 @@ class MultiHeadAttention(nn.Module):
         nn.init.zeros_(self.k_proj.bias)
         nn.init.zeros_(self.v_proj.bias)
 
+        self.relpos = relpos
         self.relpos_emb = None
         self._cache_relpos_vec = None
         self._cache_relpos_sizes = None
@@ -139,10 +140,11 @@ class MultiHeadAttention(nn.Module):
         else:
             self._prev_k = torch.cat([self._prev_k, k], 1)
             self._prev_v = torch.cat([self._prev_v, v], 1)
-        assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
         if self._prev_k.size(1) > self._horizon:
+            raise Exception("can't go beyond horizon ({}) -- history length: {}".format(self._horizon, self._prev_k.size(1)))
             self._prev_k = self._prev_k[:, -self._horizon:]
             self._prev_v = self._prev_v[:, -self._horizon:]
+        assert(self._prev_k.size()[:-1] == self._prev_v.size()[:-1])
         return self._prev_k, self._prev_v
 
     def forward(self, x, k=None, v=None, mask=None):  # (batsize, <?>-seqlen, <?>-dim), mask on keys
@@ -172,7 +174,7 @@ class MultiHeadAttention(nn.Module):
         # region relative position matrix and projection
         relpos_vec_heads = None
         relpos_kR = None
-        if self.relpos_emb is not None:
+        if self.relpos_emb is not None and self.relpos is not False:
             if self._cache_relpos_sizes != (q.size(1), k.size(1)) \
                     or self._cache_relpos_vec.device != x.device:
                 relpos_offset = k.size(1) - q.size(1)       # right-align q re. rel positions if q is shorter than k
@@ -190,6 +192,8 @@ class MultiHeadAttention(nn.Module):
             # print(relpos_vec_heads.size(), relpos_vec_heads[0, :, 0, 0])
             # (seqlen, seqlen, numheads, dim_per_head)
             if self.relpos_k_proj is not None:
+                if self._cell_mode:
+                    raise Exception("implementation wrong: _k used but in cell mode it's bad")
                 relpos_kR = self.relpos_k_proj(_k).view(batsize, _k.size(1), self.numheads, self.d_k)
                 relpos_vecR = self.relpos_k_proj(self._cache_relpos_vec)\
                     .view(q.size(1), k.size(1), self.numheads, self.d_k)
@@ -242,7 +246,7 @@ class MultiHeadAttention(nn.Module):
         vw = vw.contiguous().view(*new_shape)
         _vw = self.vw_proj(vw)
         _vw = self.resid_dropout(_vw)
-        return _vw  #q.transpose(2, 1)
+        return _vw #q.transpose(2, 1)
 
 
         # #, torch.cat([_i.view(_i.size(0), _i.size(1), _i.size(2)*_i.size(3)) for _i in [q, k, v]], 2), \

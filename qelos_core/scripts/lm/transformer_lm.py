@@ -173,33 +173,11 @@ class LMLoader_Test(object):
         return self.data.size(0) // (self.batsize)
 
 
-# class _LMLoaderIter_Test(object):
-#     def __init__(self, lmloader):
-#         super(_LMLoaderIter_Test, self).__init__()
-#         self.lml = lmloader
-#         self.i = 0
-#
-#     def __iter__(self):
-#         return self
-#
-#     def __len__(self):
-#         return len(self.lml)
-#
-#     def __next__(self):
-#         if self.i + self.lml.seqlen >= self.lml.seglen:
-#             raise StopIteration()
-#         out = self.lml._data[:, self.i:self.i + self.lml.seqlen]
-#         gold = out[:, -1].unsqueeze(1)
-#         out = out[:, :-1]
-#         self.i += 1
-#         return out, gold
-
-
 class _LMLoaderIter_Test(object):
     def __init__(self, lmloader):
         super(_LMLoaderIter_Test, self).__init__()
         self.lml = lmloader
-        self.i = 0
+        self.i = 1
 
     def __iter__(self):
         return self
@@ -208,10 +186,10 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i + 2 >= self.lml._data.size(1):
+        if self.i + 1 >= self.lml._data.size(1):
             raise StopIteration()
-        out = self.lml._data[:, self.i:self.i + 1]
-        gold = self.lml._data[:, self.i+1:self.i+2]
+        out = self.lml._data[:, min(0, self.i-self.lml.seqlen):self.i]
+        gold = self.lml._data[:, self.i:self.i+1]
         self.i += 1
         return out, gold
 
@@ -299,8 +277,9 @@ class TransformerLMCell(torch.nn.Module):
         self.core.transformer = q.TransformerDecoderCell(self.core.transformer, horizon)
         self.horizon = horizon
 
-    def forward(self, x):   # (batsize, 1) wordids
+    def forward(self, x):   # (batsize, seqlen) wordids
         out = self.core(x)
+        out = out[:, -1].unsqueeze(1)
         return out
 
 # class TransformerLMCell(torch.nn.Module):
