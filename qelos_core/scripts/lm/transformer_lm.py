@@ -68,49 +68,11 @@ def load_data(p="../../../datasets/wikitext2/",
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
     # valid_data = batchify(corpus.valid, eval_batsize)
     # valid_data = LMLoader_Test(valid_data, seqlen)
-    valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize)
+    valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize, subsample=10)
     # test_data = batchify(corpus.test, eval_batsize)
     # test_data = LMLoader_Test(test_data, seqlen)
-    test_data = None
+    test_data = LMLoader_Test(corpus.test, seqlen, batsize=eval_batsize, subsample=1)
     return train_data, valid_data, test_data, D
-
-
-# class LMLoader_Test(object):
-#     """ data loader for LM data """
-#     def __init__(self, data, seqlen):
-#         super(LMLoader_Test, self).__init__()
-#         self.data = data
-#         self.seqlen = seqlen
-#
-#     def __iter__(self):
-#         return _LMLoaderIter_Test(self)
-#
-#     def __len__(self):
-#         return self.data.size(0)-1
-#
-#
-# class _LMLoaderIter_Test(object):
-#     def __init__(self, lmloader):
-#         super(_LMLoaderIter_Test, self).__init__()
-#         self.lml = lmloader
-#         # self.i = 1
-#         self.i = self.lml.seqlen+1
-#
-#     def __iter__(self):
-#         return self
-#
-#     def __len__(self):
-#         return len(self.lml)
-#
-#     def __next__(self):
-#         if self.i < len(self.lml.data):
-#             batch = self.lml.data[self.i-1]
-#             batch_g = self.lml.data[self.i]
-#             self.i += 1
-#             return batch, batch_g
-#         else:
-#             self.i = 0
-#             raise StopIteration()
 
 
 class LMLoader(object):
@@ -156,7 +118,7 @@ class _LMLoaderIter(object):
 
 class LMLoader_Test(object):
     """ data loader for LM data """
-    def __init__(self, data, seqlen, batsize):
+    def __init__(self, data, seqlen, batsize, subsample=1):
         super(LMLoader_Test, self).__init__()
         self.data = data        # (totallen,)
         self.seqlen = seqlen
@@ -165,6 +127,7 @@ class LMLoader_Test(object):
         self.starts = [i*self.seglen for i in range(batsize)]
         d = [data[i: i+self.seglen] for i in self.starts]
         self._data = torch.stack(d, 0)
+        self.subsample = subsample
 
     def __iter__(self):
         return _LMLoaderIter_Test(self)
@@ -190,7 +153,7 @@ class _LMLoaderIter_Test(object):
             raise StopIteration()
         out = self.lml._data[:, max(0, self.i-self.lml.seqlen):self.i]
         gold = self.lml._data[:, self.i:self.i+1]
-        self.i += 1
+        self.i += self.lml.subsample
         return out, gold
 
 
