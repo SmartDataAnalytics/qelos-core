@@ -133,7 +133,7 @@ class LMLoader_Test(object):
         return _LMLoaderIter_Test(self)
 
     def __len__(self):
-        return self.data.size(0) // (self.batsize)
+        return self.data.size(0) // (self.batsize * self.subsample)
 
 
 class _LMLoaderIter_Test(object):
