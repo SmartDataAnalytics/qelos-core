@@ -328,7 +328,7 @@ class TestDecoderTransformer(TestCase):
         self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
 
     def test_it_relpos(self):
-        x = torch.randn(3, 4, 12)
+        x = torch.randn(3, 5, 12)
         x.requires_grad = True
 
         m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=True, relpos=True)
@@ -357,6 +357,56 @@ class TestDecoderTransformer(TestCase):
         print(xsgrad.norm(1, 2))
         self.assertTrue(np.allclose(y.detach().numpy(), ys.detach().numpy(), atol=1e-5))
         self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
+
+    def test_it_relpos_out_of_horizon(self):
+        seqlen = 10
+        horizon = 7
+        x = torch.randn(3, 10, 12)
+        x.requires_grad = True
+
+        m = TransformerDecoder(12, numheads=4, numlayers=2, noctx=True, relpos=True)
+        mc = q.deep_copy(m)
+        mc.set_cell_mode(True, horizon=horizon)
+
+        ys = []
+        allys = []
+        for i in range(horizon, seqlen):
+            y = m(x[:, i-horizon:i])
+            allys.append(y)
+            ys.append(y[:, -1].unsqueeze(1))
+        ys_ref = torch.cat(ys, 1)
+        print(ys_ref.size())
+        ys_ref.norm(1).backward()
+        allys = allys[0]
+
+        xgrad = x.grad
+        print(ys_ref.norm(1, 2))
+        print(xgrad.norm(1, 2))
+
+        # x = torch.randn(3, 4, 12)
+        x = torch.tensor(x.detach().numpy() + 0.)
+        x.requires_grad = True
+
+        ys = []
+        for i in range(seqlen):
+            ys.append(mc(x[:, i].unsqueeze(1)))
+        ys = torch.cat(ys, 1)
+        print(ys.size())
+        _allys = ys[:, :horizon]
+        ys = ys[:, -(seqlen-horizon):]
+        print(ys.norm(1, 2))
+        ys.norm(1).backward()
+        xsgrad = x.grad
+        print(xsgrad.norm(1, 2))
+
+        print("ALL YS")
+        print(allys.norm(1,2))
+        print( "___")
+        print(_allys.norm(1, 2))
+
+        self.assertTrue(np.allclose(ys_ref.detach().numpy(), ys.detach().numpy(), atol=1e-5))
+        self.assertTrue(np.allclose(xgrad.detach().numpy(), xsgrad.detach().numpy(), atol=1e-5))
+
 
     def test_it_with_ctx(self):
         x = torch.randn(3, 4, 12)

@@ -391,8 +391,8 @@ def run(lr=0.001,
         .run(epochs=epochs)
     tt.tock("trained")
 
-    mparams = dict(m.named_parameters())
-    mvparams = dict(valid_m.named_parameters())
+    mparams = dict(trainer.model.named_parameters())
+    mvparams = dict(tester.model.named_parameters())
 
     for k in mparams:
         print(torch.all(mparams[k] == mvparams[k]), mparams[k] is mvparams[k], k)
