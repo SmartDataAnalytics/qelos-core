@@ -177,7 +177,7 @@ class _LMLoaderIter_Test(object):
     def __init__(self, lmloader):
         super(_LMLoaderIter_Test, self).__init__()
         self.lml = lmloader
-        self.i = 2
+        self.i = 1
 
     def __iter__(self):
         return self
@@ -188,7 +188,7 @@ class _LMLoaderIter_Test(object):
     def __next__(self):
         if self.i >= self.lml._data.size(1):
             raise StopIteration()
-        out = self.lml._data[:, min(0, self.i-self.lml.seqlen):self.i]
+        out = self.lml._data[:, max(0, self.i-self.lml.seqlen):self.i]
         gold = self.lml._data[:, self.i:self.i+1]
         self.i += 1
         return out, gold
@@ -279,22 +279,6 @@ class TransformerLMCell(torch.nn.Module):
         out = self.core(x)
         out = out[:, -1].unsqueeze(1)
         return out
-
-# class TransformerLMCell(torch.nn.Module):
-#     def __init__(self, core:TransformerLM, horizon:int=100):
-#         super(TransformerLMCell, self).__init__()
-#         self.core = core
-#         self.horizon = horizon
-#
-#     def forward(self, x):
-#         """
-#         :param x:    (batsize, seqlen)
-#         :return:     (batsize, vocsize)
-#         """
-#         out = self.core(x)
-#         ret = out[:, -1].unsqueeze(1)
-#         return ret
-# endregion
 
 
 def run(lr=0.001,
