@@ -186,7 +186,7 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i + 1 >= self.lml._data.size(1):
+        if self.i >= self.lml._data.size(1):
             raise StopIteration()
         out = self.lml._data[:, min(0, self.i-self.lml.seqlen):self.i]
         gold = self.lml._data[:, self.i:self.i+1]
