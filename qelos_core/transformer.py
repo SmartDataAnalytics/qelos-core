@@ -167,7 +167,7 @@ class MultiHeadAttention(nn.Module):
 
         if self._cell_mode is True:
             k, v = self.update_prev(k, v)
-            print(k.size(1))
+            # print(k.size(1), k[0, :, 0, 0])
 
         # region relative position matrix and projection
         relpos_vec_heads = None
@@ -187,6 +187,7 @@ class MultiHeadAttention(nn.Module):
                 self._cache_relpos_sizes = (q.size(1), k.size(1))
             relpos_vec_proj = self.k_proj(self._cache_relpos_vec)
             relpos_vec_heads = relpos_vec_proj.view(q.size(1), k.size(1), self.numheads, self.d_k)
+            # print(relpos_vec_heads.size(), relpos_vec_heads[0, :, 0, 0])
             # (seqlen, seqlen, numheads, dim_per_head)
             if self.relpos_k_proj is not None:
                 relpos_kR = self.relpos_k_proj(_k).view(batsize, _k.size(1), self.numheads, self.d_k)

@@ -391,6 +391,12 @@ def run(lr=0.001,
         .run(epochs=epochs)
     tt.tock("trained")
 
+    mparams = m.named_parameters()
+    mvparams = valid_m.named_parameters()
+
+    for k in mparams:
+        print(torch.all(mparams[k] == mvparams[k]), mparams[k] is mvparams[k])
+
     tt.tick("testing")
     finaltester = q.tester(valid_m).on(test_batches).loss(test_loss, ppl_loss).device(device).hook(m)
     finaltester.run()
