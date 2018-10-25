@@ -6,7 +6,7 @@ from copy import deepcopy
 
 
 def load_data(p="../../../datasets/wikitext2/",
-              batsize=100, eval_batsize=10, seqlen=35):
+              batsize=100, eval_batsize=10, seqlen=35, subsample_eval=10):
 
     class Dictionary(object):
         def __init__(self):
@@ -68,7 +68,7 @@ def load_data(p="../../../datasets/wikitext2/",
     train_data = LMLoader(corpus.train, seqlen, batsize=batsize)
     # valid_data = batchify(corpus.valid, eval_batsize)
     # valid_data = LMLoader_Test(valid_data, seqlen)
-    valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize, subsample=10)
+    valid_data = LMLoader_Test(corpus.valid, seqlen, batsize=batsize, subsample=subsample_eval)
     # test_data = batchify(corpus.test, eval_batsize)
     # test_data = LMLoader_Test(test_data, seqlen)
     test_data = LMLoader_Test(corpus.test, seqlen, batsize=eval_batsize, subsample=1)
@@ -262,6 +262,7 @@ def run(lr=0.001,
         cuda=False,
         gpu=0,
         test=True,
+        subsampleeval=10,
         ):
     tt = q.ticktock("script")
     device = torch.device("cpu")
@@ -269,7 +270,7 @@ def run(lr=0.001,
         device = torch.device("cuda", gpu)
     tt.tick("loading data")
     train_batches, valid_batches, test_batches, D = \
-        load_data(batsize=batsize, eval_batsize=eval_batsize, seqlen=seqlen)
+        load_data(batsize=batsize, eval_batsize=eval_batsize, seqlen=seqlen, subsample_eval=subsampleeval)
     tt.tock("data loaded")
     print("{} batches in train".format(len(train_batches)))
 
