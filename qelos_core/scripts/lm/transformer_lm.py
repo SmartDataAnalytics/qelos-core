@@ -162,8 +162,8 @@ class LMLoader_Test(object):
         self.seqlen = seqlen
         self.batsize = batsize
         self.seglen = data.size(0) // batsize
-        self.starts = [i*self.seglen for i in range(batsize)]
-        d = [data[i: i+self.seglen] for i in self.starts]
+        self.starts = [i*self.seqlen for i in range(batsize)]
+        d = [data[i: i+self.seqlen] for i in self.starts]
         self._data = torch.stack(d, 0)
 
     def __iter__(self):
@@ -208,7 +208,7 @@ class _LMLoaderIter_Test(object):
         return len(self.lml)
 
     def __next__(self):
-        if self.i + 2 >= self.lml.seglen:
+        if self.i + 2 >= self.lml._data.size(1):
             raise StopIteration()
         out = self.lml._data[:, self.i:self.i + 1]
         gold = self.lml._data[:, self.i+1:self.i+2]
@@ -395,7 +395,7 @@ def run(lr=0.001,
     mvparams = dict(valid_m.named_parameters())
 
     for k in mparams:
-        print(k, torch.all(mparams[k] == mvparams[k]), mparams[k] is mvparams[k])
+        print(torch.all(mparams[k] == mvparams[k]), mparams[k] is mvparams[k], k)
 
     tt.tick("testing")
     finaltester = q.tester(valid_m).on(test_batches).loss(test_loss, ppl_loss).device(device).hook(m)
