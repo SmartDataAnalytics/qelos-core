@@ -177,7 +177,7 @@ class _LMLoaderIter_Test(object):
     def __init__(self, lmloader):
         super(_LMLoaderIter_Test, self).__init__()
         self.lml = lmloader
-        self.i = 1
+        self.i = 2
 
     def __iter__(self):
         return self
@@ -300,18 +300,18 @@ class TransformerLMCell(torch.nn.Module):
 
 
 def run(lr=0.001,
-        edropout=0.2,
+        edropout=0.3,
         wdropout=0.1,
-        rdropout=0.3,
+        rdropout=0.5,
         adropout=0.05,
-        numlayers=3,
+        numlayers=6,
         numheads=8,
         relpos=True,
         tie_wordvecs=True,
         gradnorm=5.,
-        epochs=100,
-        dim=128,
-        seqlen=50,
+        epochs=200,
+        dim=512,
+        seqlen=100,
         batsize=64,
         eval_batsize=64,
         cuda=False,
