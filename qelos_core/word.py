@@ -185,6 +185,8 @@ class WordEmb(WordEmbBase):
     def reset_parameters(self):
         initrange = 0.1
         self.embedding.weight.data.uniform_(-initrange, initrange)
+        if self.maskid is not None:
+            self.embedding.weight.data[self.maskid].fill_(0)
 
     def forward(self, x):
         weight = self.embedding.weight

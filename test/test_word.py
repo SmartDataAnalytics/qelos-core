@@ -176,6 +176,7 @@ class TestGlove(TestCase):
          1.87849998e-01,   2.78489990e-03,  -1.84110001e-01,
         -1.15139998e-01,  -7.85809994e-01])
         self.assertEqual(self.glove * "the", 2)
+        print(np.linalg.norm(thevector - truevector))
         self.assertTrue(np.allclose(thevector, truevector))
         self.assertEqual(self.glove.embedding.weight.size(), (4002, 50))
 
